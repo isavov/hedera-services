@@ -1,9 +1,11 @@
 name: Docker Image
-on: push
-
-
+on:
+  pull_request:
+    types:
+      - closed
 jobs:
   build:
+    if: ${{ github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'CI:TriggerBuild')}}
     runs-on: ubuntu-latest
 
     steps:
@@ -36,3 +38,12 @@ jobs:
           platforms: linux/amd64, linux/arm64
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }},${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+      - name: Trigger deployment
+        uses: passeidireto/trigger-external-workflow-action@main
+        env:
+          PAYLOAD_REBUILD: "false"
+          PAYLOAD_BRANCH: ${{github.ref}}
+        with:
+          repository: isavov/hedera-local-node
+          event: update
+          github_pat: ${{ secrets.my_super_pat }}
