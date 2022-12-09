@@ -15,6 +15,7 @@
  */
 package com.hedera.services.bdd.suites.crypto;
 
+import static com.hedera.node.app.service.evm.utils.EthSigsUtils.recoverAddressFromPubKey;
 import static com.hedera.services.bdd.spec.HapiApiSpec.defaultHapiSpec;
 import static com.hedera.services.bdd.spec.assertions.AccountInfoAsserts.accountWith;
 import static com.hedera.services.bdd.spec.keys.KeyShape.SIMPLE;
@@ -32,7 +33,6 @@ import static com.hedera.services.bdd.spec.utilops.UtilVerbs.overriding;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.overridingTwo;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.validateChargedUsd;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.withOpContext;
-import static com.hedera.services.ethereum.EthTxSigs.recoverAddressFromPubKey;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.AUTORENEW_DURATION_NOT_IN_RANGE;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.BAD_ENCODING;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INSUFFICIENT_TX_FEE;
@@ -69,6 +69,7 @@ public class CryptoCreateSuite extends HapiApiSuite {
     public static final String ED_25519_KEY = "ed25519Alias";
     public static final String LAZY_CREATION_ENABLED = "lazyCreation.enabled";
     public static final String TRUE = "true";
+    public static final String FALSE = "false";
 
     public static void main(String... args) {
         new CryptoCreateSuite().runSuiteSync();
@@ -526,8 +527,8 @@ public class CryptoCreateSuite extends HapiApiSuite {
     private HapiApiSpec txnsUsingHip583FunctionalitiesAreNotAcceptedWhenFlagsAreDisabled() {
         return defaultHapiSpec("txnsUsingHip583FunctionalitiesAreNotAcceptedWhenFlagsAreDisabled")
                 .given(
-                        UtilVerbs.overriding(LAZY_CREATION_ENABLED, "false"),
-                        UtilVerbs.overriding(CRYPTO_CREATE_WITH_ALIAS_ENABLED, "false"),
+                        UtilVerbs.overriding(LAZY_CREATION_ENABLED, FALSE),
+                        UtilVerbs.overriding(CRYPTO_CREATE_WITH_ALIAS_ENABLED, FALSE),
                         newKeyNamed(SECP_256K1_SOURCE_KEY).shape(SECP_256K1_SHAPE),
                         newKeyNamed(ED_25519_KEY).shape(KeyShape.ED25519))
                 .when(
@@ -611,7 +612,7 @@ public class CryptoCreateSuite extends HapiApiSuite {
                                             spec.registry().getKey(SECP_256K1_SOURCE_KEY);
                                     final var tmp = ecdsaKey.getECDSASecp256K1().toByteArray();
                                     final var addressBytes = recoverAddressFromPubKey(tmp);
-                                    assert addressBytes != null;
+                                    assert addressBytes.length > 0;
                                     final var evmAddressBytes = ByteString.copyFrom(addressBytes);
                                     final var op =
                                             cryptoCreate(ACCOUNT)
@@ -694,7 +695,7 @@ public class CryptoCreateSuite extends HapiApiSuite {
                                             spec.registry().getKey(SECP_256K1_SOURCE_KEY);
                                     final var tmp = ecdsaKey.getECDSASecp256K1().toByteArray();
                                     final var addressBytes = recoverAddressFromPubKey(tmp);
-                                    assert addressBytes != null;
+                                    assert addressBytes.length > 0;
                                     final var evmAddressBytes = ByteString.copyFrom(addressBytes);
                                     final var op = cryptoCreate(ACCOUNT).key(SECP_256K1_SOURCE_KEY);
                                     final var op2 =
@@ -744,7 +745,7 @@ public class CryptoCreateSuite extends HapiApiSuite {
     private HapiApiSpec createAnAccountWithEVMAddressAliasAndECKey() {
         return defaultHapiSpec("CreateAnAccountWithEVMAddressAliasAndECKey")
                 .given(
-                        UtilVerbs.overriding(LAZY_CREATION_ENABLED, TRUE),
+                        UtilVerbs.overriding(LAZY_CREATION_ENABLED, FALSE),
                         UtilVerbs.overriding(CRYPTO_CREATE_WITH_ALIAS_ENABLED, TRUE),
                         newKeyNamed(SECP_256K1_SOURCE_KEY).shape(SECP_256K1_SHAPE))
                 .when(
@@ -754,7 +755,7 @@ public class CryptoCreateSuite extends HapiApiSuite {
                                             spec.registry().getKey(SECP_256K1_SOURCE_KEY);
                                     final var tmp = ecdsaKey.getECDSASecp256K1().toByteArray();
                                     final var addressBytes = recoverAddressFromPubKey(tmp);
-                                    assert addressBytes != null;
+                                    assert addressBytes.length > 0;
                                     final var evmAddressBytes = ByteString.copyFrom(addressBytes);
                                     final var op =
                                             cryptoCreate(ACCOUNT)
@@ -851,7 +852,7 @@ public class CryptoCreateSuite extends HapiApiSuite {
                                             spec.registry().getKey(SECP_256K1_SOURCE_KEY);
                                     final var tmp = ecdsaKey.getECDSASecp256K1().toByteArray();
                                     final var addressBytes = recoverAddressFromPubKey(tmp);
-                                    assert addressBytes != null;
+                                    assert addressBytes.length > 0;
                                     final var evmAddressBytes = ByteString.copyFrom(addressBytes);
 
                                     final var op =

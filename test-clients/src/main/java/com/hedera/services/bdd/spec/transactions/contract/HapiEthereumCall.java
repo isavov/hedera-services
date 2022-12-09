@@ -34,13 +34,13 @@ import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.OK;
 import com.esaulpaugh.headlong.util.Integers;
 import com.google.common.base.MoreObjects;
 import com.google.protobuf.ByteString;
+import com.hedera.node.app.hapi.utils.ethereum.EthTxData;
+import com.hedera.node.app.hapi.utils.ethereum.EthTxSigs;
 import com.hedera.services.bdd.spec.HapiApiSpec;
 import com.hedera.services.bdd.spec.infrastructure.meta.ActionableContractCall;
 import com.hedera.services.bdd.spec.transactions.TxnUtils;
 import com.hedera.services.bdd.spec.transactions.file.HapiFileCreate;
 import com.hedera.services.bdd.suites.contract.Utils;
-import com.hedera.services.ethereum.EthTxData;
-import com.hedera.services.ethereum.EthTxSigs;
 import com.hederahashgraph.api.proto.java.EthereumTransactionBody;
 import com.hederahashgraph.api.proto.java.FileID;
 import com.hederahashgraph.api.proto.java.HederaFunctionality;
@@ -82,6 +82,7 @@ public class HapiEthereumCall extends HapiBaseCall<HapiEthereumCall> {
     private Optional<Long> maxGasAllowance = Optional.of(FIVE_HBARS);
     private Optional<BigInteger> valueSent = Optional.of(BigInteger.ZERO);
     private Consumer<Object[]> resultObserver = null;
+    private Consumer<ByteString> eventDataObserver = null;
     private Optional<FileID> ethFileID = Optional.empty();
     private boolean createCallDataFile;
     private boolean isTokenFlow;
@@ -174,6 +175,11 @@ public class HapiEthereumCall extends HapiBaseCall<HapiEthereumCall> {
 
     public HapiEthereumCall exposingResultTo(final Consumer<Object[]> observer) {
         resultObserver = observer;
+        return this;
+    }
+
+    public HapiEthereumCall exposingEventDataTo(final Consumer<ByteString> observer) {
+        eventDataObserver = observer;
         return this;
     }
 
@@ -369,6 +375,14 @@ public class HapiEthereumCall extends HapiBaseCall<HapiEthereumCall> {
                                                 .toByteArray());
                         resultObserver.accept(result.toList().toArray());
                     });
+        }
+        if (eventDataObserver != null) {
+            doObservedLookup(
+                    spec,
+                    txnSubmitted,
+                    rcd ->
+                            eventDataObserver.accept(
+                                    rcd.getContractCallResult().getLogInfo(0).getData()));
         }
     }
 
