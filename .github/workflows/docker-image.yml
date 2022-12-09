@@ -1,7 +1,9 @@
 name: Docker Image
 on:
   workflow_dispatch:
-
+  push:
+    branches:
+      - develop-test
   pull_request:
     types:
       - closed
