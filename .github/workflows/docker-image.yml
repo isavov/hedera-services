@@ -8,7 +8,7 @@ on:
       - closed
 jobs:
   build:
-    if: ${{ github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'CI:TriggerBuild')}}
+    if: ${{ github.event.push || (github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'CI:TriggerBuild'))}}
     runs-on: ubuntu-latest
 
     steps:
