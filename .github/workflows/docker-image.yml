@@ -1,5 +1,6 @@
 name: Docker Image
 on:
+  push:
   pull_request:
     types:
       - closed
@@ -38,12 +39,3 @@ jobs:
           platforms: linux/amd64, linux/arm64
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }},${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
-      - name: Trigger deployment
-        uses: passeidireto/trigger-external-workflow-action@main
-        env:
-          PAYLOAD_REBUILD: "false"
-          PAYLOAD_BRANCH: ${{github.ref}}
-        with:
-          repository: isavov/hedera-local-node
-          event: update
-          github_pat: ${{ secrets.my_super_pat }}
