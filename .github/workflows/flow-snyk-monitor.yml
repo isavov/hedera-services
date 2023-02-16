@@ -2,8 +2,8 @@ name: Snyk Monitor
 
 on:
   push:
-    branches: [ "develop" ]
-    
+    branches: ["develop"]
+
 permissions:
   contents: read
 
@@ -14,36 +14,38 @@ jobs:
       security-events: write
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v3
 
-    - name: Setup Java
-      uses: actions/setup-java@1df8dbefe2a8cbc99770194893dd902763bee34b # pin@v3
-      with:
+      - name: Setup Java
+        uses: actions/setup-java@1df8dbefe2a8cbc99770194893dd902763bee34b # pin@v3
+        with:
           distribution: temurin
           java-version: 17.0.3
 
-    - name: Setup Gradle
-      uses: gradle/gradle-build-action@3fbe033aaae657f011f88f29be9e65ed26bd29ef # pin@v2
-      with:
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@3fbe033aaae657f011f88f29be9e65ed26bd29ef # pin@v2
+        with:
           gradle-version: wrapper
 
+      - name: Setup Snyk
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: npm install -g snyk
 
+      - name: Run Snyk Monitor
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          snyk monitor --all-sub-projects
+          snyk test --all-sub-projects --sarif-file-output=snyk.sarif
 
-    - name: Setup Snyk
-      env:
-        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-      run: npm install -g snyk
-      
-    - name: Run Snyk Monitor
-      continue-on-error: true
-      env:
-        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-      run: |
-       snyk monitor --all-sub-projects
-       snyk test --all-sub-projects --sarif-file-output=snyk.sarif
-
-    - name: Upload result to GitHub Code Scanning
-      uses: github/codeql-action/upload-sarif@v2
-      with:
-        sarif_file: snyk.sarif
+      - name: Upload result to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: snyk.sarif
+      - uses: actions/upload-artifact@v3
+        with:
+          name: my-artifact
+          path: snyk.sarif
