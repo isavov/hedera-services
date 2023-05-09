@@ -149,3 +149,28 @@ tasks.register("showHapiVersion") {
     println(versionCatalogs.named("libs").findVersion("hapi-version").get().requiredVersion)
   }
 }
+
+tasks.register("run-localnode-debug") {
+  group = "application"
+  dependsOn(tasks.assemble)
+  runCommandAsync("./cli.js restart -d",File("$projectDir/../../../ hedera-local-node/"),
+    mapOf<String,String>("SERVICES_ROOT_PATH" to "$projectDir/../")
+  )
+
+}
+
+fun runCommandAsync(command:String, workingDir: File = file("./"), env: Map<String, String>? = null) {
+
+  val parts = command.split("\\s".toRegex())
+  val processBuilder= ProcessBuilder(*parts.toTypedArray())
+  val environment: MutableMap<String, String>? = processBuilder.environment()
+  env?.let { envMap ->
+    envMap.entries.forEach { entry ->
+      environment?.set(entry.key, entry.value)
+    }
+  }
+  processBuilder.directory(workingDir)
+    .redirectOutput(ProcessBuilder.Redirect.PIPE)
+    .redirectError(ProcessBuilder.Redirect.PIPE)
+    .start()
+}
