@@ -153,7 +153,7 @@ tasks.register("showHapiVersion") {
 tasks.register("run-localnode-debug") {
   group = "application"
   dependsOn(tasks.assemble)
-  runCommandAsync("./cli.js restart -d",File("$projectDir/../../../ hedera-local-node/"),
+  runCommandAsync("./cli.js restart -d",File("$projectDir/../../../hedera-local-node/"),
     mapOf<String,String>("SERVICES_ROOT_PATH" to "$projectDir/../")
   )
 
