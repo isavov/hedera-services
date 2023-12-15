@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.merkle;
 
 import static com.hedera.node.app.service.mono.state.merkle.MerkleAccountState.RELEASE_0230_VERSION;
@@ -21,10 +22,13 @@ import static com.hedera.node.app.service.mono.state.merkle.MerkleAccountState.R
 import static com.hedera.node.app.service.mono.state.merkle.MerkleAccountState.RELEASE_0270_VERSION;
 import static com.hedera.node.app.service.mono.state.merkle.MerkleAccountState.RELEASE_0320_VERSION;
 
+import com.hedera.node.app.service.mono.state.migration.AccountStateTranslator;
+import com.hedera.test.serde.EqualityType;
 import com.hedera.test.serde.SelfSerializableDataTest;
 import com.hedera.test.serde.SerializedForms;
 import com.hedera.test.utils.SeededPropertySource;
 import com.swirlds.common.utility.CommonUtils;
+import edu.umd.cs.findbugs.annotations.NonNull;
 
 public class MerkleAccountStateSerdeTest extends SelfSerializableDataTest<MerkleAccountState> {
     public static final int NUM_TEST_CASES = 2 * MIN_TEST_CASES_PER_VERSION;
@@ -36,9 +40,7 @@ public class MerkleAccountStateSerdeTest extends SelfSerializableDataTest<Merkle
 
     @Override
     protected int getNumTestCasesFor(final int version) {
-        return version < MerkleAccountState.RELEASE_0260_VERSION
-                ? MIN_TEST_CASES_PER_VERSION
-                : NUM_TEST_CASES;
+        return version < MerkleAccountState.RELEASE_0260_VERSION ? MIN_TEST_CASES_PER_VERSION : NUM_TEST_CASES;
     }
 
     @Override
@@ -47,7 +49,8 @@ public class MerkleAccountStateSerdeTest extends SelfSerializableDataTest<Merkle
     }
 
     @Override
-    protected MerkleAccountState getExpectedObject(final int version, final int testCaseNo) {
+    protected MerkleAccountState getExpectedObject(
+            final int version, final int testCaseNo, @NonNull final EqualityType equalityType) {
         final var propertySource = SeededPropertySource.forSerdeTest(version, testCaseNo);
         if (version == RELEASE_0230_VERSION) {
             return propertySource.next0242AccountState();
@@ -70,7 +73,11 @@ public class MerkleAccountStateSerdeTest extends SelfSerializableDataTest<Merkle
                     seededAccount.setStakeAtStartOfLastRewardedPeriod(-1);
                 }
             }
-            return seededAccount;
+            final var wrapperAccount = new MerkleAccount(java.util.List.of(seededAccount));
+            final var pbjAccount = AccountStateTranslator.accountFromMerkle(wrapperAccount);
+            final var merkleAccount = AccountStateTranslator.merkleAccountFromAccount(pbjAccount);
+
+            return merkleAccount.state();
         }
     }
 

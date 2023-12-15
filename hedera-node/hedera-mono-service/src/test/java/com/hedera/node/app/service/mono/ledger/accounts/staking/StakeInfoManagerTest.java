@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.ledger.accounts.staking;
 
 import static com.hedera.node.app.service.mono.context.properties.PropertyNames.LEDGER_TOTAL_TINY_BAR_FLOAT;
@@ -26,11 +27,12 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.BDDMockito.given;
 
 import com.hedera.node.app.service.mono.context.properties.BootstrapProperties;
+import com.hedera.node.app.service.mono.state.adapters.MerkleMapLike;
 import com.hedera.node.app.service.mono.state.merkle.MerkleStakingInfo;
 import com.hedera.node.app.service.mono.utils.EntityNum;
-import com.swirlds.common.system.address.Address;
-import com.swirlds.common.system.address.AddressBook;
+import com.swirlds.common.platform.NodeId;
 import com.swirlds.merkle.map.MerkleMap;
+import com.swirlds.platform.system.address.AddressBook;
 import java.util.List;
 import java.util.stream.LongStream;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,11 +43,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class StakeInfoManagerTest {
+
     private MerkleMap<EntityNum, MerkleStakingInfo> stakingInfo;
-    @Mock private AddressBook addressBook;
-    @Mock private Address address1;
-    @Mock private Address address2;
-    @Mock private BootstrapProperties bootstrapProperties;
+
+    @Mock
+    private AddressBook addressBook;
+
+    @Mock
+    private BootstrapProperties bootstrapProperties;
 
     private StakeInfoManager subject;
 
@@ -55,7 +60,7 @@ class StakeInfoManagerTest {
     @BeforeEach
     void setUp() {
         stakingInfo = buildsStakingInfoMap();
-        subject = new StakeInfoManager(() -> stakingInfo);
+        subject = new StakeInfoManager(() -> MerkleMapLike.from(stakingInfo));
     }
 
     @Test
@@ -117,7 +122,7 @@ class StakeInfoManagerTest {
         // old and new are same
         var oldStakingInfo = stakingInfo;
         oldStakingInfo.forEach((a, b) -> b.setStakeToReward(500L));
-        subject.setPrevStakingInfos(oldStakingInfo);
+        subject.setPrevStakingInfos(MerkleMapLike.from(oldStakingInfo));
 
         var expectedInfo = stakingInfo.get(node0Id);
         var actual = subject.mutableStakeInfoFor(0L);
@@ -126,7 +131,7 @@ class StakeInfoManagerTest {
         // old and new are not same instances, but the cached value is null
         oldStakingInfo = buildsStakingInfoMap();
         oldStakingInfo.forEach((a, b) -> b.setStakeToReward(500L));
-        subject.setPrevStakingInfos(oldStakingInfo);
+        subject.setPrevStakingInfos(MerkleMapLike.from(oldStakingInfo));
 
         expectedInfo = stakingInfo.get(node0Id);
         actual = subject.mutableStakeInfoFor(0L);
@@ -140,24 +145,20 @@ class StakeInfoManagerTest {
     }
 
     public MerkleMap<EntityNum, MerkleStakingInfo> buildsStakingInfoMap() {
-        given(bootstrapProperties.getLongProperty(LEDGER_TOTAL_TINY_BAR_FLOAT))
-                .willReturn(2_000_000_000L);
+        given(bootstrapProperties.getLongProperty(LEDGER_TOTAL_TINY_BAR_FLOAT)).willReturn(2_000_000_000L);
         given(bootstrapProperties.getIntProperty(STAKING_REWARD_HISTORY_NUM_STORED_PERIODS))
                 .willReturn(2);
         given(addressBook.getSize()).willReturn(2);
-        given(addressBook.getAddress(0)).willReturn(address1);
-        given(address1.getId()).willReturn(0L);
-        given(addressBook.getAddress(1)).willReturn(address2);
-        given(address2.getId()).willReturn(1L);
+        given(addressBook.getNodeId(0)).willReturn(new NodeId(0));
+        given(addressBook.getNodeId(1)).willReturn(new NodeId(1));
 
         final var info = buildStakingInfoMap(addressBook, bootstrapProperties);
-        info.forEach(
-                (a, b) -> {
-                    b.setStakeToReward(300L);
-                    b.setStake(1000L);
-                    b.setStakeToNotReward(400L);
-                    b.setStakeRewardStart(666L);
-                });
+        info.forEach((a, b) -> {
+            b.setStakeToReward(300L);
+            b.setStake(1000L);
+            b.setStakeToNotReward(400L);
+            b.setStakeRewardStart(666L);
+        });
         return info;
     }
 }

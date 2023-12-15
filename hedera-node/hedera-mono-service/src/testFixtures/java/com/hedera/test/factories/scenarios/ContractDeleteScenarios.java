@@ -13,49 +13,46 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.test.factories.scenarios;
 
-import static com.hedera.test.factories.txns.ContractDeleteFactory.newSignedContractDelete;
-
 import com.hedera.node.app.service.mono.utils.accessors.PlatformTxnAccessor;
+import com.hedera.test.factories.txns.ContractDeleteFactory;
 
 public enum ContractDeleteScenarios implements TxnHandlingScenario {
     CONTRACT_DELETE_XFER_ACCOUNT_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
-            return PlatformTxnAccessor.from(
-                    newSignedContractDelete(MISC_CONTRACT_ID).withBeneficiary(RECEIVER_SIG).get());
+        public PlatformTxnAccessor platformTxn() throws Exception {
+            return PlatformTxnAccessor.from(ContractDeleteFactory.newSignedContractDelete(MISC_CONTRACT_ID)
+                    .withBeneficiary(RECEIVER_SIG)
+                    .get());
         }
     },
     CONTRACT_DELETE_IMMUTABLE_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
-            return PlatformTxnAccessor.from(
-                    newSignedContractDelete(IMMUTABLE_CONTRACT_ID)
-                            .withBeneficiary(RECEIVER_SIG)
-                            .get());
+        public PlatformTxnAccessor platformTxn() throws Exception {
+            return PlatformTxnAccessor.from(ContractDeleteFactory.newSignedContractDelete(IMMUTABLE_CONTRACT_ID)
+                    .withBeneficiary(RECEIVER_SIG)
+                    .get());
         }
     },
     CONTRACT_DELETE_XFER_CONTRACT_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
-            return PlatformTxnAccessor.from(
-                    newSignedContractDelete(MISC_CONTRACT_ID)
-                            .withBeneficiary(MISC_RECIEVER_SIG_CONTRACT)
-                            .get());
+        public PlatformTxnAccessor platformTxn() throws Exception {
+            return PlatformTxnAccessor.from(ContractDeleteFactory.newSignedContractDelete(MISC_CONTRACT_ID)
+                    .withBeneficiary(MISC_RECIEVER_SIG_CONTRACT)
+                    .get());
         }
     },
     CONTRACT_DELETE_MISSING_ACCOUNT_BENEFICIARY_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
-            return PlatformTxnAccessor.from(
-                    newSignedContractDelete(MISC_CONTRACT_ID)
-                            .withBeneficiary(MISSING_ACCOUNT)
-                            .get());
+        public PlatformTxnAccessor platformTxn() throws Exception {
+            return PlatformTxnAccessor.from(ContractDeleteFactory.newSignedContractDelete(MISC_CONTRACT_ID)
+                    .withBeneficiary(MISSING_ACCOUNT)
+                    .get());
         }
     },
     CONTRACT_DELETE_MISSING_CONTRACT_BENEFICIARY_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
-            return PlatformTxnAccessor.from(
-                    newSignedContractDelete(MISC_CONTRACT_ID)
-                            .withBeneficiary(MISSING_CONTRACT)
-                            .get());
+        public PlatformTxnAccessor platformTxn() throws Exception {
+            return PlatformTxnAccessor.from(ContractDeleteFactory.newSignedContractDelete(MISC_CONTRACT_ID)
+                    .withBeneficiary(MISSING_CONTRACT)
+                    .get());
         }
     }
 }

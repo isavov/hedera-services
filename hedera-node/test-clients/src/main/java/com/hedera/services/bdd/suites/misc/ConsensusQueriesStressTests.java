@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.misc;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -22,6 +23,8 @@ import static com.hedera.services.bdd.spec.utilops.UtilVerbs.runWithProvider;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.withOpContext;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiPropertySource;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.HapiSpecOperation;
@@ -38,6 +41,7 @@ import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+@HapiTestSuite
 public class ConsensusQueriesStressTests extends HapiSuite {
     private static final Logger log = LogManager.getLogger(ConsensusQueriesStressTests.class);
 
@@ -51,13 +55,13 @@ public class ConsensusQueriesStressTests extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return List.of(
-                new HapiSpec[] {
-                    getTopicInfoStress(),
-                });
+        return List.of(new HapiSpec[] {
+            getTopicInfoStress(),
+        });
     }
 
-    private HapiSpec getTopicInfoStress() {
+    @HapiTest
+    final HapiSpec getTopicInfoStress() {
         return defaultHapiSpec("GetTopicInfoStress")
                 .given()
                 .when()
@@ -71,18 +75,17 @@ public class ConsensusQueriesStressTests extends HapiSuite {
     private Function<HapiSpec, OpProvider> getTopicInfoFactory() {
         var memo = "General interest only.";
 
-        return spec ->
-                new OpProvider() {
-                    @Override
-                    public List<HapiSpecOperation> suggestedInitializers() {
-                        return List.of(createTopic("about").topicMemo(memo));
-                    }
+        return spec -> new OpProvider() {
+            @Override
+            public List<HapiSpecOperation> suggestedInitializers() {
+                return List.of(createTopic("about").topicMemo(memo));
+            }
 
-                    @Override
-                    public Optional<HapiSpecOperation> get() {
-                        return Optional.of(getTopicInfo("about").noLogging().hasMemo(memo));
-                    }
-                };
+            @Override
+            public Optional<HapiSpecOperation> get() {
+                return Optional.of(getTopicInfo("about").noLogging().hasMemo(memo));
+            }
+        };
     }
 
     private void configureFromCi(HapiSpec spec) {
@@ -93,10 +96,7 @@ public class ConsensusQueriesStressTests extends HapiSuite {
     }
 
     private <T> void configure(
-            String name,
-            Consumer<T> configurer,
-            HapiPropertySource ciProps,
-            Function<String, T> getter) {
+            String name, Consumer<T> configurer, HapiPropertySource ciProps, Function<String, T> getter) {
         if (ciProps.has(name)) {
             configurer.accept(getter.apply(name));
         }

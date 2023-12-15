@@ -13,11 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites;
 
 import static com.hedera.services.bdd.suites.HapiSuite.FinalOutcome.SUITE_FAILED;
 import static com.hedera.services.bdd.suites.HapiSuite.FinalOutcome.SUITE_PASSED;
 
+import com.hedera.services.bdd.junit.HapiTestNode;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.HapiSpecOperation;
 import com.hedera.services.bdd.spec.HapiSpecSetup;
@@ -30,6 +32,7 @@ import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
@@ -44,6 +47,17 @@ public abstract class HapiSuite {
     public static final String DEFAULT_SHARD_REALM = "0.0.";
     public static final String TRUE_VALUE = "true";
     public static final String FALSE_VALUE = "false";
+    public static final String TOKEN_UNDER_TEST = "TokenUnderTest";
+    protected static String ALICE = "ALICE";
+    protected static String BOB = "BOB";
+    protected static String CAROL = "CAROL";
+    protected static String RED_PARTITION = "RED_PARTITION";
+    protected static String BLUE_PARTITION = "BLUE_PARTITION";
+    protected static String GREEN_PARTITION = "GREEN_PARTITION";
+    protected static String CIVILIAN_PAYER = "CIVILIAN_PAYER";
+    public static long FUNGIBLE_INITIAL_SUPPLY = 1_000_000_000L;
+    public static long NON_FUNGIBLE_INITIAL_SUPPLY = 10L;
+    public static long FUNGIBLE_INITIAL_BALANCE = FUNGIBLE_INITIAL_SUPPLY / 100;
     private static final String STARTING_SUITE = "-------------- STARTING {} SUITE --------------";
 
     public enum FinalOutcome {
@@ -51,20 +65,27 @@ public abstract class HapiSuite {
         SUITE_FAILED
     }
 
-    @SuppressWarnings("java:S2245")
-    private static final Random RANDOM = new Random();
+    @SuppressWarnings("java:S2245") // using java.util.Random in tests is fine
+    private static final Random RANDOM = new Random(16851L);
 
     protected abstract Logger getResultsLogger();
 
     public abstract List<HapiSpec> getSpecsInSuite();
 
+    public List<HapiSpec> getSpecsInSuiteWithOverrides() {
+        final var specs = getSpecsInSuite();
+        if (!overrides.isEmpty()) {
+            specs.forEach(spec -> spec.addOverrideProperties(overrides));
+        }
+        return specs;
+    }
+
     public static final Key EMPTY_KEY =
             Key.newBuilder().setKeyList(KeyList.newBuilder().build()).build();
 
-    public static final Key STANDIN_CONTRACT_ID_KEY =
-            Key.newBuilder()
-                    .setContractID(ContractID.newBuilder().setContractNum(0).build())
-                    .build();
+    public static final Key STANDIN_CONTRACT_ID_KEY = Key.newBuilder()
+            .setContractID(ContractID.newBuilder().setContractNum(0).build())
+            .build();
     private static final int BYTES_PER_KB = 1024;
     public static final int MAX_CALL_DATA_SIZE = 6 * BYTES_PER_KB;
     public static final BigInteger WEIBARS_TO_TINYBARS = BigInteger.valueOf(10_000_000_000L);
@@ -82,8 +103,7 @@ public abstract class HapiSuite {
     public static final long THREE_MONTHS_IN_SECONDS = 7776000L;
 
     public static final String CHAIN_ID_PROP = "contracts.chainId";
-    public static final String CRYPTO_CREATE_WITH_ALIAS_AND_EVM_ADDRESS_ENABLED =
-            "cryptoCreateWithAliasAndEvmAddress.enabled";
+    public static final String CRYPTO_CREATE_WITH_ALIAS_ENABLED = "cryptoCreateWithAlias.enabled";
     public static final Integer CHAIN_ID = 298;
     public static final String ETH_HASH_KEY = "EthHash";
     public static final String ETH_SENDER_ADDRESS = "EthSenderAddress";
@@ -98,14 +118,15 @@ public abstract class HapiSuite {
     public static final String ZERO_BYTE_MEMO = "\u0000kkkk";
     public static final String NODE = HapiSpecSetup.getDefaultInstance().defaultNodeName();
     public static final String HBAR_TOKEN_SENTINEL = "HBAR";
-    public static final String SYSTEM_ADMIN =
-            HapiSpecSetup.getDefaultInstance().strongControlName();
+    public static final String SYSTEM_ADMIN = HapiSpecSetup.getDefaultInstance().strongControlName();
     public static final String FREEZE_ADMIN = HapiSpecSetup.getDefaultInstance().freezeAdminName();
     public static final String FUNDING = HapiSpecSetup.getDefaultInstance().fundingAccountName();
     public static final String STAKING_REWARD =
             HapiSpecSetup.getDefaultInstance().stakingRewardAccountName();
-    public static final String NODE_REWARD =
-            HapiSpecSetup.getDefaultInstance().nodeRewardAccountName();
+    public static final String NODE_REWARD = HapiSpecSetup.getDefaultInstance().nodeRewardAccountName();
+    public static final String FEE_COLLECTOR =
+            HapiSpecSetup.getDefaultInstance().feeCollectorAccountName();
+
     public static final String GENESIS = HapiSpecSetup.getDefaultInstance().genesisAccountName();
     public static final String DEFAULT_PAYER =
             HapiSpecSetup.getDefaultInstance().defaultPayerName();
@@ -143,13 +164,14 @@ public abstract class HapiSuite {
     private boolean tearDownClientsAfter = true;
     private List<HapiSpec> finalSpecs = Collections.emptyList();
 
+    private Map<String, Object> overrides = Collections.emptyMap();
+
     public String name() {
         String simpleName = this.getClass().getSimpleName();
 
-        simpleName =
-                !simpleName.endsWith("Suite")
-                        ? simpleName
-                        : simpleName.substring(0, simpleName.length() - "Suite".length());
+        simpleName = !simpleName.endsWith("Suite")
+                ? simpleName
+                : simpleName.substring(0, simpleName.length() - "Suite".length());
         return simpleName;
     }
 
@@ -184,6 +206,20 @@ public abstract class HapiSuite {
         }
     }
 
+    public void runSuiteConcurrentWithOverrides(final Map<String, Object> overrides) {
+        this.overrides = overrides;
+        runSuiteAsync();
+    }
+
+    public void runSuiteSequentialWithOverrides(final Map<String, Object> overrides) {
+        this.overrides = overrides;
+        runSuiteSync();
+    }
+
+    public void setOverrides(final Map<String, Object> overrides) {
+        this.overrides = overrides;
+    }
+
     public FinalOutcome runSuiteAsync() {
         return runSuite(HapiSuite::runConcurrentSpecs);
     }
@@ -192,22 +228,50 @@ public abstract class HapiSuite {
         return runSuite(HapiSuite::runSequentialSpecs);
     }
 
+    public FinalOutcome runSpecSync(HapiSpec spec, List<HapiTestNode> nodes) {
+        if (!overrides.isEmpty()) {
+            spec.addOverrideProperties(overrides);
+        }
+
+        final var name = name();
+        spec.setSuitePrefix(name);
+        spec.setNodes(nodes);
+        spec.run();
+        finalSpecs = List.of(spec);
+        //        summarizeResults(getResultsLogger());
+        if (tearDownClientsAfter) {
+            HapiApiClients.tearDown();
+        }
+
+        return finalOutcomeFor(finalSpecs);
+    }
+
     protected FinalOutcome finalOutcomeFor(final List<HapiSpec> completedSpecs) {
         return completedSpecs.stream().allMatch(HapiSpec::ok) ? SUITE_PASSED : SUITE_FAILED;
     }
 
     @SuppressWarnings("java:S2629")
-    private FinalOutcome runSuite(final Consumer<List<HapiSpec>> runner) {
+    private FinalOutcome runSuite(Consumer<List<HapiSpec>> runner) {
         if (!getDeferResultsSummary() || onlyLogHeader) {
             getResultsLogger().info(STARTING_SUITE, name());
         }
 
         List<HapiSpec> specs = getSpecsInSuite();
+        boolean autoSnapshotManagementOn = false;
         for (final var spec : specs) {
+            autoSnapshotManagementOn |= spec.setup().autoSnapshotManagement();
+            if (!overrides.isEmpty()) {
+                spec.addOverrideProperties(overrides);
+            }
             if (spec.isOnlySpecToRunInSuite()) {
                 specs = List.of(spec);
                 break;
             }
+        }
+        if (autoSnapshotManagementOn) {
+            // Coerce to sequential spec runner if auto-snapshot management is on for any spec
+            // (concurrent spec execution makes it impossible to match record stream snapshots)
+            runner = HapiSuite::runSequentialSpecs;
         }
         final var name = name();
         specs.forEach(spec -> spec.setSuitePrefix(name));
@@ -223,13 +287,11 @@ public abstract class HapiSuite {
     @SuppressWarnings({"java:S3358", "java:S3740"})
     public static HapiSpecOperation[] flattened(Object... ops) {
         return Stream.of(ops)
-                .map(
-                        op ->
-                                (op instanceof HapiSpecOperation hapiOp)
-                                        ? new HapiSpecOperation[] {hapiOp}
-                                        : ((op instanceof List list)
-                                                ? list.toArray(new HapiSpecOperation[0])
-                                                : (HapiSpecOperation[]) op))
+                .map(op -> (op instanceof HapiSpecOperation hapiOp)
+                        ? new HapiSpecOperation[] {hapiOp}
+                        : ((op instanceof List list)
+                                ? list.toArray(new HapiSpecOperation[0])
+                                : (HapiSpecOperation[]) op))
                 .flatMap(Stream::of)
                 .toArray(HapiSpecOperation[]::new);
     }
@@ -260,10 +322,9 @@ public abstract class HapiSuite {
     }
 
     public static void runConcurrentSpecs(final List<HapiSpec> specs) {
-        final var futures =
-                specs.stream()
-                        .map(r -> CompletableFuture.runAsync(r, HapiSpec.getCommonThreadPool()))
-                        .<CompletableFuture<Void>>toArray(CompletableFuture[]::new);
+        final var futures = specs.stream()
+                .map(r -> CompletableFuture.runAsync(r, HapiSpec.getCommonThreadPool()))
+                .<CompletableFuture<Void>>toArray(CompletableFuture[]::new);
         CompletableFuture.allOf(futures).join();
     }
 

@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.mocks;
 
 import com.hedera.node.app.service.mono.context.properties.GlobalDynamicProperties;
@@ -35,11 +36,6 @@ public class MockDynamicProperties extends GlobalDynamicProperties {
     @Override
     public void reload() {
         /* No-op */
-    }
-
-    @Override
-    public long maxDailyStakeRewardThPerH() {
-        return 17_808L;
     }
 
     @Override

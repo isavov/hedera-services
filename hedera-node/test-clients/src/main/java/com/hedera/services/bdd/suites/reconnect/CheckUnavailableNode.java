@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.reconnect;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -36,7 +37,7 @@ public class CheckUnavailableNode extends HapiSuite {
         return List.of(checkUnavailableNode());
     }
 
-    private HapiSpec checkUnavailableNode() {
+    final HapiSpec checkUnavailableNode() {
         return defaultHapiSpec("CheckUnavailableNode")
                 .given()
                 .when()

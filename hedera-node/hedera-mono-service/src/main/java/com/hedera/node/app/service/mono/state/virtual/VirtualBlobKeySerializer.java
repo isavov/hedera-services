@@ -13,11 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.virtual;
 
-import com.swirlds.common.io.streams.SerializableDataInputStream;
-import com.swirlds.common.io.streams.SerializableDataOutputStream;
-import com.swirlds.jasperdb.files.hashmap.KeySerializer;
+import com.swirlds.merkledb.serialize.KeySerializer;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
@@ -51,24 +50,13 @@ public class VirtualBlobKeySerializer implements KeySerializer<VirtualBlobKey> {
 
     @Override
     public boolean equals(ByteBuffer buffer, int version, VirtualBlobKey key) throws IOException {
-        return key.getType().ordinal() == (0xff & buffer.get())
-                && key.getEntityNumCode() == buffer.getInt();
+        return key.getType().ordinal() == (0xff & buffer.get()) && key.getEntityNumCode() == buffer.getInt();
     }
 
     @Override
-    public int serialize(VirtualBlobKey key, SerializableDataOutputStream out) throws IOException {
+    public int serialize(VirtualBlobKey key, ByteBuffer out) throws IOException {
         key.serialize(out);
         return VirtualBlobKey.sizeInBytes();
-    }
-
-    @Override
-    public void deserialize(SerializableDataInputStream in, int version) throws IOException {
-        /* No-op */
-    }
-
-    @Override
-    public void serialize(SerializableDataOutputStream out) throws IOException {
-        /* No-op */
     }
 
     @Override

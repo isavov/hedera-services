@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.fees;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -27,6 +28,8 @@ import static com.hedera.services.bdd.spec.utilops.UtilVerbs.balanceSnapshot;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.FEE_SCHEDULE_FILE_PART_UPLOADED;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.SUCCESS;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.annotations.LeakyFeeSchedule;
 import com.hedera.services.bdd.suites.HapiSuite;
@@ -36,6 +39,7 @@ import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+@HapiTestSuite
 public class SpecialAccountsAreExempted extends HapiSuite {
     private static final Logger log = LogManager.getLogger(SpecialAccountsAreExempted.class);
 
@@ -54,13 +58,13 @@ public class SpecialAccountsAreExempted extends HapiSuite {
     }
 
     @LeakyFeeSchedule
-    private HapiSpec feeScheduleControlAccountIsntCharged() {
+    @HapiTest
+    final HapiSpec feeScheduleControlAccountIsntCharged() {
         ResponseCodeEnum[] acceptable = {SUCCESS, FEE_SCHEDULE_FILE_PART_UPLOADED};
 
         return defaultHapiSpec("FeeScheduleControlAccountIsntCharged")
                 .given(
-                        cryptoTransfer(
-                                tinyBarsFromTo(GENESIS, FEE_SCHEDULE_CONTROL, 1_000_000_000_000L)),
+                        cryptoTransfer(tinyBarsFromTo(GENESIS, FEE_SCHEDULE_CONTROL, 1_000_000_000_000L)),
                         balanceSnapshot("pre", FEE_SCHEDULE_CONTROL),
                         getFileContents(FEE_SCHEDULE).in4kChunks(true).saveTo("feeSchedule.bin"))
                 .when(
@@ -84,9 +88,7 @@ public class SpecialAccountsAreExempted extends HapiSuite {
                                 .hasKnownStatusFrom(acceptable)
                                 .payingWith(FEE_SCHEDULE_CONTROL)
                                 .path(Path.of("./", "part4-feeSchedule.bin").toString()))
-                .then(
-                        getAccountBalance(FEE_SCHEDULE_CONTROL)
-                                .hasTinyBars(changeFromSnapshot("pre", 0)));
+                .then(getAccountBalance(FEE_SCHEDULE_CONTROL).hasTinyBars(changeFromSnapshot("pre", 0)));
     }
 
     @Override

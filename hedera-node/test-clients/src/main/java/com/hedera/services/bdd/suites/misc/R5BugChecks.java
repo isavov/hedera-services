@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.misc;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -73,6 +74,10 @@ import org.apache.logging.log4j.Logger;
 
 public class R5BugChecks extends HapiSuite {
     private static final Logger log = LogManager.getLogger(R5BugChecks.class);
+    private static final String UNCHECKED_TRANSFER = "uncheckedTransfer";
+    private static final String SKETCHY = "sketchy";
+    private static final String MULTIPURPOSE = "Multipurpose";
+    private static final String HOW_MUCH = "howMuch";
 
     public static void main(String... args) {
         new R5BugChecks().runSuiteSync();
@@ -80,75 +85,66 @@ public class R5BugChecks extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return List.of(
-                new HapiSpec[] {
-                    //						genesisUpdatesFeesForFree(),
-                    //						canGetDeletedFileInfo(),
-                    enforcesSigRequirements(),
-                    //						contractCannotTransferToReceiverSigRequired(),
-                    //						cannotTransferEntirePayerBalance(),
-                    //						costAnswerGetAccountInfoRejectsInvalidId(),
-                    //						cannotUseThresholdWithM0(),
+        return List.of(new HapiSpec[] {
+            //						genesisUpdatesFeesForFree(),
+            //						canGetDeletedFileInfo(),
+            enforcesSigRequirements(),
+            //						contractCannotTransferToReceiverSigRequired(),
+            //						cannotTransferEntirePayerBalance(),
+            //						costAnswerGetAccountInfoRejectsInvalidId(),
+            //						cannotUseThresholdWithM0(),
 
-                    /* --- MISC --- */
-                    //						cannotTransferToDeleted(),
-                });
+            /* --- MISC --- */
+            //						cannotTransferToDeleted(),
+        });
     }
 
-    private HapiSpec cannotUseThresholdWithM0() {
+    final HapiSpec cannotUseThresholdWithM0() {
         KeyShape invalid = listOf(SIMPLE, SIMPLE, threshOf(0, 3));
 
         return defaultHapiSpec("CannotUseThresholdWithM0")
                 .given()
                 .when()
-                .then(cryptoCreate("sketchy").keyShape(invalid).hasPrecheck(BAD_ENCODING));
+                .then(cryptoCreate(SKETCHY).keyShape(invalid).hasPrecheck(BAD_ENCODING));
     }
 
-    private HapiSpec cannotTransferEntirePayerBalance() {
+    final HapiSpec cannotTransferEntirePayerBalance() {
         var balance = 1_234_567L;
         return defaultHapiSpec("CannotTransferEntirePayerBalance")
-                .given(cryptoCreate("sketchy").balance(balance))
+                .given(cryptoCreate(SKETCHY).balance(balance))
                 .when()
-                .then(
-                        cryptoTransfer(tinyBarsFromTo("sketchy", FUNDING, balance))
-                                .payingWith("sketchy")
-                                .hasPrecheck(INSUFFICIENT_PAYER_BALANCE));
+                .then(cryptoTransfer(tinyBarsFromTo(SKETCHY, FUNDING, balance))
+                        .payingWith(SKETCHY)
+                        .hasPrecheck(INSUFFICIENT_PAYER_BALANCE));
     }
 
-    private HapiSpec canGetDeletedFileInfo() {
+    final HapiSpec canGetDeletedFileInfo() {
         return defaultHapiSpec("CanGetDeletedFileInfo")
                 .given(fileCreate("tbd"))
                 .when(fileDelete("tbd"))
                 .then(getFileInfo("tbd").hasCostAnswerPrecheck(OK).hasAnswerOnlyPrecheck(OK));
     }
 
-    private HapiSpec costAnswerGetAccountInfoRejectsInvalidId() {
+    final HapiSpec costAnswerGetAccountInfoRejectsInvalidId() {
         return defaultHapiSpec("CostAnswerGetAccountInfoRejectsInvalidId")
                 .given()
                 .when()
                 .then(getAccountInfo("1.2.3").hasCostAnswerPrecheck(INVALID_ACCOUNT_ID));
     }
 
-    private HapiSpec contractCannotTransferToReceiverSigRequired() {
+    final HapiSpec contractCannotTransferToReceiverSigRequired() {
         return defaultHapiSpec("ContractCannotTransferToReceiverSigRequired")
-                .given(uploadInitCode("Multipurpose"), contractCreate("Multipurpose").balance(1))
+                .given(
+                        uploadInitCode(MULTIPURPOSE),
+                        contractCreate(MULTIPURPOSE).balance(1))
                 .when(cryptoCreate("sr").receiverSigRequired(true))
-                .then(
-                        contractCall(
-                                        "Multipurpose",
-                                        "donate",
-                                        spec ->
-                                                new Object[] {
-                                                    (int)
-                                                            spec.registry()
-                                                                    .getAccountID("sr")
-                                                                    .getAccountNum(),
-                                                    "Hey, Ma!"
-                                                })
-                                .hasKnownStatus(INVALID_SIGNATURE));
+                .then(contractCall(MULTIPURPOSE, "donate", spec -> new Object[] {
+                            (int) spec.registry().getAccountID("sr").getAccountNum(), "Hey, Ma!"
+                        })
+                        .hasKnownStatus(INVALID_SIGNATURE));
     }
 
-    private HapiSpec enforcesSigRequirements() {
+    final HapiSpec enforcesSigRequirements() {
         final var contract = "LastTrackingSender";
         KeyShape complexSrShape = listOf(SIMPLE, threshOf(1, 3));
         SigControl activeSig = complexSrShape.signedWith(sigs(ON, sigs(OFF, OFF, ON)));
@@ -162,81 +158,41 @@ public class R5BugChecks extends HapiSuite {
                         cryptoCreate("noSr").balance(0L),
                         cryptoCreate("sr").key("srKey").balance(0L).receiverSigRequired(true))
                 .when(
-                        contractCall(
-                                        contract,
-                                        "uncheckedTransfer",
-                                        spec ->
-                                                new Object[] {
-                                                    (int)
-                                                            spec.registry()
-                                                                    .getAccountID("sr")
-                                                                    .getAccountNum(),
-                                                    5
-                                                })
+                        contractCall(contract, UNCHECKED_TRANSFER, spec -> new Object[] {
+                                    (int) spec.registry().getAccountID("sr").getAccountNum(), 5
+                                })
                                 .hasKnownStatus(INVALID_SIGNATURE),
-                        contractCall(
-                                        contract,
-                                        "uncheckedTransfer",
-                                        spec ->
-                                                new Object[] {
-                                                    (int)
-                                                            spec.registry()
-                                                                    .getAccountID("sr")
-                                                                    .getAccountNum(),
-                                                    5
-                                                })
+                        contractCall(contract, UNCHECKED_TRANSFER, spec -> new Object[] {
+                                    (int) spec.registry().getAccountID("sr").getAccountNum(), 5
+                                })
                                 .signedBy(GENESIS, "sr")
                                 .sigControl(ControlForKey.forKey("sr", inactiveSig))
                                 .hasKnownStatus(INVALID_SIGNATURE),
-                        contractCallLocal(contract, "howMuch")
-                                .has(
-                                        resultWith()
-                                                .resultThruAbi(
-                                                        getABIFor(FUNCTION, "howMuch", contract),
-                                                        isLiteralResult(
-                                                                new Object[] {
-                                                                    BigInteger.valueOf(0)
-                                                                }))),
+                        contractCallLocal(contract, HOW_MUCH)
+                                .has(resultWith()
+                                        .resultThruAbi(
+                                                getABIFor(FUNCTION, HOW_MUCH, contract),
+                                                isLiteralResult(new Object[] {BigInteger.valueOf(0)}))),
                         getAccountBalance("sr").hasTinyBars(0L))
                 .then(
-                        contractCall(
-                                contract,
-                                "uncheckedTransfer",
-                                spec ->
-                                        new Object[] {
-                                            (int)
-                                                    spec.registry()
-                                                            .getAccountID("noSr")
-                                                            .getAccountNum(),
-                                            1
-                                        }),
-                        contractCall(
-                                        contract,
-                                        "uncheckedTransfer",
-                                        spec ->
-                                                new Object[] {
-                                                    (int)
-                                                            spec.registry()
-                                                                    .getAccountID("sr")
-                                                                    .getAccountNum(),
-                                                    5
-                                                })
+                        contractCall(contract, UNCHECKED_TRANSFER, spec -> new Object[] {
+                            (int) spec.registry().getAccountID("noSr").getAccountNum(), 1
+                        }),
+                        contractCall(contract, UNCHECKED_TRANSFER, spec -> new Object[] {
+                                    (int) spec.registry().getAccountID("sr").getAccountNum(), 5
+                                })
                                 .signedBy(GENESIS, "sr")
                                 .sigControl(ControlForKey.forKey("sr", activeSig)),
-                        contractCallLocal(contract, "howMuch")
-                                .has(
-                                        resultWith()
-                                                .resultThruAbi(
-                                                        getABIFor(FUNCTION, "howMuch", contract),
-                                                        isLiteralResult(
-                                                                new Object[] {
-                                                                    BigInteger.valueOf(5)
-                                                                }))),
+                        contractCallLocal(contract, HOW_MUCH)
+                                .has(resultWith()
+                                        .resultThruAbi(
+                                                getABIFor(FUNCTION, HOW_MUCH, contract),
+                                                isLiteralResult(new Object[] {BigInteger.valueOf(5)}))),
                         getAccountBalance("sr").hasTinyBars(5L),
                         getAccountBalance("noSr").hasTinyBars(1L));
     }
 
-    private HapiSpec cannotTransferToDeleted() {
+    final HapiSpec cannotTransferToDeleted() {
         final var contract = "LastTrackingSender";
         return defaultHapiSpec("CannotTransferToDeleted")
                 .given(
@@ -244,53 +200,34 @@ public class R5BugChecks extends HapiSuite {
                         uploadInitCode(contract),
                         contractCreate(contract).balance(10))
                 .when(
-                        contractCall(
-                                contract,
-                                "uncheckedTransfer",
-                                spec ->
-                                        new Object[] {
-                                            (int)
-                                                    spec.registry()
-                                                            .getAccountID("tbd")
-                                                            .getAccountNum(),
-                                            1
-                                        }),
+                        contractCall(contract, UNCHECKED_TRANSFER, spec -> new Object[] {
+                            (int) spec.registry().getAccountID("tbd").getAccountNum(), 1
+                        }),
                         cryptoDelete("tbd"))
-                .then(
-                        contractCall(
-                                        contract,
-                                        "uncheckedTransfer",
-                                        spec ->
-                                                new Object[] {
-                                                    (int)
-                                                            spec.registry()
-                                                                    .getAccountID("tbd")
-                                                                    .getAccountNum(),
-                                                    2
-                                                })
-                                .hasKnownStatus(INVALID_SOLIDITY_ADDRESS));
+                .then(contractCall(contract, UNCHECKED_TRANSFER, spec -> new Object[] {
+                            (int) spec.registry().getAccountID("tbd").getAccountNum(), 2
+                        })
+                        .hasKnownStatus(INVALID_SOLIDITY_ADDRESS));
     }
 
-    private HapiSpec genesisUpdatesFeesForFree() {
+    final HapiSpec genesisUpdatesFeesForFree() {
         AtomicReference<ByteString> schedulePart1 = new AtomicReference<>();
         AtomicReference<ByteString> schedulePart2 = new AtomicReference<>();
 
         return defaultHapiSpec("GenesisUpdatesFeesForFree")
                 .given(
-                        withOpContext(
-                                (spec, opLog) -> {
-                                    var lookup = getFileContents(FEE_SCHEDULE);
-                                    allRunFor(spec, lookup);
-                                    var contents =
-                                            lookup.getResponse()
-                                                    .getFileGetContents()
-                                                    .getFileContents()
-                                                    .getContents();
-                                    var bytes = contents.toByteArray();
-                                    var n = bytes.length;
-                                    schedulePart1.set(ByteString.copyFrom(bytes, 0, 4096));
-                                    schedulePart2.set(ByteString.copyFrom(bytes, 4096, n - 4096));
-                                }),
+                        withOpContext((spec, opLog) -> {
+                            var lookup = getFileContents(FEE_SCHEDULE);
+                            allRunFor(spec, lookup);
+                            var contents = lookup.getResponse()
+                                    .getFileGetContents()
+                                    .getFileContents()
+                                    .getContents();
+                            var bytes = contents.toByteArray();
+                            var n = bytes.length;
+                            schedulePart1.set(ByteString.copyFrom(bytes, 0, 4096));
+                            schedulePart2.set(ByteString.copyFrom(bytes, 4096, n - 4096));
+                        }),
                         cryptoCreate("payer"))
                 .when(
                         balanceSnapshot("preUpdate", GENESIS),
@@ -306,7 +243,7 @@ public class R5BugChecks extends HapiSuite {
     }
 
     /* Run from clean local environment to test need for state migration vis-a-vis JContractFunctionResult. */
-    private HapiSpec genRecordWithCreations() {
+    final HapiSpec genRecordWithCreations() {
         final var contract = "Fuse";
         return defaultHapiSpec("CreateRecordViaExpensiveSubmit")
                 .given(uploadInitCode(contract), contractCreate(contract))
@@ -316,14 +253,12 @@ public class R5BugChecks extends HapiSuite {
 
     public static String readableTransferList(TransferList accountAmounts) {
         return accountAmounts.getAccountAmountsList().stream()
-                .map(
-                        aa ->
-                                String.format(
-                                        "%s %s %s%s",
-                                        HapiPropertySource.asAccountString(aa.getAccountID()),
-                                        aa.getAmount() < 0 ? "->" : "<-",
-                                        aa.getAmount() < 0 ? "-" : "+",
-                                        BigInteger.valueOf(aa.getAmount()).abs().toString()))
+                .map(aa -> String.format(
+                        "%s %s %s%s",
+                        HapiPropertySource.asAccountString(aa.getAccountID()),
+                        aa.getAmount() < 0 ? "->" : "<-",
+                        aa.getAmount() < 0 ? "-" : "+",
+                        BigInteger.valueOf(aa.getAmount()).abs().toString()))
                 .collect(toList())
                 .toString();
     }

@@ -13,8 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.crypto;
 
+import static com.hedera.services.bdd.junit.TestTags.CRYPTO;
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
 import static com.hedera.services.bdd.spec.assertions.TransactionRecordAsserts.recordWith;
 import static com.hedera.services.bdd.spec.keys.KeyShape.SIMPLE;
@@ -34,13 +36,18 @@ import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INVALID_SIGNAT
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.OK;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.SUCCESS;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.suites.HapiSuite;
 import java.util.Arrays;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.Tag;
 
+@HapiTestSuite
+@Tag(CRYPTO)
 public class MiscCryptoSuite extends HapiSuite {
     private static final Logger log = LogManager.getLogger(MiscCryptoSuite.class);
 
@@ -60,15 +67,15 @@ public class MiscCryptoSuite extends HapiSuite {
         return Arrays.asList(
                 //				transferChangesBalance()
                 //				getsGenesisBalance()
-                //				reduceTransferFee(),
-                sysAccountKeyUpdateBySpecialWontNeedNewKeyTxnSign());
+                reduceTransferFee(), sysAccountKeyUpdateBySpecialWontNeedNewKeyTxnSign());
     }
 
     private List<HapiSpec> negativeTests() {
         return List.of(updateWithOutOfDateKeyFails());
     }
 
-    private HapiSpec sysAccountKeyUpdateBySpecialWontNeedNewKeyTxnSign() {
+    @HapiTest
+    final HapiSpec sysAccountKeyUpdateBySpecialWontNeedNewKeyTxnSign() {
         String sysAccount = "0.0.977";
         String randomAccountA = "randomAccountA";
         String randomAccountB = "randomAccountB";
@@ -77,11 +84,9 @@ public class MiscCryptoSuite extends HapiSuite {
 
         return defaultHapiSpec("sysAccountKeyUpdateBySpecialWontNeedNewKeyTxnSign")
                 .given(
-                        withOpContext(
-                                (spec, opLog) -> {
-                                    spec.registry()
-                                            .saveKey(sysAccount, spec.registry().getKey(GENESIS));
-                                }),
+                        withOpContext((spec, opLog) -> {
+                            spec.registry().saveKey(sysAccount, spec.registry().getKey(GENESIS));
+                        }),
                         newKeyNamed(firstKey).shape(SIMPLE),
                         newKeyNamed(secondKey).shape(SIMPLE))
                 .when(
@@ -100,7 +105,8 @@ public class MiscCryptoSuite extends HapiSuite {
                                 .hasKnownStatus(INVALID_SIGNATURE));
     }
 
-    private HapiSpec reduceTransferFee() {
+    @HapiTest
+    final HapiSpec reduceTransferFee() {
         final long REDUCED_NODE_FEE = 2L;
         final long REDUCED_NETWORK_FEE = 3L;
         final long REDUCED_SERVICE_FEE = 3L;
@@ -113,12 +119,7 @@ public class MiscCryptoSuite extends HapiSuite {
                                 .payingWith("sender")
                                 .fee(REDUCED_TOTAL_FEE)
                                 .hasPrecheck(INSUFFICIENT_TX_FEE))
-                .when(
-                        reduceFeeFor(
-                                CryptoTransfer,
-                                REDUCED_NODE_FEE,
-                                REDUCED_NETWORK_FEE,
-                                REDUCED_SERVICE_FEE))
+                .when(reduceFeeFor(CryptoTransfer, REDUCED_NODE_FEE, REDUCED_NETWORK_FEE, REDUCED_SERVICE_FEE))
                 .then(
                         cryptoTransfer(tinyBarsFromTo("sender", "receiver", ONE_HBAR))
                                 .payingWith("sender")
@@ -129,21 +130,24 @@ public class MiscCryptoSuite extends HapiSuite {
                                 .logged());
     }
 
-    public static HapiSpec getsGenesisBalance() {
+    @HapiTest
+    final HapiSpec getsGenesisBalance() {
         return defaultHapiSpec("GetsGenesisBalance")
                 .given()
                 .when()
                 .then(getAccountBalance(GENESIS).logged());
     }
 
-    public static HapiSpec transferChangesBalance() {
+    @HapiTest
+    final HapiSpec transferChangesBalance() {
         return defaultHapiSpec("TransferChangesBalance")
                 .given(cryptoCreate("newPayee").balance(0L))
                 .when(cryptoTransfer(tinyBarsFromTo(GENESIS, "newPayee", 1_000_000_000L)))
                 .then(getAccountBalance("newPayee").hasTinyBars(1_000_000_000L).logged());
     }
 
-    private HapiSpec updateWithOutOfDateKeyFails() {
+    @HapiTest
+    final HapiSpec updateWithOutOfDateKeyFails() {
         return defaultHapiSpec("UpdateWithOutOfDateKeyFails")
                 .given(
                         newKeyNamed("originalKey"),
@@ -158,9 +162,8 @@ public class MiscCryptoSuite extends HapiSuite {
                                 .deferStatusResolution()
                                 .hasAnyKnownStatus(),
                         sleepFor(1_000L))
-                .then(
-                        getTxnRecord("invalidKeyUpdateTxn")
-                                .hasPriority(recordWith().status(INVALID_SIGNATURE)));
+                .then(getTxnRecord("invalidKeyUpdateTxn")
+                        .hasPriority(recordWith().status(INVALID_SIGNATURE)));
     }
 
     @Override

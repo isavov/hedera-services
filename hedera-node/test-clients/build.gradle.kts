@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 
 plugins {
@@ -22,128 +23,152 @@ plugins {
 
 description = "Hedera Services Test Clients for End to End Tests (EET)"
 
-tasks.jar {
-    manifest {
-        attributes("Automatic-Module-Name" to "com.hedera.node.app.testclient")
-    }
+mainModuleInfo { runtimeOnly("org.junit.platform.launcher") }
+
+itestModuleInfo {
+    requires("com.hedera.node.test.clients")
+    requires("com.hedera.node.hapi")
+    requires("org.apache.commons.lang3")
+    requires("org.junit.jupiter.api")
+    requires("org.testcontainers")
+    requires("org.testcontainers.junit.jupiter")
+    requires("org.apache.commons.lang3")
+}
+
+eetModuleInfo {
+    requires("com.hedera.node.test.clients")
+    requires("org.junit.jupiter.api")
+    requires("org.testcontainers")
+    requires("org.testcontainers.junit.jupiter")
+}
+
+sourceSets {
+    // Needed because "resource" directory is misnamed. See
+    // https://github.com/hashgraph/hedera-services/issues/3361
+    main { resources { srcDir("src/main/resource") } }
+}
+
+// IntelliJ uses adhoc-created JavaExec tasks when running a 'main()' method.
+tasks.withType<JavaExec> {
+    // Do not yet run things on the '--module-path'
+    modularity.inferModulePath.set(false)
+}
+
+// The following tasks run the 'HapiTestEngine' tests (residing in src/main/java).
+// IntelliJ picks up this task when running tests through in the IDE.
+
+// Runs all tests
+tasks.register<Test>("hapiTest") {
+    testClassesDirs = sourceSets.main.get().output.classesDirs
+    classpath = sourceSets.main.get().runtimeClasspath
+
+    useJUnitPlatform()
+
+    // Limit heap and number of processors
+    maxHeapSize = "8g"
+    jvmArgs("-XX:ActiveProcessorCount=6")
+
+    // Do not yet run things on the '--module-path'
+    modularity.inferModulePath.set(false)
+}
+
+// Runs all tests that are not part of other test tasks
+tasks.register<Test>("hapiTestMisc") {
+    testClassesDirs = sourceSets.main.get().output.classesDirs
+    classpath = sourceSets.main.get().runtimeClasspath
+
+    useJUnitPlatform { excludeTags("CRYPTO", "TOKEN", "SMART_CONTRACT", "TIME_CONSUMING") }
+
+    // Limit heap and number of processors
+    maxHeapSize = "8g"
+    jvmArgs("-XX:ActiveProcessorCount=6")
+
+    // Do not yet run things on the '--module-path'
+    modularity.inferModulePath.set(false)
+}
+
+// Runs all tests of CryptoService
+tasks.register<Test>("hapiTestCrypto") {
+    testClassesDirs = sourceSets.main.get().output.classesDirs
+    classpath = sourceSets.main.get().runtimeClasspath
+
+    useJUnitPlatform { includeTags("CRYPTO") }
+
+    // Limit heap and number of processors
+    maxHeapSize = "8g"
+    jvmArgs("-XX:ActiveProcessorCount=6")
+
+    // Do not yet run things on the '--module-path'
+    modularity.inferModulePath.set(false)
+}
+
+// Runs all tests of TokenService
+tasks.register<Test>("hapiTestToken") {
+    testClassesDirs = sourceSets.main.get().output.classesDirs
+    classpath = sourceSets.main.get().runtimeClasspath
+
+    useJUnitPlatform { includeTags("TOKEN") }
+
+    // Limit heap and number of processors
+    maxHeapSize = "8g"
+    jvmArgs("-XX:ActiveProcessorCount=6")
+
+    // Do not yet run things on the '--module-path'
+    modularity.inferModulePath.set(false)
+}
+
+// Runs all tests of SmartContractService
+tasks.register<Test>("hapiTestSmartContract") {
+    testClassesDirs = sourceSets.main.get().output.classesDirs
+    classpath = sourceSets.main.get().runtimeClasspath
+
+    useJUnitPlatform { includeTags("SMART_CONTRACT") }
+
+    // Limit heap and number of processors
+    maxHeapSize = "8g"
+    jvmArgs("-XX:ActiveProcessorCount=6")
+
+    // Do not yet run things on the '--module-path'
+    modularity.inferModulePath.set(false)
+}
+
+// Runs a handful of test-suites that are extremely time-consuming (10+ minutes)
+tasks.register<Test>("hapiTestTimeConsuming") {
+    testClassesDirs = sourceSets.main.get().output.classesDirs
+    classpath = sourceSets.main.get().runtimeClasspath
+
+    useJUnitPlatform { includeTags("TIME_CONSUMING") }
+
+    // Limit heap and number of processors
+    maxHeapSize = "8g"
+    jvmArgs("-XX:ActiveProcessorCount=6")
+
+    // Do not yet run things on the '--module-path'
+    modularity.inferModulePath.set(false)
 }
 
 tasks.test {
-    // Disable these EET tests from being executed as part of the gradle "test" task. We should maybe remove them
-    // from src/test into src/eet, so it can be part of an eet test task instead. See issue #3412
+    // Disable these EET tests from being executed as part of the gradle "test" task.
+    // We should maybe remove them from src/test into src/eet,
+    // so it can be part of an eet test task instead. See issue #3412
     // (https://github.com/hashgraph/hedera-services/issues/3412).
     exclude("**/*")
 }
 
-configurations {
-    evaluationDependsOn(":hedera-node:hapi-fees")
-}
-
-sourceSets {
-    // Needed because "resource" directory is misnamed. See https://github.com/hashgraph/hedera-services/issues/3361
-    main {
-        resources {
-            srcDir("src/main/resource")
-        }
-    }
-}
-
-dependencies {
-    implementation(project(":hedera-node:hapi-utils"))
-    implementation(project(":hedera-node:hapi-fees"))
-    implementation(libs.bundles.besu) {
-        exclude("javax.annotation", "javax.annotation-api")
-    }
-    implementation(libs.bundles.logging)
-    implementation(testLibs.besu.internal)
-    implementation(testLibs.commons.collections4)
-    implementation(libs.commons.io)
-    implementation(libs.guava)
-    implementation(libs.hapi) {
-        exclude("javax.annotation", "javax.annotation-api")
-    }
-
-    implementation(libs.grpc.stub)
-    implementation(libs.grpc.protobuf)
-    implementation(libs.grpc.netty)
-
-    implementation(libs.headlong)
-    implementation(libs.log4j.core)
-    implementation(testLibs.json)
-    implementation(testLibs.junit.jupiter.api)
-    implementation(testLibs.picocli)
-    implementation(libs.protobuf.java)
-    implementation(testLibs.snakeyaml)
-    implementation(libs.swirlds.common)
-    implementation(testLibs.testcontainers.core)
-    itestImplementation(libs.bundles.swirlds)
-    itestImplementation(testLibs.bundles.testcontainers)
-    itestImplementation(project(":hedera-node:hedera-app"))
-    itestImplementation(project(":hedera-node:hedera-app-spi"))
-    itestImplementation(project(":hedera-node:hedera-evm"))
-    itestImplementation(project(":hedera-node:hedera-evm-impl"))
-    itestImplementation(project(":hedera-node:hedera-mono-service"))
-    itestImplementation(project(":hedera-node:hedera-admin-service"))
-    itestImplementation(project(":hedera-node:hedera-admin-service-impl"))
-    itestImplementation(project(":hedera-node:hedera-consensus-service"))
-    itestImplementation(project(":hedera-node:hedera-consensus-service-impl"))
-    itestImplementation(project(":hedera-node:hedera-file-service"))
-    itestImplementation(project(":hedera-node:hedera-file-service-impl"))
-    itestImplementation(project(":hedera-node:hedera-network-service"))
-    itestImplementation(project(":hedera-node:hedera-network-service-impl"))
-    itestImplementation(project(":hedera-node:hedera-schedule-service"))
-    itestImplementation(project(":hedera-node:hedera-schedule-service-impl"))
-    itestImplementation(project(":hedera-node:hedera-smart-contract-service"))
-    itestImplementation(project(":hedera-node:hedera-smart-contract-service-impl"))
-    itestImplementation(project(":hedera-node:hedera-token-service"))
-    itestImplementation(project(":hedera-node:hedera-token-service-impl"))
-    itestImplementation(project(":hedera-node:hedera-util-service"))
-    itestImplementation(project(":hedera-node:hedera-util-service-impl"))
-    eetImplementation(testLibs.bundles.testcontainers)
-    eetImplementation(project(":hedera-node:hedera-app"))
-    eetImplementation(project(":hedera-node:hedera-app-spi"))
-    eetImplementation(project(":hedera-node:hedera-evm"))
-    eetImplementation(project(":hedera-node:hedera-evm-impl"))
-    eetImplementation(project(":hedera-node:hedera-mono-service"))
-    eetImplementation(project(":hedera-node:hedera-admin-service"))
-    eetImplementation(project(":hedera-node:hedera-admin-service-impl"))
-    eetImplementation(project(":hedera-node:hedera-consensus-service"))
-    eetImplementation(project(":hedera-node:hedera-consensus-service-impl"))
-    eetImplementation(project(":hedera-node:hedera-file-service"))
-    eetImplementation(project(":hedera-node:hedera-file-service-impl"))
-    eetImplementation(project(":hedera-node:hedera-network-service"))
-    eetImplementation(project(":hedera-node:hedera-network-service-impl"))
-    eetImplementation(project(":hedera-node:hedera-schedule-service"))
-    eetImplementation(project(":hedera-node:hedera-schedule-service-impl"))
-    eetImplementation(project(":hedera-node:hedera-smart-contract-service"))
-    eetImplementation(project(":hedera-node:hedera-smart-contract-service-impl"))
-    eetImplementation(project(":hedera-node:hedera-token-service"))
-    eetImplementation(project(":hedera-node:hedera-token-service-impl"))
-    eetImplementation(project(":hedera-node:hedera-util-service"))
-    eetImplementation(project(":hedera-node:hedera-util-service-impl"))
-}
-
 tasks.itest {
+    systemProperty("itests", System.getProperty("itests"))
     systemProperty("junit.jupiter.execution.parallel.enabled", false)
     systemProperty("TAG", "services-node:" + project.version)
-    systemProperty("networkWorkspaceDir", File(project.buildDir, "network/itest"))
+    systemProperty("networkWorkspaceDir", layout.buildDirectory.dir("network/itest").get().asFile)
 }
 
 tasks.eet {
     systemProperty("TAG", "services-node:" + project.version)
-    systemProperty("networkWorkspaceDir", File(project.buildDir, "network/eet"))
+    systemProperty("networkWorkspaceDir", layout.buildDirectory.dir("network/itest").get().asFile)
 }
 
 tasks.shadowJar {
-    dependsOn(project(":hedera-node:hapi-fees").tasks.jar)
-
-    mergeServiceFiles()
-
     archiveFileName.set("SuiteRunner.jar")
-    isReproducibleFileOrder = true
-    isPreserveFileTimestamps = false
-    fileMode = 664
-    dirMode = 775
 
     manifest {
         attributes(
@@ -153,65 +178,61 @@ tasks.shadowJar {
     }
 }
 
-val yahCliJar = tasks.register<ShadowJar>("yahCliJar") {
-    dependsOn(project(":hedera-node:hapi-fees").tasks.jar)
+val yahCliJar =
+    tasks.register<ShadowJar>("yahCliJar") {
+        exclude(listOf("META-INF/*.DSA", "META-INF/*.RSA", "META-INF/*.SF", "META-INF/INDEX.LIST"))
 
-    group = "shadow"
-    from(sourceSets.main.get().output)
-    configurations = listOf(project.configurations["runtimeClasspath"])
-    mergeServiceFiles()
+        archiveClassifier.set("yahcli")
 
-    exclude(listOf("META-INF/*.DSA", "META-INF/*.RSA", "META-INF/*.SF", "META-INF/INDEX.LIST"))
-
-    archiveClassifier.set("yahcli")
-    isReproducibleFileOrder = true
-    isPreserveFileTimestamps = false
-    fileMode = 664
-    dirMode = 775
-
-    manifest {
-        attributes(
-            "Main-Class" to "com.hedera.services.yahcli.Yahcli",
-            "Multi-Release" to "true"
-        )
+        manifest {
+            attributes(
+                "Main-Class" to "com.hedera.services.yahcli.Yahcli",
+                "Multi-Release" to "true"
+            )
+        }
     }
-}
 
-val validationJar = tasks.register<ShadowJar>("validationJar") {
-    dependsOn(project(":hedera-node:hapi-fees").tasks.jar)
+val validationJar =
+    tasks.register<ShadowJar>("validationJar") {
+        exclude(listOf("META-INF/*.DSA", "META-INF/*.RSA", "META-INF/*.SF", "META-INF/INDEX.LIST"))
 
-    group = "shadow"
-    from(sourceSets.main.get().output)
-    configurations = listOf(project.configurations["runtimeClasspath"])
-    mergeServiceFiles()
+        archiveFileName.set("ValidationScenarios.jar")
 
-    exclude(listOf("META-INF/*.DSA", "META-INF/*.RSA", "META-INF/*.SF", "META-INF/INDEX.LIST"))
-
-    archiveFileName.set("ValidationScenarios.jar")
-    isReproducibleFileOrder = true
-    isPreserveFileTimestamps = false
-    fileMode = 664
-    dirMode = 775
-
-    manifest {
-        attributes(
-            "Main-Class" to "com.hedera.services.bdd.suites.utils.validation.ValidationScenarios",
-            "Multi-Release" to "true"
-        )
+        manifest {
+            attributes(
+                "Main-Class" to
+                    "com.hedera.services.bdd.suites.utils.validation.ValidationScenarios",
+                "Multi-Release" to "true"
+            )
+        }
     }
-}
 
-val copyYahCli = tasks.register<Copy>("copyYahCli") {
-    group = "copy"
-    from(yahCliJar)
-    into(project.file("yahcli"))
-    rename { "yahcli.jar" }
-}
+val copyValidation =
+    tasks.register<Copy>("copyValidation") {
+        group = "copy"
+        from(validationJar)
+        into(project.file("validation-scenarios"))
+    }
 
-val cleanYahCli = tasks.register<Delete>("cleanYahCli") {
-    group = "build"
-    delete(File(project.file("yahcli"), "yahcli.jar"))
-}
+val cleanValidation =
+    tasks.register<Delete>("cleanValidation") {
+        group = "build"
+        delete(File(project.file("validation-scenarios"), "ValidationScenarios.jar"))
+    }
+
+val copyYahCli =
+    tasks.register<Copy>("copyYahCli") {
+        group = "copy"
+        from(yahCliJar)
+        into(project.file("yahcli"))
+        rename { "yahcli.jar" }
+    }
+
+val cleanYahCli =
+    tasks.register<Delete>("cleanYahCli") {
+        group = "build"
+        delete(File(project.file("yahcli"), "yahcli.jar"))
+    }
 
 tasks.assemble {
     dependsOn(tasks.shadowJar)
@@ -220,4 +241,5 @@ tasks.assemble {
 
 tasks.clean {
     dependsOn(cleanYahCli)
+    dependsOn(cleanValidation)
 }

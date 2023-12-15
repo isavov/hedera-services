@@ -13,9 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.contract.precompile;
 
 import static com.google.protobuf.ByteString.copyFromUtf8;
+import static com.hedera.services.bdd.junit.TestTags.SMART_CONTRACT;
 import static com.hedera.services.bdd.spec.HapiPropertySource.asDotDelimitedLongArray;
 import static com.hedera.services.bdd.spec.HapiPropertySource.asToken;
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -49,7 +51,14 @@ import static com.hedera.services.bdd.spec.utilops.UtilVerbs.childRecordsCheck;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.emptyChildRecordsCheck;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.newKeyNamed;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.withOpContext;
+import static com.hedera.services.bdd.spec.utilops.records.SnapshotMatchMode.HIGHLY_NON_DETERMINISTIC_FEES;
+import static com.hedera.services.bdd.spec.utilops.records.SnapshotMatchMode.NONDETERMINISTIC_CONSTRUCTOR_PARAMETERS;
+import static com.hedera.services.bdd.spec.utilops.records.SnapshotMatchMode.NONDETERMINISTIC_CONTRACT_CALL_RESULTS;
+import static com.hedera.services.bdd.spec.utilops.records.SnapshotMatchMode.NONDETERMINISTIC_FUNCTION_PARAMETERS;
+import static com.hedera.services.bdd.spec.utilops.records.SnapshotMatchMode.NONDETERMINISTIC_NONCE;
+import static com.hedera.services.bdd.spec.utilops.records.SnapshotMatchMode.NONDETERMINISTIC_TRANSACTION_FEES;
 import static com.hedera.services.bdd.suites.contract.Utils.asAddress;
+import static com.hedera.services.bdd.suites.contract.Utils.getNestedContractAddress;
 import static com.hedera.services.bdd.suites.token.TokenAssociationSpecs.VANILLA_TOKEN;
 import static com.hedera.services.bdd.suites.utils.MiscEETUtils.metadata;
 import static com.hedera.services.bdd.suites.utils.contracts.precompile.HTSPrecompileResult.htsPrecompileResult;
@@ -68,6 +77,8 @@ import static com.hederahashgraph.api.proto.java.TokenType.FUNGIBLE_COMMON;
 import static com.hederahashgraph.api.proto.java.TokenType.NON_FUNGIBLE_UNIQUE;
 
 import com.hedera.node.app.hapi.utils.contracts.ParsingConstants.FunctionType;
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.assertions.NonFungibleTransfers;
 import com.hedera.services.bdd.spec.keys.KeyShape;
@@ -84,9 +95,12 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
+import org.junit.jupiter.api.Tag;
 
+@HapiTestSuite
+@Tag(SMART_CONTRACT)
 public class ContractKeysHTSSuite extends HapiSuite {
+
     private static final long GAS_TO_OFFER = 1_500_000L;
 
     private static final Logger log = LogManager.getLogger(ContractKeysHTSSuite.class);
@@ -97,10 +111,8 @@ public class ContractKeysHTSSuite extends HapiSuite {
     private static final String ACCOUNT = "sender";
     private static final String RECEIVER = "receiver";
 
-    private static final KeyShape CONTRACT_KEY_SHAPE =
-            KeyShape.threshOf(1, SIMPLE, KeyShape.CONTRACT);
-    private static final KeyShape DELEGATE_CONTRACT_KEY_SHAPE =
-            KeyShape.threshOf(1, SIMPLE, DELEGATE_CONTRACT);
+    private static final KeyShape CONTRACT_KEY_SHAPE = KeyShape.threshOf(1, SIMPLE, KeyShape.CONTRACT);
+    private static final KeyShape DELEGATE_CONTRACT_KEY_SHAPE = KeyShape.threshOf(1, SIMPLE, DELEGATE_CONTRACT);
 
     private static final String UNIVERSAL_KEY = "Multipurpose";
     private static final String DELEGATE_KEY = "Delegate Contract Key";
@@ -116,6 +128,29 @@ public class ContractKeysHTSSuite extends HapiSuite {
     private static final String ASSOCIATE_DISSOCIATE_CONTRACT = "AssociateDissociate";
     private static final String BURN_TOKEN = "BurnToken";
     private static final String BURN_TOKEN_METHOD = "burnToken";
+    private static final String STATIC_BURN_CALL_WITH_CONTRACT_KEY_TXN = "staticBurnCallWithContractKeyTxn";
+    private static final String STATIC_BURN_CALL_WITH_DELEGATE_CONTRACT_KEY_TXN =
+            "staticBurnCallWithDelegateContractKeyTxn";
+    private static final String NON_ZERO_TOKEN_BALANCE_DISSOCIATE_WITH_DELEGATE_CONTRACT_KEY_FAILED_TXN =
+            "nonZeroTokenBalanceDissociateWithDelegateContractKeyFailedTxn";
+    private static final String TOKEN_DISSOCIATE_WITH_DELEGATE_CONTRACT_KEY_HAPPY_TXN =
+            "tokenDissociateWithDelegateContractKeyHappyTxn";
+    private static final String CREATION_TX = "creationTx";
+    private static final String DISTRIBUTE_TX = "distributeTx";
+    private static final String TOKEN_ASSOCIATE = "tokenAssociate";
+    private static final String TOKEN_DISSOCIATE = "tokenDissociate";
+    private static final String BURN_WITH_CONTRACT_KEY = "burn with contract key";
+    private static final String VANILLA_TOKEN_ASSOCIATE_TXN = "vanillaTokenAssociateTxn";
+    private static final String TOKEN_USAGE = "Token";
+    private static final String OUTER_CONTRACT = "DelegateContract";
+    private static final String NESTED_CONTRACT = "ServiceContract";
+    private static final String SECOND_STR_FOR_MINT = "Second!";
+    private static final String DELEGATE_BURN_CALL_WITH_CONTRACT_KEY_TXN = "delegateBurnCallWithContractKeyTxn";
+    private static final String NESTED_ASSOCIATE_DISSOCIATE = "NestedAssociateDissociate";
+    private static final String STATIC_CONTRACT = "StaticContract";
+    private static final String FIRST_STRING_FOR_MINT = "First!";
+    private static final String ACCOUNT_NAME = "anybody";
+    private static final String TYPE_OF_TOKEN = "fungibleToken";
 
     public static void main(String... args) {
         new ContractKeysHTSSuite().runSuiteAsync();
@@ -128,16 +163,7 @@ public class ContractKeysHTSSuite extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return allOf(
-                hscsKey1(),
-                hscsKey2(),
-                hscsKey3(),
-                hscsKey4(),
-                hscsKey5(),
-                hscsKey6(),
-                hscsKey7(),
-                hscsKey8(),
-                hscsKey10());
+        return allOf(hscsKey1(), hscsKey2(), hscsKey3(), hscsKey4(), hscsKey5(), hscsKey6());
     }
 
     List<HapiSpec> hscsKey1() {
@@ -156,7 +182,6 @@ public class ContractKeysHTSSuite extends HapiSuite {
                 staticCallForTransferWithContractKey(),
                 staticCallForBurnWithContractKey(),
                 staticCallForMintWithContractKey(),
-                delegateCallForTransferWithContractKey(),
                 delegateCallForBurnWithContractKey(),
                 delegateCallForMintWithContractKey(),
                 staticCallForDissociatePrecompileFails());
@@ -201,50 +226,35 @@ public class ContractKeysHTSSuite extends HapiSuite {
         return List.of(burnWithKeyAsPartOf1OfXThreshold());
     }
 
-    List<HapiSpec> hscsKey7() {
-        return List.of(transferWithKeyAsPartOf2OfXThreshold());
-    }
-
-    List<HapiSpec> hscsKey8() {
-        return List.of(burnTokenWithFullPrefixAndPartialPrefixKeys());
-    }
-
-    List<HapiSpec> hscsKey10() {
-        return List.of(mixedFramesScenarios());
-    }
-
-    private HapiSpec burnWithKeyAsPartOf1OfXThreshold() {
-        final var token = "Token";
+    @HapiTest
+    final HapiSpec burnWithKeyAsPartOf1OfXThreshold() {
         final var delegateContractKeyShape = KeyShape.threshOf(1, SIMPLE, DELEGATE_CONTRACT);
         final var contractKeyShape = KeyShape.threshOf(1, SIMPLE, KeyShape.CONTRACT);
 
-        return defaultHapiSpec("burnWithKeyAsPartOf1OfXThreshold")
+        return defaultHapiSpec(
+                        "burnWithKeyAsPartOf1OfXThreshold",
+                        NONDETERMINISTIC_CONSTRUCTOR_PARAMETERS,
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS)
                 .given(
                         newKeyNamed(MULTI_KEY),
                         cryptoCreate(TOKEN_TREASURY),
-                        tokenCreate(token)
+                        tokenCreate(TOKEN_USAGE)
                                 .tokenType(TokenType.FUNGIBLE_COMMON)
                                 .initialSupply(50L)
                                 .supplyKey(MULTI_KEY)
                                 .adminKey(MULTI_KEY)
                                 .treasury(TOKEN_TREASURY),
                         uploadInitCode(BURN_TOKEN),
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCreate(
-                                                                BURN_TOKEN,
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getTokenID(
-                                                                                                token))))
-                                                        .via("creationTx"))))
+                        withOpContext((spec, opLog) -> allRunFor(
+                                spec,
+                                contractCreate(
+                                                BURN_TOKEN,
+                                                HapiParserUtil.asHeadlongAddress(asAddress(
+                                                        spec.registry().getTokenID(TOKEN_USAGE))))
+                                        .via(CREATION_TX))))
                 .when(
-                        newKeyNamed(DELEGATE_KEY)
-                                .shape(delegateContractKeyShape.signedWith(sigs(ON, BURN_TOKEN))),
-                        tokenUpdate(token).supplyKey(DELEGATE_KEY),
+                        newKeyNamed(DELEGATE_KEY).shape(delegateContractKeyShape.signedWith(sigs(ON, BURN_TOKEN))),
+                        tokenUpdate(TOKEN_USAGE).supplyKey(DELEGATE_KEY),
                         contractCall(BURN_TOKEN, BURN_TOKEN_METHOD, BigInteger.ONE, new long[0])
                                 .via("burn with delegate contract key")
                                 .gas(GAS_TO_OFFER),
@@ -253,217 +263,44 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_BURN)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(49)))
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .forFunction(FunctionType.HAPI_BURN)
+                                                        .withStatus(SUCCESS)
+                                                        .withTotalSupply(49)))
                                         .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(token, TOKEN_TREASURY, -1))
+                                                changingFungibleBalances().including(TOKEN_USAGE, TOKEN_TREASURY, -1))
                                         .newTotalSupply(49)),
-                        getAccountBalance(TOKEN_TREASURY).hasTokenBalance(token, 49))
+                        getAccountBalance(TOKEN_TREASURY).hasTokenBalance(TOKEN_USAGE, 49))
                 .then(
-                        newKeyNamed(CONTRACT_KEY)
-                                .shape(contractKeyShape.signedWith(sigs(ON, BURN_TOKEN))),
-                        tokenUpdate(token).supplyKey(CONTRACT_KEY),
+                        newKeyNamed(CONTRACT_KEY).shape(contractKeyShape.signedWith(sigs(ON, BURN_TOKEN))),
+                        tokenUpdate(TOKEN_USAGE).supplyKey(CONTRACT_KEY),
                         contractCall(BURN_TOKEN, BURN_TOKEN_METHOD, BigInteger.ONE, new long[0])
-                                .via("burn with contract key")
+                                .via(BURN_WITH_CONTRACT_KEY)
                                 .gas(GAS_TO_OFFER),
                         childRecordsCheck(
-                                "burn with contract key",
+                                BURN_WITH_CONTRACT_KEY,
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_BURN)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(48)))
-                                        .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(token, TOKEN_TREASURY, -1))));
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .forFunction(FunctionType.HAPI_BURN)
+                                                        .withStatus(SUCCESS)
+                                                        .withTotalSupply(48)))
+                                        .tokenTransfers(changingFungibleBalances()
+                                                .including(TOKEN_USAGE, TOKEN_TREASURY, -1))));
     }
 
-    private HapiSpec transferWithKeyAsPartOf2OfXThreshold() {
-        final var outerContract = "DelegateContract";
-        final var nestedContract = "ServiceContract";
-        final AtomicReference<AccountID> accountID = new AtomicReference<>();
-        final AtomicReference<TokenID> vanillaTokenTokenID = new AtomicReference<>();
-        final AtomicReference<AccountID> receiverID = new AtomicReference<>();
-        final var delegateContractKeyShape =
-                KeyShape.threshOf(2, SIMPLE, SIMPLE, DELEGATE_CONTRACT, KeyShape.CONTRACT);
-
-        return defaultHapiSpec("transferWithKeyAsPartOf2OfXThreshold")
-                .given(
-                        newKeyNamed(SUPPLY_KEY),
-                        cryptoCreate(TOKEN_TREASURY),
-                        tokenCreate(VANILLA_TOKEN)
-                                .tokenType(TokenType.NON_FUNGIBLE_UNIQUE)
-                                .supplyKey(SUPPLY_KEY)
-                                .treasury(TOKEN_TREASURY)
-                                .initialSupply(0)
-                                .exposingCreatedIdTo(id -> vanillaTokenTokenID.set(asToken(id))),
-                        mintToken(VANILLA_TOKEN, List.of(copyFromUtf8("First!"))),
-                        cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
-                        cryptoCreate(RECEIVER).exposingCreatedIdTo(receiverID::set),
-                        uploadInitCode(outerContract, nestedContract),
-                        contractCreate(nestedContract),
-                        tokenAssociate(nestedContract, VANILLA_TOKEN),
-                        tokenAssociate(ACCOUNT, VANILLA_TOKEN),
-                        tokenAssociate(RECEIVER, VANILLA_TOKEN),
-                        cryptoTransfer(
-                                        movingUnique(VANILLA_TOKEN, 1L)
-                                                .between(TOKEN_TREASURY, ACCOUNT))
-                                .payingWith(GENESIS))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCreate(
-                                                        outerContract,
-                                                        asHeadlongAddress(
-                                                                getNestedContractAddress(
-                                                                        nestedContract, spec))),
-                                                tokenAssociate(outerContract, VANILLA_TOKEN),
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                delegateContractKeyShape.signedWith(
-                                                                        sigs(
-                                                                                ON,
-                                                                                ON,
-                                                                                outerContract,
-                                                                                nestedContract))),
-                                                cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
-                                                contractCall(
-                                                                outerContract,
-                                                                "transferDelegateCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenTokenID
-                                                                                        .get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                receiverID.get())),
-                                                                1L)
-                                                        .payingWith(GENESIS)
-                                                        .alsoSigningWithFullPrefix(ACCOUNT)
-                                                        .via(
-                                                                "delegateTransferCallWithDelegateContractKeyTxn")
-                                                        .gas(GAS_TO_OFFER))))
-                .then(
-                        childRecordsCheck(
-                                "delegateTransferCallWithDelegateContractKeyTxn",
-                                SUCCESS,
-                                recordWith()
-                                        .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))),
-                        getAccountBalance(ACCOUNT).hasTokenBalance(VANILLA_TOKEN, 0),
-                        getAccountBalance(RECEIVER).hasTokenBalance(VANILLA_TOKEN, 1));
-    }
-
-    private HapiSpec delegateCallForTransferWithContractKey() {
-        final var outerContract = "DelegateContract";
-        final var nestedContract = "ServiceContract";
-        final AtomicReference<AccountID> accountID = new AtomicReference<>();
-        final AtomicReference<TokenID> vanillaTokenTokenID = new AtomicReference<>();
-        final AtomicReference<AccountID> receiverID = new AtomicReference<>();
-
-        return defaultHapiSpec("delegateCallForTransferWithContractKey")
-                .given(
-                        newKeyNamed(SUPPLY_KEY),
-                        cryptoCreate(TOKEN_TREASURY),
-                        tokenCreate(VANILLA_TOKEN)
-                                .tokenType(TokenType.NON_FUNGIBLE_UNIQUE)
-                                .supplyKey(SUPPLY_KEY)
-                                .treasury(TOKEN_TREASURY)
-                                .initialSupply(0)
-                                .exposingCreatedIdTo(id -> vanillaTokenTokenID.set(asToken(id))),
-                        mintToken(VANILLA_TOKEN, List.of(copyFromUtf8("First!"))),
-                        cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
-                        cryptoCreate(RECEIVER).exposingCreatedIdTo(receiverID::set),
-                        uploadInitCode(outerContract, nestedContract),
-                        contractCreate(nestedContract),
-                        tokenAssociate(nestedContract, VANILLA_TOKEN),
-                        tokenAssociate(ACCOUNT, VANILLA_TOKEN),
-                        tokenAssociate(RECEIVER, VANILLA_TOKEN),
-                        cryptoTransfer(
-                                        movingUnique(VANILLA_TOKEN, 1L)
-                                                .between(TOKEN_TREASURY, ACCOUNT))
-                                .payingWith(GENESIS))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCreate(
-                                                        outerContract,
-                                                        asHeadlongAddress(
-                                                                getNestedContractAddress(
-                                                                        nestedContract, spec))),
-                                                tokenAssociate(outerContract, VANILLA_TOKEN),
-                                                newKeyNamed(CONTRACT_KEY)
-                                                        .shape(
-                                                                CONTRACT_KEY_SHAPE.signedWith(
-                                                                        sigs(ON, outerContract))),
-                                                cryptoUpdate(ACCOUNT).key(CONTRACT_KEY),
-                                                contractCall(
-                                                                outerContract,
-                                                                "transferDelegateCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenTokenID
-                                                                                        .get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                receiverID.get())),
-                                                                1L)
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "delegateTransferCallWithContractKeyTxn")
-                                                        .hasKnownStatus(
-                                                                ResponseCodeEnum
-                                                                        .CONTRACT_REVERT_EXECUTED)
-                                                        .gas(GAS_TO_OFFER))))
-                .then(
-                        childRecordsCheck(
-                                "delegateTransferCallWithContractKeyTxn",
-                                CONTRACT_REVERT_EXECUTED,
-                                recordWith()
-                                        .status(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)))),
-                        getAccountBalance(ACCOUNT).hasTokenBalance(VANILLA_TOKEN, 1),
-                        getAccountBalance(RECEIVER).hasTokenBalance(VANILLA_TOKEN, 0));
-    }
-
-    private HapiSpec delegateCallForBurnWithContractKey() {
-        final var outerContract = "DelegateContract";
-        final var nestedContract = "ServiceContract";
+    @HapiTest
+    final HapiSpec delegateCallForBurnWithContractKey() {
         final AtomicReference<TokenID> vanillaTokenTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("delegateCallForBurnWithContractKey")
+        return defaultHapiSpec(
+                        "delegateCallForBurnWithContractKey",
+                        NONDETERMINISTIC_CONSTRUCTOR_PARAMETERS,
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        HIGHLY_NON_DETERMINISTIC_FEES)
                 .given(
                         newKeyNamed(SUPPLY_KEY),
                         cryptoCreate(TOKEN_TREASURY),
@@ -474,64 +311,48 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .treasury(TOKEN_TREASURY)
                                 .initialSupply(0L)
                                 .exposingCreatedIdTo(id -> vanillaTokenTokenID.set(asToken(id))),
-                        mintToken(VANILLA_TOKEN, List.of(copyFromUtf8("First!"))),
-                        mintToken(VANILLA_TOKEN, List.of(copyFromUtf8("Second!"))),
-                        uploadInitCode(outerContract, nestedContract),
-                        contractCreate(nestedContract))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCreate(
-                                                        outerContract,
-                                                        asHeadlongAddress(
-                                                                getNestedContractAddress(
-                                                                        nestedContract, spec))),
-                                                newKeyNamed(CONTRACT_KEY)
-                                                        .shape(
-                                                                CONTRACT_KEY_SHAPE.signedWith(
-                                                                        sigs(ON, outerContract))),
-                                                tokenUpdate(VANILLA_TOKEN).supplyKey(CONTRACT_KEY),
-                                                contractCall(
-                                                                outerContract,
-                                                                "burnDelegateCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenTokenID
-                                                                                        .get())),
-                                                                BigInteger.ZERO,
-                                                                new long[] {1L})
-                                                        .payingWith(GENESIS)
-                                                        .via("delegateBurnCallWithContractKeyTxn")
-                                                        .hasKnownStatus(
-                                                                ResponseCodeEnum
-                                                                        .CONTRACT_REVERT_EXECUTED)
-                                                        .gas(GAS_TO_OFFER))))
+                        mintToken(VANILLA_TOKEN, List.of(copyFromUtf8(FIRST_STRING_FOR_MINT))),
+                        mintToken(VANILLA_TOKEN, List.of(copyFromUtf8(SECOND_STR_FOR_MINT))),
+                        uploadInitCode(OUTER_CONTRACT, NESTED_CONTRACT),
+                        contractCreate(NESTED_CONTRACT))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCreate(
+                                OUTER_CONTRACT, asHeadlongAddress(getNestedContractAddress(NESTED_CONTRACT, spec))),
+                        newKeyNamed(CONTRACT_KEY).shape(CONTRACT_KEY_SHAPE.signedWith(sigs(ON, OUTER_CONTRACT))),
+                        tokenUpdate(VANILLA_TOKEN).supplyKey(CONTRACT_KEY),
+                        contractCall(
+                                        OUTER_CONTRACT,
+                                        "burnDelegateCall",
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenTokenID.get())),
+                                        BigInteger.ZERO,
+                                        new long[] {1L})
+                                .payingWith(GENESIS)
+                                .via(DELEGATE_BURN_CALL_WITH_CONTRACT_KEY_TXN)
+                                .hasKnownStatus(ResponseCodeEnum.CONTRACT_REVERT_EXECUTED)
+                                .gas(GAS_TO_OFFER))))
                 .then(
                         childRecordsCheck(
-                                "delegateBurnCallWithContractKeyTxn",
+                                DELEGATE_BURN_CALL_WITH_CONTRACT_KEY_TXN,
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_BURN)
-                                                                        .withStatus(
-                                                                                INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .forFunction(FunctionType.HAPI_BURN)
+                                                        .withStatus(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)))),
                         getAccountBalance(TOKEN_TREASURY).hasTokenBalance(VANILLA_TOKEN, 2));
     }
 
-    private HapiSpec delegateCallForMintWithContractKey() {
-        final var outerContract = "DelegateContract";
-        final var nestedContract = "ServiceContract";
+    @HapiTest
+    final HapiSpec delegateCallForMintWithContractKey() {
         final AtomicReference<TokenID> vanillaTokenTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("delegateCallForMintWithContractKey")
+        return defaultHapiSpec(
+                        "delegateCallForMintWithContractKey",
+                        NONDETERMINISTIC_CONSTRUCTOR_PARAMETERS,
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES)
                 .given(
                         newKeyNamed(SUPPLY_KEY),
                         cryptoCreate(TOKEN_TREASURY),
@@ -542,63 +363,49 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .treasury(TOKEN_TREASURY)
                                 .initialSupply(50L)
                                 .exposingCreatedIdTo(id -> vanillaTokenTokenID.set(asToken(id))),
-                        uploadInitCode(outerContract, nestedContract),
-                        contractCreate(nestedContract))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCreate(
-                                                        outerContract,
-                                                        asHeadlongAddress(
-                                                                getNestedContractAddress(
-                                                                        nestedContract, spec))),
-                                                newKeyNamed(CONTRACT_KEY)
-                                                        .shape(
-                                                                CONTRACT_KEY_SHAPE.signedWith(
-                                                                        sigs(ON, outerContract))),
-                                                tokenUpdate(VANILLA_TOKEN).supplyKey(CONTRACT_KEY),
-                                                contractCall(
-                                                                outerContract,
-                                                                "mintDelegateCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenTokenID
-                                                                                        .get())),
-                                                                BigInteger.ONE)
-                                                        .payingWith(GENESIS)
-                                                        .via("delegateBurnCallWithContractKeyTxn")
-                                                        .hasKnownStatus(
-                                                                ResponseCodeEnum
-                                                                        .CONTRACT_REVERT_EXECUTED)
-                                                        .gas(GAS_TO_OFFER))))
+                        uploadInitCode(OUTER_CONTRACT, NESTED_CONTRACT),
+                        contractCreate(NESTED_CONTRACT))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCreate(
+                                OUTER_CONTRACT, asHeadlongAddress(getNestedContractAddress(NESTED_CONTRACT, spec))),
+                        newKeyNamed(CONTRACT_KEY).shape(CONTRACT_KEY_SHAPE.signedWith(sigs(ON, OUTER_CONTRACT))),
+                        tokenUpdate(VANILLA_TOKEN).supplyKey(CONTRACT_KEY),
+                        contractCall(
+                                        OUTER_CONTRACT,
+                                        "mintDelegateCall",
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenTokenID.get())),
+                                        BigInteger.ONE)
+                                .payingWith(GENESIS)
+                                .via(DELEGATE_BURN_CALL_WITH_CONTRACT_KEY_TXN)
+                                .hasKnownStatus(ResponseCodeEnum.CONTRACT_REVERT_EXECUTED)
+                                .gas(GAS_TO_OFFER))))
                 .then(
                         childRecordsCheck(
-                                "delegateBurnCallWithContractKeyTxn",
+                                DELEGATE_BURN_CALL_WITH_CONTRACT_KEY_TXN,
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_MINT)
-                                                                        .withStatus(
-                                                                                INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)
-                                                                        .withSerialNumbers()))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .forFunction(FunctionType.HAPI_MINT)
+                                                        .withStatus(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)
+                                                        .withSerialNumbers()))),
                         getAccountBalance(TOKEN_TREASURY).hasTokenBalance(VANILLA_TOKEN, 50));
     }
 
-    private HapiSpec staticCallForDissociatePrecompileFails() {
-        final var outerContract = "NestedAssociateDissociate";
-        final var nestedContract = "AssociateDissociate";
+    @HapiTest
+    final HapiSpec staticCallForDissociatePrecompileFails() {
+        final var outerContract = NESTED_ASSOCIATE_DISSOCIATE;
+        final var nestedContract = ASSOCIATE_DISSOCIATE_CONTRACT;
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<TokenID> vanillaTokenTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("StaticCallForDissociatePrecompileFails")
+        return defaultHapiSpec(
+                        "StaticCallForDissociatePrecompileFails",
+                        NONDETERMINISTIC_CONSTRUCTOR_PARAMETERS,
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES)
                 .given(
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
                         cryptoCreate(TOKEN_TREASURY),
@@ -608,45 +415,37 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> vanillaTokenTokenID.set(asToken(id))),
                         uploadInitCode(outerContract, nestedContract),
                         contractCreate(nestedContract))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                tokenAssociate(ACCOUNT, VANILLA_TOKEN),
-                                                contractCreate(
-                                                        outerContract,
-                                                        asHeadlongAddress(
-                                                                getNestedContractAddress(
-                                                                        nestedContract, spec))),
-                                                contractCall(
-                                                                outerContract,
-                                                                "dissociateStaticCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("staticDissociateCallTxn")
-                                                        .hasKnownStatus(
-                                                                ResponseCodeEnum
-                                                                        .CONTRACT_REVERT_EXECUTED)
-                                                        .gas(GAS_TO_OFFER))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        tokenAssociate(ACCOUNT, VANILLA_TOKEN),
+                        contractCreate(
+                                outerContract, asHeadlongAddress(getNestedContractAddress(nestedContract, spec))),
+                        contractCall(
+                                        outerContract,
+                                        "dissociateStaticCall",
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("staticDissociateCallTxn")
+                                .hasKnownStatus(ResponseCodeEnum.CONTRACT_REVERT_EXECUTED)
+                                .gas(GAS_TO_OFFER))))
                 .then(
                         emptyChildRecordsCheck("staticDissociateCallTxn", CONTRACT_REVERT_EXECUTED),
                         getAccountInfo(ACCOUNT).hasToken(relationshipWith(VANILLA_TOKEN)));
     }
 
-    private HapiSpec staticCallForTransferWithContractKey() {
-        final var outerContract = "StaticContract";
-        final var nestedContract = "ServiceContract";
+    @HapiTest
+    final HapiSpec staticCallForTransferWithContractKey() {
+        final var outerContract = STATIC_CONTRACT;
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<TokenID> vanillaTokenTokenID = new AtomicReference<>();
         final AtomicReference<AccountID> receiverID = new AtomicReference<>();
 
-        return defaultHapiSpec("staticCallForTransferWithContractKey")
+        return defaultHapiSpec(
+                        "staticCallForTransferWithContractKey",
+                        NONDETERMINISTIC_TRANSACTION_FEES,
+                        NONDETERMINISTIC_CONSTRUCTOR_PARAMETERS,
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS)
                 .given(
                         newKeyNamed(SUPPLY_KEY),
                         cryptoCreate(TOKEN_TREASURY),
@@ -656,62 +455,47 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .treasury(TOKEN_TREASURY)
                                 .initialSupply(0)
                                 .exposingCreatedIdTo(id -> vanillaTokenTokenID.set(asToken(id))),
-                        mintToken(VANILLA_TOKEN, List.of(copyFromUtf8("First!"))),
+                        mintToken(VANILLA_TOKEN, List.of(copyFromUtf8(FIRST_STRING_FOR_MINT))),
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
                         cryptoCreate(RECEIVER).exposingCreatedIdTo(receiverID::set),
-                        uploadInitCode(outerContract, nestedContract),
-                        contractCreate(nestedContract),
-                        tokenAssociate(nestedContract, VANILLA_TOKEN),
+                        uploadInitCode(outerContract, NESTED_CONTRACT),
+                        contractCreate(NESTED_CONTRACT),
+                        tokenAssociate(NESTED_CONTRACT, VANILLA_TOKEN),
                         tokenAssociate(ACCOUNT, VANILLA_TOKEN),
                         tokenAssociate(RECEIVER, VANILLA_TOKEN),
-                        cryptoTransfer(
-                                        movingUnique(VANILLA_TOKEN, 1L)
-                                                .between(TOKEN_TREASURY, ACCOUNT))
+                        cryptoTransfer(movingUnique(VANILLA_TOKEN, 1L).between(TOKEN_TREASURY, ACCOUNT))
                                 .payingWith(GENESIS))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCreate(
-                                                        outerContract,
-                                                        asHeadlongAddress(
-                                                                getNestedContractAddress(
-                                                                        nestedContract, spec))),
-                                                tokenAssociate(outerContract, VANILLA_TOKEN),
-                                                newKeyNamed(CONTRACT_KEY)
-                                                        .shape(
-                                                                CONTRACT_KEY_SHAPE.signedWith(
-                                                                        sigs(ON, outerContract))),
-                                                cryptoUpdate(ACCOUNT).key(CONTRACT_KEY),
-                                                contractCall(
-                                                                outerContract,
-                                                                "transferStaticCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenTokenID
-                                                                                        .get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                receiverID.get())),
-                                                                1L)
-                                                        .payingWith(GENESIS)
-                                                        .via("staticTransferCallWithContractKeyTxn")
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED)
-                                                        .gas(GAS_TO_OFFER))))
-                .then(
-                        emptyChildRecordsCheck(
-                                "staticTransferCallWithContractKeyTxn", CONTRACT_REVERT_EXECUTED));
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCreate(
+                                outerContract, asHeadlongAddress(getNestedContractAddress(NESTED_CONTRACT, spec))),
+                        tokenAssociate(outerContract, VANILLA_TOKEN),
+                        newKeyNamed(CONTRACT_KEY).shape(CONTRACT_KEY_SHAPE.signedWith(sigs(ON, outerContract))),
+                        cryptoUpdate(ACCOUNT).key(CONTRACT_KEY),
+                        contractCall(
+                                        outerContract,
+                                        "transferStaticCall",
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenTokenID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(receiverID.get())),
+                                        1L)
+                                .payingWith(GENESIS)
+                                .via("staticTransferCallWithContractKeyTxn")
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED)
+                                .gas(GAS_TO_OFFER))))
+                .then(emptyChildRecordsCheck("staticTransferCallWithContractKeyTxn", CONTRACT_REVERT_EXECUTED));
     }
 
-    private HapiSpec staticCallForBurnWithContractKey() {
-        final var outerContract = "StaticContract";
-        final var nestedContract = "ServiceContract";
+    @HapiTest
+    final HapiSpec staticCallForBurnWithContractKey() {
+        final var outerContract = STATIC_CONTRACT;
         final AtomicReference<TokenID> vanillaTokenTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("staticCallForBurnWithContractKey")
+        return defaultHapiSpec(
+                        "staticCallForBurnWithContractKey",
+                        NONDETERMINISTIC_CONSTRUCTOR_PARAMETERS,
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES)
                 .given(
                         newKeyNamed(SUPPLY_KEY),
                         cryptoCreate(TOKEN_TREASURY),
@@ -722,49 +506,39 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .treasury(TOKEN_TREASURY)
                                 .initialSupply(0L)
                                 .exposingCreatedIdTo(id -> vanillaTokenTokenID.set(asToken(id))),
-                        mintToken(VANILLA_TOKEN, List.of(copyFromUtf8("First!"))),
-                        mintToken(VANILLA_TOKEN, List.of(copyFromUtf8("Second!"))),
-                        uploadInitCode(outerContract, nestedContract),
-                        contractCreate(nestedContract))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCreate(
-                                                        outerContract,
-                                                        asHeadlongAddress(
-                                                                getNestedContractAddress(
-                                                                        nestedContract, spec))),
-                                                newKeyNamed(CONTRACT_KEY)
-                                                        .shape(
-                                                                CONTRACT_KEY_SHAPE.signedWith(
-                                                                        sigs(ON, outerContract))),
-                                                tokenUpdate(VANILLA_TOKEN).supplyKey(CONTRACT_KEY),
-                                                contractCall(
-                                                                outerContract,
-                                                                "burnStaticCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenTokenID
-                                                                                        .get())),
-                                                                BigInteger.ZERO,
-                                                                new long[] {1L})
-                                                        .payingWith(GENESIS)
-                                                        .via("staticBurnCallWithContractKeyTxn")
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED)
-                                                        .gas(GAS_TO_OFFER))))
-                .then(
-                        emptyChildRecordsCheck(
-                                "staticBurnCallWithContractKeyTxn", CONTRACT_REVERT_EXECUTED));
+                        mintToken(VANILLA_TOKEN, List.of(copyFromUtf8(FIRST_STRING_FOR_MINT))),
+                        mintToken(VANILLA_TOKEN, List.of(copyFromUtf8(SECOND_STR_FOR_MINT))),
+                        uploadInitCode(outerContract, NESTED_CONTRACT),
+                        contractCreate(NESTED_CONTRACT))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCreate(
+                                outerContract, asHeadlongAddress(getNestedContractAddress(NESTED_CONTRACT, spec))),
+                        newKeyNamed(CONTRACT_KEY).shape(CONTRACT_KEY_SHAPE.signedWith(sigs(ON, outerContract))),
+                        tokenUpdate(VANILLA_TOKEN).supplyKey(CONTRACT_KEY),
+                        contractCall(
+                                        outerContract,
+                                        "burnStaticCall",
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenTokenID.get())),
+                                        BigInteger.ZERO,
+                                        new long[] {1L})
+                                .payingWith(GENESIS)
+                                .via(STATIC_BURN_CALL_WITH_CONTRACT_KEY_TXN)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED)
+                                .gas(GAS_TO_OFFER))))
+                .then(emptyChildRecordsCheck(STATIC_BURN_CALL_WITH_CONTRACT_KEY_TXN, CONTRACT_REVERT_EXECUTED));
     }
 
-    private HapiSpec staticCallForMintWithContractKey() {
-        final var outerContract = "StaticContract";
-        final var nestedContract = "ServiceContract";
+    @HapiTest
+    final HapiSpec staticCallForMintWithContractKey() {
+        final var outerContract = STATIC_CONTRACT;
         final AtomicReference<TokenID> vanillaTokenTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("staticCallForMintWithContractKey")
+        return defaultHapiSpec(
+                        "staticCallForMintWithContractKey",
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_CONSTRUCTOR_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES)
                 .given(
                         newKeyNamed(SUPPLY_KEY),
                         cryptoCreate(TOKEN_TREASURY),
@@ -775,48 +549,38 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .treasury(TOKEN_TREASURY)
                                 .initialSupply(50L)
                                 .exposingCreatedIdTo(id -> vanillaTokenTokenID.set(asToken(id))),
-                        uploadInitCode(outerContract, nestedContract),
-                        contractCreate(nestedContract))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCreate(
-                                                        outerContract,
-                                                        asHeadlongAddress(
-                                                                getNestedContractAddress(
-                                                                        nestedContract, spec))),
-                                                newKeyNamed(CONTRACT_KEY)
-                                                        .shape(
-                                                                CONTRACT_KEY_SHAPE.signedWith(
-                                                                        sigs(ON, outerContract))),
-                                                tokenUpdate(VANILLA_TOKEN).supplyKey(CONTRACT_KEY),
-                                                contractCall(
-                                                                outerContract,
-                                                                "mintStaticCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenTokenID
-                                                                                        .get())),
-                                                                BigInteger.ONE)
-                                                        .payingWith(GENESIS)
-                                                        .via("staticBurnCallWithContractKeyTxn")
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED)
-                                                        .gas(GAS_TO_OFFER))))
-                .then(
-                        emptyChildRecordsCheck(
-                                "staticBurnCallWithContractKeyTxn", CONTRACT_REVERT_EXECUTED));
+                        uploadInitCode(outerContract, NESTED_CONTRACT),
+                        contractCreate(NESTED_CONTRACT))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCreate(
+                                outerContract, asHeadlongAddress(getNestedContractAddress(NESTED_CONTRACT, spec))),
+                        newKeyNamed(CONTRACT_KEY).shape(CONTRACT_KEY_SHAPE.signedWith(sigs(ON, outerContract))),
+                        tokenUpdate(VANILLA_TOKEN).supplyKey(CONTRACT_KEY),
+                        contractCall(
+                                        outerContract,
+                                        "mintStaticCall",
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenTokenID.get())),
+                                        BigInteger.ONE)
+                                .payingWith(GENESIS)
+                                .via(STATIC_BURN_CALL_WITH_CONTRACT_KEY_TXN)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED)
+                                .gas(GAS_TO_OFFER))))
+                .then(emptyChildRecordsCheck(STATIC_BURN_CALL_WITH_CONTRACT_KEY_TXN, CONTRACT_REVERT_EXECUTED));
     }
 
-    private HapiSpec staticCallForTransferWithDelegateContractKey() {
-        final var outerContract = "StaticContract";
-        final var nestedContract = "ServiceContract";
+    @HapiTest
+    final HapiSpec staticCallForTransferWithDelegateContractKey() {
+        final var outerContract = STATIC_CONTRACT;
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<TokenID> vanillaTokenTokenID = new AtomicReference<>();
         final AtomicReference<AccountID> receiverID = new AtomicReference<>();
 
-        return defaultHapiSpec("staticCallForTransferWithDelegateContractKey")
+        return defaultHapiSpec(
+                        "staticCallForTransferWithDelegateContractKey",
+                        NONDETERMINISTIC_CONSTRUCTOR_PARAMETERS,
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES)
                 .given(
                         newKeyNamed(SUPPLY_KEY),
                         cryptoCreate(TOKEN_TREASURY),
@@ -826,67 +590,49 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .treasury(TOKEN_TREASURY)
                                 .initialSupply(0)
                                 .exposingCreatedIdTo(id -> vanillaTokenTokenID.set(asToken(id))),
-                        mintToken(VANILLA_TOKEN, List.of(copyFromUtf8("First!"))),
+                        mintToken(VANILLA_TOKEN, List.of(copyFromUtf8(FIRST_STRING_FOR_MINT))),
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
                         cryptoCreate(RECEIVER).exposingCreatedIdTo(receiverID::set),
-                        uploadInitCode(outerContract, nestedContract),
-                        contractCreate(nestedContract),
-                        tokenAssociate(nestedContract, VANILLA_TOKEN),
+                        uploadInitCode(outerContract, NESTED_CONTRACT),
+                        contractCreate(NESTED_CONTRACT),
+                        tokenAssociate(NESTED_CONTRACT, VANILLA_TOKEN),
                         tokenAssociate(ACCOUNT, VANILLA_TOKEN),
                         tokenAssociate(RECEIVER, VANILLA_TOKEN),
-                        cryptoTransfer(
-                                        movingUnique(VANILLA_TOKEN, 1L)
-                                                .between(TOKEN_TREASURY, ACCOUNT))
+                        cryptoTransfer(movingUnique(VANILLA_TOKEN, 1L).between(TOKEN_TREASURY, ACCOUNT))
                                 .payingWith(GENESIS))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCreate(
-                                                        outerContract,
-                                                        asHeadlongAddress(
-                                                                getNestedContractAddress(
-                                                                        nestedContract, spec))),
-                                                tokenAssociate(outerContract, VANILLA_TOKEN),
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        outerContract))),
-                                                cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
-                                                contractCall(
-                                                                outerContract,
-                                                                "transferStaticCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenTokenID
-                                                                                        .get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                receiverID.get())),
-                                                                1L)
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "staticTransferCallWithDelegateContractKeyTxn")
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED)
-                                                        .gas(GAS_TO_OFFER))))
-                .then(
-                        emptyChildRecordsCheck(
-                                "staticTransferCallWithDelegateContractKeyTxn",
-                                CONTRACT_REVERT_EXECUTED));
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCreate(
+                                outerContract, asHeadlongAddress(getNestedContractAddress(NESTED_CONTRACT, spec))),
+                        tokenAssociate(outerContract, VANILLA_TOKEN),
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, outerContract))),
+                        cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
+                        contractCall(
+                                        outerContract,
+                                        "transferStaticCall",
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenTokenID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(receiverID.get())),
+                                        1L)
+                                .payingWith(GENESIS)
+                                .via("staticTransferCallWithDelegateContractKeyTxn")
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED)
+                                .gas(GAS_TO_OFFER))))
+                .then(emptyChildRecordsCheck("staticTransferCallWithDelegateContractKeyTxn", CONTRACT_REVERT_EXECUTED));
     }
 
-    private HapiSpec staticCallForBurnWithDelegateContractKey() {
-        final var outerContract = "StaticContract";
-        final var nestedContract = "ServiceContract";
+    @HapiTest
+    final HapiSpec staticCallForBurnWithDelegateContractKey() {
+        final var outerContract = STATIC_CONTRACT;
         final AtomicReference<TokenID> vanillaTokenTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("staticCallForBurnWithDelegateContractKey")
+        return defaultHapiSpec(
+                        "staticCallForBurnWithDelegateContractKey",
+                        NONDETERMINISTIC_CONSTRUCTOR_PARAMETERS,
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_CONTRACT_CALL_RESULTS,
+                        NONDETERMINISTIC_TRANSACTION_FEES)
                 .given(
                         newKeyNamed(SUPPLY_KEY),
                         cryptoCreate(TOKEN_TREASURY),
@@ -897,54 +643,41 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .treasury(TOKEN_TREASURY)
                                 .initialSupply(0L)
                                 .exposingCreatedIdTo(id -> vanillaTokenTokenID.set(asToken(id))),
-                        mintToken(VANILLA_TOKEN, List.of(copyFromUtf8("First!"))),
-                        mintToken(VANILLA_TOKEN, List.of(copyFromUtf8("Second!"))),
-                        uploadInitCode(outerContract, nestedContract),
-                        contractCreate(nestedContract))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCreate(
-                                                        outerContract,
-                                                        asHeadlongAddress(
-                                                                getNestedContractAddress(
-                                                                        nestedContract, spec))),
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        outerContract))),
-                                                tokenUpdate(VANILLA_TOKEN).supplyKey(DELEGATE_KEY),
-                                                contractCall(
-                                                                outerContract,
-                                                                "burnStaticCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenTokenID
-                                                                                        .get())),
-                                                                BigInteger.ZERO,
-                                                                new long[] {1L})
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "staticBurnCallWithDelegateContractKeyTxn")
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED)
-                                                        .gas(GAS_TO_OFFER))))
-                .then(
-                        emptyChildRecordsCheck(
-                                "staticBurnCallWithDelegateContractKeyTxn",
-                                CONTRACT_REVERT_EXECUTED));
+                        mintToken(VANILLA_TOKEN, List.of(copyFromUtf8(FIRST_STRING_FOR_MINT))),
+                        mintToken(VANILLA_TOKEN, List.of(copyFromUtf8(SECOND_STR_FOR_MINT))),
+                        uploadInitCode(outerContract, NESTED_CONTRACT),
+                        contractCreate(NESTED_CONTRACT))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCreate(
+                                outerContract, asHeadlongAddress(getNestedContractAddress(NESTED_CONTRACT, spec))),
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, outerContract))),
+                        tokenUpdate(VANILLA_TOKEN).supplyKey(DELEGATE_KEY),
+                        contractCall(
+                                        outerContract,
+                                        "burnStaticCall",
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenTokenID.get())),
+                                        BigInteger.ZERO,
+                                        new long[] {1L})
+                                .payingWith(GENESIS)
+                                .via(STATIC_BURN_CALL_WITH_DELEGATE_CONTRACT_KEY_TXN)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED)
+                                .gas(GAS_TO_OFFER))))
+                .then(emptyChildRecordsCheck(
+                        STATIC_BURN_CALL_WITH_DELEGATE_CONTRACT_KEY_TXN, CONTRACT_REVERT_EXECUTED));
     }
 
-    private HapiSpec staticCallForMintWithDelegateContractKey() {
-        final var outerContract = "StaticContract";
-        final var nestedContract = "ServiceContract";
+    @HapiTest
+    final HapiSpec staticCallForMintWithDelegateContractKey() {
+        final var outerContract = STATIC_CONTRACT;
         final AtomicReference<TokenID> vanillaTokenTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("staticCallForMintWithDelegateContractKey")
+        return defaultHapiSpec(
+                        "staticCallForMintWithDelegateContractKey",
+                        NONDETERMINISTIC_CONSTRUCTOR_PARAMETERS,
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES)
                 .given(
                         newKeyNamed(SUPPLY_KEY),
                         cryptoCreate(TOKEN_TREASURY),
@@ -955,52 +688,40 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .treasury(TOKEN_TREASURY)
                                 .initialSupply(50L)
                                 .exposingCreatedIdTo(id -> vanillaTokenTokenID.set(asToken(id))),
-                        uploadInitCode(outerContract, nestedContract),
-                        contractCreate(nestedContract))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCreate(
-                                                        outerContract,
-                                                        asHeadlongAddress(
-                                                                getNestedContractAddress(
-                                                                        nestedContract, spec))),
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        outerContract))),
-                                                tokenUpdate(VANILLA_TOKEN).supplyKey(DELEGATE_KEY),
-                                                contractCall(
-                                                                outerContract,
-                                                                "mintStaticCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenTokenID
-                                                                                        .get())),
-                                                                BigInteger.ONE)
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "staticBurnCallWithDelegateContractKeyTxn")
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED)
-                                                        .gas(GAS_TO_OFFER))))
-                .then(
-                        emptyChildRecordsCheck(
-                                "staticBurnCallWithDelegateContractKeyTxn",
-                                CONTRACT_REVERT_EXECUTED));
+                        uploadInitCode(outerContract, NESTED_CONTRACT),
+                        contractCreate(NESTED_CONTRACT))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCreate(
+                                outerContract, asHeadlongAddress(getNestedContractAddress(NESTED_CONTRACT, spec))),
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, outerContract))),
+                        tokenUpdate(VANILLA_TOKEN).supplyKey(DELEGATE_KEY),
+                        contractCall(
+                                        outerContract,
+                                        "mintStaticCall",
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenTokenID.get())),
+                                        BigInteger.ONE)
+                                .payingWith(GENESIS)
+                                .via(STATIC_BURN_CALL_WITH_DELEGATE_CONTRACT_KEY_TXN)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED)
+                                .gas(GAS_TO_OFFER))))
+                .then(emptyChildRecordsCheck(
+                        STATIC_BURN_CALL_WITH_DELEGATE_CONTRACT_KEY_TXN, CONTRACT_REVERT_EXECUTED));
     }
 
-    private HapiSpec staticCallForAssociatePrecompileFails() {
-        final var outerContract = "NestedAssociateDissociate";
-        final var nestedContract = "AssociateDissociate";
+    @HapiTest
+    final HapiSpec staticCallForAssociatePrecompileFails() {
+        final var outerContract = NESTED_ASSOCIATE_DISSOCIATE;
+        final var nestedContract = ASSOCIATE_DISSOCIATE_CONTRACT;
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<TokenID> vanillaTokenTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("StaticCallForAssociatePrecompileFails")
+        return defaultHapiSpec(
+                        "StaticCallForAssociatePrecompileFails",
+                        NONDETERMINISTIC_CONSTRUCTOR_PARAMETERS,
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES)
                 .given(
                         cryptoCreate(ACCOUNT)
                                 .balance(ONE_MILLION_HBARS)
@@ -1013,185 +734,141 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> vanillaTokenTokenID.set(asToken(id))),
                         uploadInitCode(outerContract, nestedContract),
                         contractCreate(nestedContract))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCreate(
-                                                        outerContract,
-                                                        asHeadlongAddress(
-                                                                getNestedContractAddress(
-                                                                        nestedContract, spec))),
-                                                contractCall(
-                                                                outerContract,
-                                                                "associateStaticCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenTokenID
-                                                                                        .get())))
-                                                        .payingWith(ACCOUNT)
-                                                        .via("staticAssociateCallTxn")
-                                                        .hasKnownStatus(
-                                                                ResponseCodeEnum
-                                                                        .CONTRACT_REVERT_EXECUTED)
-                                                        .gas(GAS_TO_OFFER))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCreate(
+                                outerContract, asHeadlongAddress(getNestedContractAddress(nestedContract, spec))),
+                        contractCall(
+                                        outerContract,
+                                        "associateStaticCall",
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenTokenID.get())))
+                                .payingWith(ACCOUNT)
+                                .via("staticAssociateCallTxn")
+                                .hasKnownStatus(ResponseCodeEnum.CONTRACT_REVERT_EXECUTED)
+                                .gas(GAS_TO_OFFER))))
                 .then(
                         emptyChildRecordsCheck("staticAssociateCallTxn", CONTRACT_REVERT_EXECUTED),
                         getAccountInfo(ACCOUNT).hasNoTokenRelationship(VANILLA_TOKEN));
     }
 
-    private HapiSpec callForMintWithContractKey() {
-        final var theAccount = "anybody";
-        final var fungibleToken = "fungibleToken";
+    @HapiTest
+    final HapiSpec callForMintWithContractKey() {
         final var firstMintTxn = "firstMintTxn";
         final var amount = 10L;
 
         final AtomicLong fungibleNum = new AtomicLong();
 
-        return defaultHapiSpec("callForMintWithContractKey")
+        return defaultHapiSpec("callForMintWithContractKey", NONDETERMINISTIC_FUNCTION_PARAMETERS)
                 .given(
                         newKeyNamed(MULTI_KEY),
-                        cryptoCreate(theAccount).balance(10 * ONE_HUNDRED_HBARS),
+                        cryptoCreate(ACCOUNT_NAME).balance(10 * ONE_HUNDRED_HBARS),
                         cryptoCreate(TOKEN_TREASURY),
-                        tokenCreate(fungibleToken)
+                        tokenCreate(TYPE_OF_TOKEN)
                                 .tokenType(FUNGIBLE_COMMON)
                                 .initialSupply(0)
                                 .treasury(TOKEN_TREASURY)
                                 .adminKey(MULTI_KEY)
                                 .supplyKey(MULTI_KEY)
-                                .exposingCreatedIdTo(
-                                        idLit ->
-                                                fungibleNum.set(asDotDelimitedLongArray(idLit)[2])),
+                                .exposingCreatedIdTo(idLit -> fungibleNum.set(asDotDelimitedLongArray(idLit)[2])),
                         uploadInitCode(ORDINARY_CALLS_CONTRACT),
                         contractCreate(ORDINARY_CALLS_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                newKeyNamed(CONTRACT_KEY)
-                                                        .shape(
-                                                                CONTRACT_KEY_SHAPE.signedWith(
-                                                                        sigs(
-                                                                                ON,
-                                                                                ORDINARY_CALLS_CONTRACT))),
-                                                tokenUpdate(fungibleToken).supplyKey(CONTRACT_KEY),
-                                                contractCall(
-                                                                ORDINARY_CALLS_CONTRACT,
-                                                                "mintTokenCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getTokenID(
-                                                                                                fungibleToken))),
-                                                                BigInteger.valueOf(amount),
-                                                                new byte[][] {})
-                                                        .via(firstMintTxn)
-                                                        .payingWith(theAccount))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        newKeyNamed(CONTRACT_KEY)
+                                .shape(CONTRACT_KEY_SHAPE.signedWith(sigs(ON, ORDINARY_CALLS_CONTRACT))),
+                        tokenUpdate(TYPE_OF_TOKEN).supplyKey(CONTRACT_KEY),
+                        contractCall(
+                                        ORDINARY_CALLS_CONTRACT,
+                                        "mintTokenCall",
+                                        HapiParserUtil.asHeadlongAddress(
+                                                asAddress(spec.registry().getTokenID(TYPE_OF_TOKEN))),
+                                        BigInteger.valueOf(amount),
+                                        new byte[][] {})
+                                .via(firstMintTxn)
+                                .payingWith(ACCOUNT_NAME))))
                 .then(
                         childRecordsCheck(
                                 firstMintTxn,
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_MINT)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(10)
-                                                                        .withSerialNumbers()))
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .forFunction(FunctionType.HAPI_MINT)
+                                                        .withStatus(SUCCESS)
+                                                        .withTotalSupply(10)
+                                                        .withSerialNumbers()))
                                         .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(
-                                                                fungibleToken, TOKEN_TREASURY, 10))
+                                                changingFungibleBalances().including(TYPE_OF_TOKEN, TOKEN_TREASURY, 10))
                                         .newTotalSupply(10)),
-                        getTokenInfo(fungibleToken).hasTotalSupply(amount),
-                        getAccountBalance(TOKEN_TREASURY).hasTokenBalance(fungibleToken, amount));
+                        getTokenInfo(TYPE_OF_TOKEN).hasTotalSupply(amount),
+                        getAccountBalance(TOKEN_TREASURY).hasTokenBalance(TYPE_OF_TOKEN, amount));
     }
 
-    private HapiSpec callForMintWithDelegateContractKey() {
-        final var theAccount = "anybody";
-        final var fungibleToken = "fungibleToken";
+    @HapiTest
+    final HapiSpec callForMintWithDelegateContractKey() {
         final var firstMintTxn = "firstMintTxn";
         final var amount = 10L;
 
         final AtomicLong fungibleNum = new AtomicLong();
 
-        return defaultHapiSpec("callForMintWithDelegateContractKey")
+        return defaultHapiSpec(
+                        "callForMintWithDelegateContractKey",
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES)
                 .given(
                         newKeyNamed(MULTI_KEY),
-                        cryptoCreate(theAccount).balance(10 * ONE_HUNDRED_HBARS),
+                        cryptoCreate(ACCOUNT_NAME).balance(10 * ONE_HUNDRED_HBARS),
                         cryptoCreate(TOKEN_TREASURY),
-                        tokenCreate(fungibleToken)
+                        tokenCreate(TYPE_OF_TOKEN)
                                 .tokenType(FUNGIBLE_COMMON)
                                 .initialSupply(0)
                                 .treasury(TOKEN_TREASURY)
                                 .adminKey(MULTI_KEY)
                                 .supplyKey(MULTI_KEY)
-                                .exposingCreatedIdTo(
-                                        idLit ->
-                                                fungibleNum.set(asDotDelimitedLongArray(idLit)[2])),
+                                .exposingCreatedIdTo(idLit -> fungibleNum.set(asDotDelimitedLongArray(idLit)[2])),
                         uploadInitCode(ORDINARY_CALLS_CONTRACT),
                         contractCreate(ORDINARY_CALLS_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        ORDINARY_CALLS_CONTRACT))),
-                                                tokenUpdate(fungibleToken).supplyKey(DELEGATE_KEY),
-                                                contractCall(
-                                                                ORDINARY_CALLS_CONTRACT,
-                                                                "mintTokenCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getTokenID(
-                                                                                                fungibleToken))),
-                                                                BigInteger.valueOf(amount),
-                                                                new byte[][] {})
-                                                        .via(firstMintTxn)
-                                                        .payingWith(theAccount))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, ORDINARY_CALLS_CONTRACT))),
+                        tokenUpdate(TYPE_OF_TOKEN).supplyKey(DELEGATE_KEY),
+                        contractCall(
+                                        ORDINARY_CALLS_CONTRACT,
+                                        "mintTokenCall",
+                                        HapiParserUtil.asHeadlongAddress(
+                                                asAddress(spec.registry().getTokenID(TYPE_OF_TOKEN))),
+                                        BigInteger.valueOf(amount),
+                                        new byte[][] {})
+                                .via(firstMintTxn)
+                                .payingWith(ACCOUNT_NAME))))
                 .then(
                         childRecordsCheck(
                                 firstMintTxn,
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_MINT)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(10)
-                                                                        .withSerialNumbers()))
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .forFunction(FunctionType.HAPI_MINT)
+                                                        .withStatus(SUCCESS)
+                                                        .withTotalSupply(10)
+                                                        .withSerialNumbers()))
                                         .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(
-                                                                fungibleToken, TOKEN_TREASURY, 10))
+                                                changingFungibleBalances().including(TYPE_OF_TOKEN, TOKEN_TREASURY, 10))
                                         .newTotalSupply(10)),
-                        getTokenInfo(fungibleToken).hasTotalSupply(amount),
-                        getAccountBalance(TOKEN_TREASURY).hasTokenBalance(fungibleToken, amount));
+                        getTokenInfo(TYPE_OF_TOKEN).hasTotalSupply(amount),
+                        getAccountBalance(TOKEN_TREASURY).hasTokenBalance(TYPE_OF_TOKEN, amount));
     }
 
-    private HapiSpec callForTransferWithContractKey() {
-        return defaultHapiSpec("callForTransferWithContractKey")
+    @HapiTest
+    final HapiSpec callForTransferWithContractKey() {
+        return defaultHapiSpec(
+                        "callForTransferWithContractKey",
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES)
                 .given(
                         newKeyNamed(UNIVERSAL_KEY),
                         cryptoCreate(ACCOUNT).balance(10 * ONE_HUNDRED_HBARS),
@@ -1206,49 +883,30 @@ public class ContractKeysHTSSuite extends HapiSuite {
                         tokenAssociate(ACCOUNT, NFT),
                         mintToken(NFT, List.of(metadata("firstMemo"), metadata("secondMemo"))),
                         uploadInitCode(ORDINARY_CALLS_CONTRACT),
-                        contractCreate(ORDINARY_CALLS_CONTRACT).via("creationTx"))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                newKeyNamed(CONTRACT_KEY)
-                                                        .shape(
-                                                                CONTRACT_KEY_SHAPE.signedWith(
-                                                                        sigs(
-                                                                                ON,
-                                                                                ORDINARY_CALLS_CONTRACT))),
-                                                cryptoUpdate(ACCOUNT).key(CONTRACT_KEY),
-                                                tokenAssociate(
-                                                        ORDINARY_CALLS_CONTRACT, List.of(NFT)),
-                                                tokenAssociate(RECEIVER, List.of(NFT)),
-                                                cryptoTransfer(
-                                                        movingUnique(NFT, 1)
-                                                                .between(TOKEN_TREASURY, ACCOUNT)),
-                                                contractCall(
-                                                                ORDINARY_CALLS_CONTRACT,
-                                                                "transferNFTCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getTokenID(
-                                                                                                NFT))),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getAccountID(
-                                                                                                ACCOUNT))),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getAccountID(
-                                                                                                RECEIVER))),
-                                                                1L)
-                                                        .fee(ONE_HBAR)
-                                                        .hasKnownStatus(SUCCESS)
-                                                        .payingWith(GENESIS)
-                                                        .gas(GAS_TO_OFFER)
-                                                        .via("distributeTx"))))
+                        contractCreate(ORDINARY_CALLS_CONTRACT).via(CREATION_TX))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        newKeyNamed(CONTRACT_KEY)
+                                .shape(CONTRACT_KEY_SHAPE.signedWith(sigs(ON, ORDINARY_CALLS_CONTRACT))),
+                        cryptoUpdate(ACCOUNT).key(CONTRACT_KEY),
+                        tokenAssociate(ORDINARY_CALLS_CONTRACT, List.of(NFT)),
+                        tokenAssociate(RECEIVER, List.of(NFT)),
+                        cryptoTransfer(movingUnique(NFT, 1).between(TOKEN_TREASURY, ACCOUNT)),
+                        contractCall(
+                                        ORDINARY_CALLS_CONTRACT,
+                                        "transferNFTCall",
+                                        HapiParserUtil.asHeadlongAddress(
+                                                asAddress(spec.registry().getTokenID(NFT))),
+                                        HapiParserUtil.asHeadlongAddress(
+                                                asAddress(spec.registry().getAccountID(ACCOUNT))),
+                                        HapiParserUtil.asHeadlongAddress(
+                                                asAddress(spec.registry().getAccountID(RECEIVER))),
+                                        1L)
+                                .fee(2 * ONE_HBAR)
+                                .hasKnownStatus(SUCCESS)
+                                .payingWith(GENESIS)
+                                .gas(GAS_TO_OFFER)
+                                .via(DISTRIBUTE_TX))))
                 .then(
                         getTokenInfo(NFT).hasTotalSupply(2),
                         getAccountInfo(RECEIVER).hasOwnedNfts(1),
@@ -1256,22 +914,23 @@ public class ContractKeysHTSSuite extends HapiSuite {
                         getAccountInfo(ACCOUNT).hasOwnedNfts(0),
                         getAccountBalance(ACCOUNT).hasTokenBalance(NFT, 0),
                         childRecordsCheck(
-                                "distributeTx",
+                                DISTRIBUTE_TX,
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))
-                                        .tokenTransfers(
-                                                NonFungibleTransfers.changingNFTBalances()
-                                                        .including(NFT, ACCOUNT, RECEIVER, 1L))));
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(SUCCESS)))
+                                        .tokenTransfers(NonFungibleTransfers.changingNFTBalances()
+                                                .including(NFT, ACCOUNT, RECEIVER, 1L))));
     }
 
-    private HapiSpec callForTransferWithDelegateContractKey() {
-        return defaultHapiSpec("callForTransferWithDelegateContractKey")
+    @HapiTest
+    final HapiSpec callForTransferWithDelegateContractKey() {
+        return defaultHapiSpec(
+                        "callForTransferWithDelegateContractKey",
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES)
                 .given(
                         newKeyNamed(UNIVERSAL_KEY),
                         cryptoCreate(ACCOUNT).balance(10 * ONE_HUNDRED_HBARS),
@@ -1287,49 +946,29 @@ public class ContractKeysHTSSuite extends HapiSuite {
                         mintToken(NFT, List.of(metadata("firstMemo"), metadata("secondMemo"))),
                         uploadInitCode(ORDINARY_CALLS_CONTRACT),
                         contractCreate(ORDINARY_CALLS_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        ORDINARY_CALLS_CONTRACT))),
-                                                cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
-                                                tokenAssociate(
-                                                        ORDINARY_CALLS_CONTRACT, List.of(NFT)),
-                                                tokenAssociate(RECEIVER, List.of(NFT)),
-                                                cryptoTransfer(
-                                                        movingUnique(NFT, 1)
-                                                                .between(TOKEN_TREASURY, ACCOUNT)),
-                                                contractCall(
-                                                                ORDINARY_CALLS_CONTRACT,
-                                                                "transferNFTCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getTokenID(
-                                                                                                NFT))),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getAccountID(
-                                                                                                ACCOUNT))),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getAccountID(
-                                                                                                RECEIVER))),
-                                                                1L)
-                                                        .fee(ONE_HBAR)
-                                                        .hasKnownStatus(SUCCESS)
-                                                        .payingWith(GENESIS)
-                                                        .gas(GAS_TO_OFFER)
-                                                        .via("distributeTx"))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, ORDINARY_CALLS_CONTRACT))),
+                        cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
+                        tokenAssociate(ORDINARY_CALLS_CONTRACT, List.of(NFT)),
+                        tokenAssociate(RECEIVER, List.of(NFT)),
+                        cryptoTransfer(movingUnique(NFT, 1).between(TOKEN_TREASURY, ACCOUNT)),
+                        contractCall(
+                                        ORDINARY_CALLS_CONTRACT,
+                                        "transferNFTCall",
+                                        HapiParserUtil.asHeadlongAddress(
+                                                asAddress(spec.registry().getTokenID(NFT))),
+                                        HapiParserUtil.asHeadlongAddress(
+                                                asAddress(spec.registry().getAccountID(ACCOUNT))),
+                                        HapiParserUtil.asHeadlongAddress(
+                                                asAddress(spec.registry().getAccountID(RECEIVER))),
+                                        1L)
+                                .fee(2 * ONE_HBAR)
+                                .hasKnownStatus(SUCCESS)
+                                .payingWith(GENESIS)
+                                .gas(GAS_TO_OFFER)
+                                .via(DISTRIBUTE_TX))))
                 .then(
                         getTokenInfo(NFT).hasTotalSupply(2),
                         getAccountInfo(RECEIVER).hasOwnedNfts(1),
@@ -1337,25 +976,26 @@ public class ContractKeysHTSSuite extends HapiSuite {
                         getAccountInfo(ACCOUNT).hasOwnedNfts(0),
                         getAccountBalance(ACCOUNT).hasTokenBalance(NFT, 0),
                         childRecordsCheck(
-                                "distributeTx",
+                                DISTRIBUTE_TX,
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))
-                                        .tokenTransfers(
-                                                NonFungibleTransfers.changingNFTBalances()
-                                                        .including(NFT, ACCOUNT, RECEIVER, 1L))));
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(SUCCESS)))
+                                        .tokenTransfers(NonFungibleTransfers.changingNFTBalances()
+                                                .including(NFT, ACCOUNT, RECEIVER, 1L))));
     }
 
-    private HapiSpec callForAssociateWithDelegateContractKey() {
+    @HapiTest
+    final HapiSpec callForAssociateWithDelegateContractKey() {
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<TokenID> vanillaTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("callAssociateWithDelegateContractKey")
+        return defaultHapiSpec(
+                        "callForAssociateWithDelegateContractKey",
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_NONCE)
                 .given(
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
                         cryptoCreate(TOKEN_TREASURY),
@@ -1365,51 +1005,42 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> vanillaTokenID.set(asToken(id))),
                         uploadInitCode(ASSOCIATE_DISSOCIATE_CONTRACT),
                         contractCreate(ASSOCIATE_DISSOCIATE_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        ASSOCIATE_DISSOCIATE_CONTRACT))),
-                                                cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenAssociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("vanillaTokenAssociateTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(SUCCESS))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, ASSOCIATE_DISSOCIATE_CONTRACT))),
+                        cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_ASSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via(VANILLA_TOKEN_ASSOCIATE_TXN)
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(SUCCESS))))
                 .then(
                         childRecordsCheck(
-                                "vanillaTokenAssociateTxn",
+                                VANILLA_TOKEN_ASSOCIATE_TXN,
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(SUCCESS)))),
                         getAccountInfo(ACCOUNT).hasToken(relationshipWith(VANILLA_TOKEN)));
     }
 
-    private HapiSpec callForAssociateWithContractKey() {
+    @HapiTest
+    final HapiSpec callForAssociateWithContractKey() {
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<TokenID> vanillaTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("callAssociateWithContractKey")
+        return defaultHapiSpec(
+                        "callForAssociateWithContractKey",
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES,
+                        NONDETERMINISTIC_NONCE)
                 .given(
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
                         cryptoCreate(TOKEN_TREASURY),
@@ -1419,52 +1050,44 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> vanillaTokenID.set(asToken(id))),
                         uploadInitCode(ASSOCIATE_DISSOCIATE_CONTRACT),
                         contractCreate(ASSOCIATE_DISSOCIATE_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                newKeyNamed(CONTRACT_KEY)
-                                                        .shape(
-                                                                CONTRACT_KEY_SHAPE.signedWith(
-                                                                        sigs(
-                                                                                ON,
-                                                                                ASSOCIATE_DISSOCIATE_CONTRACT))),
-                                                cryptoUpdate(ACCOUNT).key(CONTRACT_KEY),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenAssociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("vanillaTokenAssociateTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(SUCCESS))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        newKeyNamed(CONTRACT_KEY)
+                                .shape(CONTRACT_KEY_SHAPE.signedWith(sigs(ON, ASSOCIATE_DISSOCIATE_CONTRACT))),
+                        cryptoUpdate(ACCOUNT).key(CONTRACT_KEY),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_ASSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via(VANILLA_TOKEN_ASSOCIATE_TXN)
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(SUCCESS))))
                 .then(
                         childRecordsCheck(
-                                "vanillaTokenAssociateTxn",
+                                VANILLA_TOKEN_ASSOCIATE_TXN,
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(SUCCESS)))),
                         getAccountInfo(ACCOUNT).hasToken(relationshipWith(VANILLA_TOKEN)));
     }
 
+    @HapiTest
     public HapiSpec callForDissociateWithDelegateContractKey() {
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<AccountID> treasuryID = new AtomicReference<>();
         final AtomicReference<TokenID> vanillaTokenID = new AtomicReference<>();
         final var totalSupply = 1_000;
 
-        return defaultHapiSpec("callDissociateWithDelegateContractKey")
+        return defaultHapiSpec(
+                        "callForDissociateWithDelegateContractKey",
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES,
+                        NONDETERMINISTIC_NONCE)
                 .given(
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
                         cryptoCreate(TOKEN_TREASURY).exposingCreatedIdTo(treasuryID::set),
@@ -1475,87 +1098,65 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> vanillaTokenID.set(asToken(id))),
                         uploadInitCode(ASSOCIATE_DISSOCIATE_CONTRACT),
                         contractCreate(ASSOCIATE_DISSOCIATE_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        ASSOCIATE_DISSOCIATE_CONTRACT))),
-                                                cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
-                                                cryptoUpdate(TOKEN_TREASURY).key(DELEGATE_KEY),
-                                                tokenAssociate(ACCOUNT, VANILLA_TOKEN),
-                                                cryptoTransfer(
-                                                        moving(1, VANILLA_TOKEN)
-                                                                .between(TOKEN_TREASURY, ACCOUNT)),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenDissociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "nonZeroTokenBalanceDissociateWithDelegateContractKeyFailedTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
-                                                cryptoTransfer(
-                                                        moving(1, VANILLA_TOKEN)
-                                                                .between(ACCOUNT, TOKEN_TREASURY)),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenDissociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "tokenDissociateWithDelegateContractKeyHappyTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(SUCCESS))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, ASSOCIATE_DISSOCIATE_CONTRACT))),
+                        cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
+                        cryptoUpdate(TOKEN_TREASURY).key(DELEGATE_KEY),
+                        tokenAssociate(ACCOUNT, VANILLA_TOKEN),
+                        cryptoTransfer(moving(1, VANILLA_TOKEN).between(TOKEN_TREASURY, ACCOUNT)),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_DISSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via(NON_ZERO_TOKEN_BALANCE_DISSOCIATE_WITH_DELEGATE_CONTRACT_KEY_FAILED_TXN)
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
+                        cryptoTransfer(moving(1, VANILLA_TOKEN).between(ACCOUNT, TOKEN_TREASURY)),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_DISSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via(TOKEN_DISSOCIATE_WITH_DELEGATE_CONTRACT_KEY_HAPPY_TXN)
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(SUCCESS))))
                 .then(
                         childRecordsCheck(
-                                "nonZeroTokenBalanceDissociateWithDelegateContractKeyFailedTxn",
+                                NON_ZERO_TOKEN_BALANCE_DISSOCIATE_WITH_DELEGATE_CONTRACT_KEY_FAILED_TXN,
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(TRANSACTION_REQUIRES_ZERO_TOKEN_BALANCES)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                TRANSACTION_REQUIRES_ZERO_TOKEN_BALANCES)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(TRANSACTION_REQUIRES_ZERO_TOKEN_BALANCES)))),
                         childRecordsCheck(
-                                "tokenDissociateWithDelegateContractKeyHappyTxn",
+                                TOKEN_DISSOCIATE_WITH_DELEGATE_CONTRACT_KEY_HAPPY_TXN,
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(SUCCESS)))),
                         getAccountInfo(ACCOUNT).hasNoTokenRelationship(VANILLA_TOKEN));
     }
 
+    @HapiTest
     public HapiSpec callForDissociateWithContractKey() {
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<AccountID> treasuryID = new AtomicReference<>();
         final AtomicReference<TokenID> vanillaTokenID = new AtomicReference<>();
         final var totalSupply = 1_000;
 
-        return defaultHapiSpec("callDissociateWithContractKey")
+        return defaultHapiSpec(
+                        "callForDissociateWithContractKey",
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES,
+                        NONDETERMINISTIC_NONCE)
                 .given(
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
                         cryptoCreate(TOKEN_TREASURY).exposingCreatedIdTo(treasuryID::set),
@@ -1566,143 +1167,111 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> vanillaTokenID.set(asToken(id))),
                         uploadInitCode(ASSOCIATE_DISSOCIATE_CONTRACT),
                         contractCreate(ASSOCIATE_DISSOCIATE_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                newKeyNamed(CONTRACT_KEY)
-                                                        .shape(
-                                                                CONTRACT_KEY_SHAPE.signedWith(
-                                                                        sigs(
-                                                                                ON,
-                                                                                ASSOCIATE_DISSOCIATE_CONTRACT))),
-                                                cryptoUpdate(ACCOUNT).key(CONTRACT_KEY),
-                                                cryptoUpdate(TOKEN_TREASURY).key(CONTRACT_KEY),
-                                                tokenAssociate(ACCOUNT, VANILLA_TOKEN),
-                                                cryptoTransfer(
-                                                        moving(1, VANILLA_TOKEN)
-                                                                .between(TOKEN_TREASURY, ACCOUNT)),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenDissociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "nonZeroTokenBalanceDissociateWithContractKeyFailedTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
-                                                cryptoTransfer(
-                                                        moving(1, VANILLA_TOKEN)
-                                                                .between(ACCOUNT, TOKEN_TREASURY)),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenDissociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "tokenDissociateWithContractKeyHappyTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(SUCCESS))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        newKeyNamed(CONTRACT_KEY)
+                                .shape(CONTRACT_KEY_SHAPE.signedWith(sigs(ON, ASSOCIATE_DISSOCIATE_CONTRACT))),
+                        cryptoUpdate(ACCOUNT).key(CONTRACT_KEY),
+                        cryptoUpdate(TOKEN_TREASURY).key(CONTRACT_KEY),
+                        tokenAssociate(ACCOUNT, VANILLA_TOKEN),
+                        cryptoTransfer(moving(1, VANILLA_TOKEN).between(TOKEN_TREASURY, ACCOUNT)),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_DISSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("nonZeroTokenBalanceDissociateWithContractKeyFailedTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
+                        cryptoTransfer(moving(1, VANILLA_TOKEN).between(ACCOUNT, TOKEN_TREASURY)),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_DISSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("tokenDissociateWithContractKeyHappyTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(SUCCESS))))
                 .then(
                         childRecordsCheck(
                                 "nonZeroTokenBalanceDissociateWithContractKeyFailedTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(TRANSACTION_REQUIRES_ZERO_TOKEN_BALANCES)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                TRANSACTION_REQUIRES_ZERO_TOKEN_BALANCES)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(TRANSACTION_REQUIRES_ZERO_TOKEN_BALANCES)))),
                         childRecordsCheck(
                                 "tokenDissociateWithContractKeyHappyTxn",
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(SUCCESS)))),
                         getAccountInfo(ACCOUNT).hasNoTokenRelationship(VANILLA_TOKEN));
     }
 
-    private HapiSpec callForBurnWithDelegateContractKey() {
-        final var token = "Token";
-
-        return defaultHapiSpec("callBurnWithDelegateContractKey")
+    @HapiTest
+    final HapiSpec callForBurnWithDelegateContractKey() {
+        return defaultHapiSpec(
+                        "callForBurnWithDelegateContractKey",
+                        NONDETERMINISTIC_CONSTRUCTOR_PARAMETERS,
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES)
                 .given(
                         newKeyNamed(MULTI_KEY),
                         cryptoCreate(TOKEN_TREASURY),
-                        tokenCreate(token)
+                        tokenCreate(TOKEN_USAGE)
                                 .tokenType(FUNGIBLE_COMMON)
                                 .initialSupply(50L)
                                 .supplyKey(MULTI_KEY)
                                 .adminKey(MULTI_KEY)
                                 .treasury(TOKEN_TREASURY),
                         uploadInitCode(BURN_TOKEN),
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCreate(
-                                                                BURN_TOKEN,
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getTokenID(
-                                                                                                token))))
-                                                        .via("creationTx"))))
+                        withOpContext((spec, opLog) -> allRunFor(
+                                spec,
+                                contractCreate(
+                                                BURN_TOKEN,
+                                                HapiParserUtil.asHeadlongAddress(asAddress(
+                                                        spec.registry().getTokenID(TOKEN_USAGE))))
+                                        .via(CREATION_TX))))
                 .when(
-                        newKeyNamed(DELEGATE_KEY)
-                                .shape(
-                                        DELEGATE_CONTRACT_KEY_SHAPE.signedWith(
-                                                sigs(ON, BURN_TOKEN))),
-                        tokenUpdate(token).supplyKey(DELEGATE_KEY),
+                        newKeyNamed(DELEGATE_KEY).shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, BURN_TOKEN))),
+                        tokenUpdate(TOKEN_USAGE).supplyKey(DELEGATE_KEY),
                         contractCall(BURN_TOKEN, BURN_TOKEN_METHOD, BigInteger.ONE, new long[0])
-                                .via("burn with contract key")
+                                .via(BURN_WITH_CONTRACT_KEY)
                                 .gas(GAS_TO_OFFER),
                         childRecordsCheck(
-                                "burn with contract key",
+                                BURN_WITH_CONTRACT_KEY,
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_BURN)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(49)))
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .forFunction(FunctionType.HAPI_BURN)
+                                                        .withStatus(SUCCESS)
+                                                        .withTotalSupply(49)))
                                         .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(token, TOKEN_TREASURY, -1))
+                                                changingFungibleBalances().including(TOKEN_USAGE, TOKEN_TREASURY, -1))
                                         .newTotalSupply(49)))
-                .then(getAccountBalance(TOKEN_TREASURY).hasTokenBalance(token, 49));
+                .then(getAccountBalance(TOKEN_TREASURY).hasTokenBalance(TOKEN_USAGE, 49));
     }
 
-    private HapiSpec delegateCallForAssociatePrecompileSignedWithDelegateContractKeyWorks() {
-        final var outerContract = "NestedAssociateDissociate";
-        final var nestedContract = "AssociateDissociate";
+    @HapiTest
+    final HapiSpec delegateCallForAssociatePrecompileSignedWithDelegateContractKeyWorks() {
+        final var outerContract = NESTED_ASSOCIATE_DISSOCIATE;
+        final var nestedContract = ASSOCIATE_DISSOCIATE_CONTRACT;
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<TokenID> vanillaTokenTokenID = new AtomicReference<>();
 
         return defaultHapiSpec(
-                        "DelegateCallForAssociatePrecompileSignedWithDelegateContractKeyWorks")
+                        "DelegateCallForAssociatePrecompileSignedWithDelegateContractKeyWorks",
+                        NONDETERMINISTIC_CONSTRUCTOR_PARAMETERS,
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        HIGHLY_NON_DETERMINISTIC_FEES)
                 .given(
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
                         cryptoCreate(TOKEN_TREASURY),
@@ -1712,60 +1281,46 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> vanillaTokenTokenID.set(asToken(id))),
                         uploadInitCode(outerContract, nestedContract),
                         contractCreate(nestedContract))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCreate(
-                                                        outerContract,
-                                                        asHeadlongAddress(
-                                                                getNestedContractAddress(
-                                                                        nestedContract, spec))),
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        outerContract))),
-                                                cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
-                                                contractCall(
-                                                                outerContract,
-                                                                "associateDelegateCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "delegateAssociateCallWithDelegateContractKeyTxn")
-                                                        .hasKnownStatus(ResponseCodeEnum.SUCCESS)
-                                                        .gas(GAS_TO_OFFER))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCreate(
+                                outerContract, asHeadlongAddress(getNestedContractAddress(nestedContract, spec))),
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, outerContract))),
+                        cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
+                        contractCall(
+                                        outerContract,
+                                        "associateDelegateCall",
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("delegateAssociateCallWithDelegateContractKeyTxn")
+                                .hasKnownStatus(ResponseCodeEnum.SUCCESS)
+                                .gas(GAS_TO_OFFER))))
                 .then(
                         childRecordsCheck(
                                 "delegateAssociateCallWithDelegateContractKeyTxn",
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(SUCCESS)))),
                         getAccountInfo(ACCOUNT).hasToken(relationshipWith(VANILLA_TOKEN)));
     }
 
-    private HapiSpec delegateCallForDissociatePrecompileSignedWithDelegateContractKeyWorks() {
-        final var outerContract = "NestedAssociateDissociate";
-        final var nestedContract = "AssociateDissociate";
+    @HapiTest
+    final HapiSpec delegateCallForDissociatePrecompileSignedWithDelegateContractKeyWorks() {
+        final var outerContract = NESTED_ASSOCIATE_DISSOCIATE;
+        final var nestedContract = ASSOCIATE_DISSOCIATE_CONTRACT;
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<TokenID> vanillaTokenTokenID = new AtomicReference<>();
 
         return defaultHapiSpec(
-                        "delegateCallForDissociatePrecompileSignedWithDelegateContractKeyWorks")
+                        "delegateCallForDissociatePrecompileSignedWithDelegateContractKeyWorks",
+                        NONDETERMINISTIC_CONSTRUCTOR_PARAMETERS,
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        HIGHLY_NON_DETERMINISTIC_FEES)
                 .given(
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
                         cryptoCreate(TOKEN_TREASURY),
@@ -1775,58 +1330,44 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> vanillaTokenTokenID.set(asToken(id))),
                         uploadInitCode(outerContract, nestedContract),
                         contractCreate(nestedContract))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCreate(
-                                                        outerContract,
-                                                        asHeadlongAddress(
-                                                                getNestedContractAddress(
-                                                                        nestedContract, spec))),
-                                                tokenAssociate(ACCOUNT, VANILLA_TOKEN),
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        outerContract))),
-                                                cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
-                                                contractCall(
-                                                                outerContract,
-                                                                "dissociateDelegateCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "delegateDissociateCallWithDelegateContractKeyTxn")
-                                                        .hasKnownStatus(ResponseCodeEnum.SUCCESS)
-                                                        .gas(GAS_TO_OFFER))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCreate(
+                                outerContract, asHeadlongAddress(getNestedContractAddress(nestedContract, spec))),
+                        tokenAssociate(ACCOUNT, VANILLA_TOKEN),
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, outerContract))),
+                        cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
+                        contractCall(
+                                        outerContract,
+                                        "dissociateDelegateCall",
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("delegateDissociateCallWithDelegateContractKeyTxn")
+                                .hasKnownStatus(ResponseCodeEnum.SUCCESS)
+                                .gas(GAS_TO_OFFER))))
                 .then(
                         childRecordsCheck(
                                 "delegateDissociateCallWithDelegateContractKeyTxn",
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(SUCCESS)))),
                         getAccountInfo(ACCOUNT).hasNoTokenRelationship(VANILLA_TOKEN));
     }
 
-    private HapiSpec associatePrecompileWithDelegateContractKeyForNonFungibleWithKYC() {
+    @HapiTest
+    final HapiSpec associatePrecompileWithDelegateContractKeyForNonFungibleWithKYC() {
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<TokenID> kycTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("AssociatePrecompileWithDelegateContractKeyForNonFungibleWithKYC")
+        return defaultHapiSpec(
+                        "AssociatePrecompileWithDelegateContractKeyForNonFungibleWithKYC",
+                        NONDETERMINISTIC_TRANSACTION_FEES,
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS)
                 .given(
                         newKeyNamed(KYC_KEY),
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
@@ -1840,97 +1381,77 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> kycTokenID.set(asToken(id))),
                         uploadInitCode(ASSOCIATE_DISSOCIATE_CONTRACT),
                         contractCreate(ASSOCIATE_DISSOCIATE_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenAssociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                kycTokenID.get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("kycNFTAssociateFailsTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        ASSOCIATE_DISSOCIATE_CONTRACT))),
-                                                cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenAssociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                kycTokenID.get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("kycNFTAssociateTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(SUCCESS),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenAssociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                kycTokenID.get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("kycNFTSecondAssociateFailsTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_ASSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(kycTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("kycNFTAssociateFailsTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, ASSOCIATE_DISSOCIATE_CONTRACT))),
+                        cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_ASSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(kycTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("kycNFTAssociateTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(SUCCESS),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_ASSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(kycTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("kycNFTSecondAssociateFailsTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED))))
                 .then(
                         childRecordsCheck(
                                 "kycNFTAssociateFailsTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)))),
                         childRecordsCheck(
                                 "kycNFTAssociateTxn",
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(SUCCESS)))),
                         childRecordsCheck(
                                 "kycNFTSecondAssociateFailsTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)))),
-                        getAccountInfo(ACCOUNT).hasToken(relationshipWith(KYC_TOKEN).kyc(Revoked)));
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)))),
+                        getAccountInfo(ACCOUNT)
+                                .hasToken(relationshipWith(KYC_TOKEN).kyc(Revoked)));
     }
 
+    @HapiTest
     public HapiSpec dissociatePrecompileWithDelegateContractKeyForFungibleVanilla() {
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<AccountID> treasuryID = new AtomicReference<>();
         final AtomicReference<TokenID> vanillaTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("DissociatePrecompileWithDelegateContractKeyForFungibleVanilla")
+        return defaultHapiSpec(
+                        "DissociatePrecompileWithDelegateContractKeyForFungibleVanilla",
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_NONCE)
                 .given(
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
                         cryptoCreate(TOKEN_TREASURY).exposingCreatedIdTo(treasuryID::set),
@@ -1941,136 +1462,98 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> vanillaTokenID.set(asToken(id))),
                         uploadInitCode(ASSOCIATE_DISSOCIATE_CONTRACT),
                         contractCreate(ASSOCIATE_DISSOCIATE_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        ASSOCIATE_DISSOCIATE_CONTRACT))),
-                                                cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
-                                                cryptoUpdate(TOKEN_TREASURY).key(DELEGATE_KEY),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenDissociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                treasuryID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("tokenDissociateFromTreasuryFailedTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenDissociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "tokenDissociateWithDelegateContractKeyFailedTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
-                                                tokenAssociate(ACCOUNT, VANILLA_TOKEN),
-                                                cryptoTransfer(
-                                                        moving(1, VANILLA_TOKEN)
-                                                                .between(TOKEN_TREASURY, ACCOUNT)),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenDissociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "nonZeroTokenBalanceDissociateWithDelegateContractKeyFailedTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
-                                                cryptoTransfer(
-                                                        moving(1, VANILLA_TOKEN)
-                                                                .between(ACCOUNT, TOKEN_TREASURY)),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenDissociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "tokenDissociateWithDelegateContractKeyHappyTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(SUCCESS))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, ASSOCIATE_DISSOCIATE_CONTRACT))),
+                        cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
+                        cryptoUpdate(TOKEN_TREASURY).key(DELEGATE_KEY),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_DISSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(treasuryID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("tokenDissociateFromTreasuryFailedTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_DISSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("tokenDissociateWithDelegateContractKeyFailedTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
+                        tokenAssociate(ACCOUNT, VANILLA_TOKEN),
+                        cryptoTransfer(moving(1, VANILLA_TOKEN).between(TOKEN_TREASURY, ACCOUNT)),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_DISSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via(NON_ZERO_TOKEN_BALANCE_DISSOCIATE_WITH_DELEGATE_CONTRACT_KEY_FAILED_TXN)
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
+                        cryptoTransfer(moving(1, VANILLA_TOKEN).between(ACCOUNT, TOKEN_TREASURY)),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_DISSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via(TOKEN_DISSOCIATE_WITH_DELEGATE_CONTRACT_KEY_HAPPY_TXN)
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(SUCCESS))))
                 .then(
                         childRecordsCheck(
                                 "tokenDissociateFromTreasuryFailedTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(ACCOUNT_IS_TREASURY)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                ACCOUNT_IS_TREASURY)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(ACCOUNT_IS_TREASURY)))),
                         childRecordsCheck(
                                 "tokenDissociateWithDelegateContractKeyFailedTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(TOKEN_NOT_ASSOCIATED_TO_ACCOUNT)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                TOKEN_NOT_ASSOCIATED_TO_ACCOUNT)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(TOKEN_NOT_ASSOCIATED_TO_ACCOUNT)))),
                         childRecordsCheck(
-                                "nonZeroTokenBalanceDissociateWithDelegateContractKeyFailedTxn",
+                                NON_ZERO_TOKEN_BALANCE_DISSOCIATE_WITH_DELEGATE_CONTRACT_KEY_FAILED_TXN,
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(TRANSACTION_REQUIRES_ZERO_TOKEN_BALANCES)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                TRANSACTION_REQUIRES_ZERO_TOKEN_BALANCES)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(TRANSACTION_REQUIRES_ZERO_TOKEN_BALANCES)))),
                         childRecordsCheck(
-                                "tokenDissociateWithDelegateContractKeyHappyTxn",
+                                TOKEN_DISSOCIATE_WITH_DELEGATE_CONTRACT_KEY_HAPPY_TXN,
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(SUCCESS)))),
                         getAccountInfo(ACCOUNT).hasNoTokenRelationship(VANILLA_TOKEN));
     }
 
+    @HapiTest
     public HapiSpec dissociatePrecompileWithDelegateContractKeyForFungibleFrozen() {
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<AccountID> treasuryID = new AtomicReference<>();
         final AtomicReference<TokenID> frozenTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("DissociatePrecompileWithDelegateContractKeyForFungibleFrozen")
+        return defaultHapiSpec(
+                        "DissociatePrecompileWithDelegateContractKeyForFungibleFrozen",
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES,
+                        NONDETERMINISTIC_NONCE)
                 .given(
                         newKeyNamed(FREEZE_KEY),
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
@@ -2083,80 +1566,61 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> frozenTokenID.set(asToken(id))),
                         uploadInitCode(ASSOCIATE_DISSOCIATE_CONTRACT),
                         contractCreate(ASSOCIATE_DISSOCIATE_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        ASSOCIATE_DISSOCIATE_CONTRACT))),
-                                                cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
-                                                tokenAssociate(ACCOUNT, FROZEN_TOKEN),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenDissociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                frozenTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "frozenTokenAssociateWithDelegateContractKeyTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
-                                                tokenUnfreeze(FROZEN_TOKEN, ACCOUNT),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenDissociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                frozenTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "UnfrozenTokenAssociateWithDelegateContractKeyTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(SUCCESS))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, ASSOCIATE_DISSOCIATE_CONTRACT))),
+                        cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
+                        tokenAssociate(ACCOUNT, FROZEN_TOKEN),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_DISSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(frozenTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("frozenTokenAssociateWithDelegateContractKeyTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
+                        tokenUnfreeze(FROZEN_TOKEN, ACCOUNT),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_DISSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(frozenTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("UnfrozenTokenAssociateWithDelegateContractKeyTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(SUCCESS))))
                 .then(
                         childRecordsCheck(
                                 "frozenTokenAssociateWithDelegateContractKeyTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(ACCOUNT_FROZEN_FOR_TOKEN)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                ACCOUNT_FROZEN_FOR_TOKEN)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(ACCOUNT_FROZEN_FOR_TOKEN)))),
                         childRecordsCheck(
                                 "UnfrozenTokenAssociateWithDelegateContractKeyTxn",
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(SUCCESS)))),
                         getAccountInfo(ACCOUNT).hasNoTokenRelationship(FROZEN_TOKEN));
     }
 
+    @HapiTest
     public HapiSpec dissociatePrecompileWithDelegateContractKeyForFungibleWithKYC() {
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<AccountID> treasuryID = new AtomicReference<>();
         final AtomicReference<TokenID> kycTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("DissociatePrecompileWithDelegateContractKeyForFungibleWithKYC")
+        return defaultHapiSpec(
+                        "DissociatePrecompileWithDelegateContractKeyForFungibleWithKYC",
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_NONCE)
                 .given(
                         newKeyNamed(KYC_KEY),
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
@@ -2168,83 +1632,65 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> kycTokenID.set(asToken(id))),
                         uploadInitCode(ASSOCIATE_DISSOCIATE_CONTRACT),
                         contractCreate(ASSOCIATE_DISSOCIATE_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        ASSOCIATE_DISSOCIATE_CONTRACT))),
-                                                cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenDissociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                kycTokenID.get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "kycTokenDissociateWithDelegateContractKeyFailedTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
-                                                tokenAssociate(ACCOUNT, KYC_TOKEN),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenDissociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                kycTokenID.get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "kycTokenDissociateWithDelegateContractKeyHappyTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(SUCCESS))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, ASSOCIATE_DISSOCIATE_CONTRACT))),
+                        cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_DISSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(kycTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("kycTokenDissociateWithDelegateContractKeyFailedTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
+                        tokenAssociate(ACCOUNT, KYC_TOKEN),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_DISSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(kycTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("kycTokenDissociateWithDelegateContractKeyHappyTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(SUCCESS))))
                 .then(
                         childRecordsCheck(
                                 "kycTokenDissociateWithDelegateContractKeyFailedTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(TOKEN_NOT_ASSOCIATED_TO_ACCOUNT)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                TOKEN_NOT_ASSOCIATED_TO_ACCOUNT)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(TOKEN_NOT_ASSOCIATED_TO_ACCOUNT)))),
                         childRecordsCheck(
                                 "kycTokenDissociateWithDelegateContractKeyHappyTxn",
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(SUCCESS)))),
                         getAccountInfo(ACCOUNT).hasNoTokenRelationship(KYC_TOKEN));
     }
 
+    @HapiTest
     public HapiSpec dissociatePrecompileWithDelegateContractKeyForNonFungibleVanilla() {
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<AccountID> treasuryID = new AtomicReference<>();
         final AtomicReference<TokenID> vanillaTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("DissociatePrecompileWithDelegateContractKeyForNonFungibleVanilla")
+        return defaultHapiSpec(
+                        "DissociatePrecompileWithDelegateContractKeyForNonFungibleVanilla",
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES,
+                        NONDETERMINISTIC_NONCE)
                 .given(
                         newKeyNamed(MULTI_KEY),
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
-                        cryptoCreate(TOKEN_TREASURY)
-                                .balance(0L)
-                                .exposingCreatedIdTo(treasuryID::set),
+                        cryptoCreate(TOKEN_TREASURY).balance(0L).exposingCreatedIdTo(treasuryID::set),
                         tokenCreate(VANILLA_TOKEN)
                                 .tokenType(NON_FUNGIBLE_UNIQUE)
                                 .treasury(TOKEN_TREASURY)
@@ -2254,136 +1700,98 @@ public class ContractKeysHTSSuite extends HapiSuite {
                         mintToken(VANILLA_TOKEN, List.of(metadata("memo"))),
                         uploadInitCode(ASSOCIATE_DISSOCIATE_CONTRACT),
                         contractCreate(ASSOCIATE_DISSOCIATE_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        ASSOCIATE_DISSOCIATE_CONTRACT))),
-                                                cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
-                                                cryptoUpdate(TOKEN_TREASURY).key(DELEGATE_KEY),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenDissociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                treasuryID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("NFTDissociateFromTreasuryFailedTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenDissociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "NFTDissociateWithDelegateContractKeyFailedTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
-                                                tokenAssociate(ACCOUNT, VANILLA_TOKEN),
-                                                cryptoTransfer(
-                                                        movingUnique(VANILLA_TOKEN, 1)
-                                                                .between(TOKEN_TREASURY, ACCOUNT)),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenDissociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "nonZeroNFTBalanceDissociateWithDelegateContractKeyFailedTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
-                                                cryptoTransfer(
-                                                        movingUnique(VANILLA_TOKEN, 1)
-                                                                .between(ACCOUNT, TOKEN_TREASURY)),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenDissociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "NFTDissociateWithDelegateContractKeyHappyTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(SUCCESS))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, ASSOCIATE_DISSOCIATE_CONTRACT))),
+                        cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
+                        cryptoUpdate(TOKEN_TREASURY).key(DELEGATE_KEY),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_DISSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(treasuryID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("NFTDissociateFromTreasuryFailedTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_DISSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("NFTDissociateWithDelegateContractKeyFailedTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
+                        tokenAssociate(ACCOUNT, VANILLA_TOKEN),
+                        cryptoTransfer(movingUnique(VANILLA_TOKEN, 1).between(TOKEN_TREASURY, ACCOUNT)),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_DISSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("nonZeroNFTBalanceDissociateWithDelegateContractKeyFailedTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
+                        cryptoTransfer(movingUnique(VANILLA_TOKEN, 1).between(ACCOUNT, TOKEN_TREASURY)),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_DISSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("NFTDissociateWithDelegateContractKeyHappyTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(SUCCESS))))
                 .then(
                         childRecordsCheck(
                                 "NFTDissociateFromTreasuryFailedTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(ACCOUNT_IS_TREASURY)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                ACCOUNT_IS_TREASURY)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(ACCOUNT_IS_TREASURY)))),
                         childRecordsCheck(
                                 "NFTDissociateWithDelegateContractKeyFailedTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(TOKEN_NOT_ASSOCIATED_TO_ACCOUNT)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                TOKEN_NOT_ASSOCIATED_TO_ACCOUNT)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(TOKEN_NOT_ASSOCIATED_TO_ACCOUNT)))),
                         childRecordsCheck(
                                 "nonZeroNFTBalanceDissociateWithDelegateContractKeyFailedTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(ACCOUNT_STILL_OWNS_NFTS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                ACCOUNT_STILL_OWNS_NFTS)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(ACCOUNT_STILL_OWNS_NFTS)))),
                         childRecordsCheck(
                                 "NFTDissociateWithDelegateContractKeyHappyTxn",
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(SUCCESS)))),
                         getAccountInfo(ACCOUNT).hasNoTokenRelationship(VANILLA_TOKEN));
     }
 
+    @HapiTest
     public HapiSpec dissociatePrecompileWithDelegateContractKeyForNonFungibleFrozen() {
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<AccountID> treasuryID = new AtomicReference<>();
         final AtomicReference<TokenID> frozenTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("DissociatePrecompileWithDelegateContractKeyForNonFungibleFrozen")
+        return defaultHapiSpec(
+                        "DissociatePrecompileWithDelegateContractKeyForNonFungibleFrozen",
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_NONCE,
+                        NONDETERMINISTIC_TRANSACTION_FEES)
                 .given(
                         newKeyNamed(FREEZE_KEY),
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
@@ -2398,80 +1806,61 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> frozenTokenID.set(asToken(id))),
                         uploadInitCode(ASSOCIATE_DISSOCIATE_CONTRACT),
                         contractCreate(ASSOCIATE_DISSOCIATE_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        ASSOCIATE_DISSOCIATE_CONTRACT))),
-                                                cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
-                                                tokenAssociate(ACCOUNT, FROZEN_TOKEN),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenDissociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                frozenTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "frozenNFTAssociateWithDelegateContractKeyTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
-                                                tokenUnfreeze(FROZEN_TOKEN, ACCOUNT),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenDissociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                frozenTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "UnfrozenNFTAssociateWithDelegateContractKeyTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(SUCCESS))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, ASSOCIATE_DISSOCIATE_CONTRACT))),
+                        cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
+                        tokenAssociate(ACCOUNT, FROZEN_TOKEN),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_DISSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(frozenTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("frozenNFTAssociateWithDelegateContractKeyTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
+                        tokenUnfreeze(FROZEN_TOKEN, ACCOUNT),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_DISSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(frozenTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("UnfrozenNFTAssociateWithDelegateContractKeyTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(SUCCESS))))
                 .then(
                         childRecordsCheck(
                                 "frozenNFTAssociateWithDelegateContractKeyTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(ACCOUNT_FROZEN_FOR_TOKEN)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                ACCOUNT_FROZEN_FOR_TOKEN)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(ACCOUNT_FROZEN_FOR_TOKEN)))),
                         childRecordsCheck(
                                 "UnfrozenNFTAssociateWithDelegateContractKeyTxn",
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(SUCCESS)))),
                         getAccountInfo(ACCOUNT).hasNoTokenRelationship(FROZEN_TOKEN));
     }
 
+    @HapiTest
     public HapiSpec dissociatePrecompileWithDelegateContractKeyForNonFungibleWithKYC() {
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<AccountID> treasuryID = new AtomicReference<>();
         final AtomicReference<TokenID> kycTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("DissociatePrecompileWithDelegateContractKeyForNonFungibleWithKYC")
+        return defaultHapiSpec(
+                        "DissociatePrecompileWithDelegateContractKeyForNonFungibleWithKYC",
+                        NONDETERMINISTIC_TRANSACTION_FEES,
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS)
                 .given(
                         newKeyNamed(KYC_KEY),
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
@@ -2485,76 +1874,60 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> kycTokenID.set(asToken(id))),
                         uploadInitCode(ASSOCIATE_DISSOCIATE_CONTRACT),
                         contractCreate(ASSOCIATE_DISSOCIATE_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        ASSOCIATE_DISSOCIATE_CONTRACT))),
-                                                cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenDissociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                kycTokenID.get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "kycNFTDissociateWithDelegateContractKeyFailedTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
-                                                tokenAssociate(ACCOUNT, KYC_TOKEN),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenDissociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                kycTokenID.get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "kycNFTDissociateWithDelegateContractKeyHappyTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(SUCCESS))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, ASSOCIATE_DISSOCIATE_CONTRACT))),
+                        cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_DISSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(kycTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("kycNFTDissociateWithDelegateContractKeyFailedTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
+                        tokenAssociate(ACCOUNT, KYC_TOKEN),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_DISSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(kycTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("kycNFTDissociateWithDelegateContractKeyHappyTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(SUCCESS))))
                 .then(
                         childRecordsCheck(
                                 "kycNFTDissociateWithDelegateContractKeyFailedTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(TOKEN_NOT_ASSOCIATED_TO_ACCOUNT)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                TOKEN_NOT_ASSOCIATED_TO_ACCOUNT)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(TOKEN_NOT_ASSOCIATED_TO_ACCOUNT)))),
                         childRecordsCheck(
                                 "kycNFTDissociateWithDelegateContractKeyHappyTxn",
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(SUCCESS)))),
                         getAccountInfo(ACCOUNT).hasNoTokenRelationship(KYC_TOKEN));
     }
 
-    private HapiSpec associatePrecompileWithDelegateContractKeyForNonFungibleFrozen() {
+    @HapiTest
+    final HapiSpec associatePrecompileWithDelegateContractKeyForNonFungibleFrozen() {
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<TokenID> frozenTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("AssociatePrecompileWithDelegateContractKeyForNonFungibleFrozen")
+        return defaultHapiSpec(
+                        "AssociatePrecompileWithDelegateContractKeyForNonFungibleFrozen",
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES,
+                        NONDETERMINISTIC_NONCE)
                 .given(
                         newKeyNamed(FREEZE_KEY),
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
@@ -2569,100 +1942,77 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> frozenTokenID.set(asToken(id))),
                         uploadInitCode(ASSOCIATE_DISSOCIATE_CONTRACT),
                         contractCreate(ASSOCIATE_DISSOCIATE_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenAssociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                frozenTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("frozenNFTAssociateFailsTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        ASSOCIATE_DISSOCIATE_CONTRACT))),
-                                                cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenAssociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                frozenTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("frozenNFTAssociateTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(SUCCESS),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenAssociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                frozenTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("frozenNFTSecondAssociateFailsTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_ASSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(frozenTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("frozenNFTAssociateFailsTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, ASSOCIATE_DISSOCIATE_CONTRACT))),
+                        cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_ASSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(frozenTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("frozenNFTAssociateTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(SUCCESS),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_ASSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(frozenTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("frozenNFTSecondAssociateFailsTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED))))
                 .then(
                         childRecordsCheck(
                                 "frozenNFTAssociateFailsTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)))),
                         childRecordsCheck(
                                 "frozenNFTAssociateTxn",
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(SUCCESS)))),
                         childRecordsCheck(
                                 "frozenNFTSecondAssociateFailsTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)))),
                         getAccountInfo(ACCOUNT)
                                 .hasToken(relationshipWith(FROZEN_TOKEN).freeze(Frozen)));
     }
 
-    private HapiSpec associatePrecompileWithDelegateContractKeyForNonFungibleVanilla() {
+    @HapiTest
+    final HapiSpec associatePrecompileWithDelegateContractKeyForNonFungibleVanilla() {
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<TokenID> vanillaTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("AssociatePrecompileWithDelegateContractKeyForNonFungibleVanilla")
+        return defaultHapiSpec(
+                        "AssociatePrecompileWithDelegateContractKeyForNonFungibleVanilla",
+                        NONDETERMINISTIC_TRANSACTION_FEES,
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_NONCE)
                 .given(
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
                         cryptoCreate(TOKEN_TREASURY),
@@ -2674,99 +2024,76 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> vanillaTokenID.set(asToken(id))),
                         uploadInitCode(ASSOCIATE_DISSOCIATE_CONTRACT),
                         contractCreate(ASSOCIATE_DISSOCIATE_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenAssociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("vanillaNFTAssociateFailsTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        ASSOCIATE_DISSOCIATE_CONTRACT))),
-                                                cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenAssociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("vanillaNFTAssociateTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(SUCCESS),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenAssociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("vanillaNFTSecondAssociateFailsTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_ASSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("vanillaNFTAssociateFailsTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, ASSOCIATE_DISSOCIATE_CONTRACT))),
+                        cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_ASSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("vanillaNFTAssociateTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(SUCCESS),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_ASSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("vanillaNFTSecondAssociateFailsTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED))))
                 .then(
                         childRecordsCheck(
                                 "vanillaNFTAssociateFailsTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)))),
                         childRecordsCheck(
                                 "vanillaNFTAssociateTxn",
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(SUCCESS)))),
                         childRecordsCheck(
                                 "vanillaNFTSecondAssociateFailsTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)))),
                         getAccountInfo(ACCOUNT).hasToken(relationshipWith(VANILLA_TOKEN)));
     }
 
-    private HapiSpec associatePrecompileWithDelegateContractKeyForFungibleWithKYC() {
+    @HapiTest
+    final HapiSpec associatePrecompileWithDelegateContractKeyForFungibleWithKYC() {
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<TokenID> kycTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("AssociatePrecompileWithDelegateContractKeyForFungibleWithKYC")
+        return defaultHapiSpec(
+                        "AssociatePrecompileWithDelegateContractKeyForFungibleWithKYC",
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES,
+                        NONDETERMINISTIC_NONCE)
                 .given(
                         newKeyNamed(KYC_KEY),
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
@@ -2778,96 +2105,76 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> kycTokenID.set(asToken(id))),
                         uploadInitCode(ASSOCIATE_DISSOCIATE_CONTRACT),
                         contractCreate(ASSOCIATE_DISSOCIATE_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenAssociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                kycTokenID.get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("kycTokenAssociateFailsTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        ASSOCIATE_DISSOCIATE_CONTRACT))),
-                                                cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenAssociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                kycTokenID.get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("kycTokenAssociateTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(SUCCESS),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenAssociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                kycTokenID.get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("kycTokenSecondAssociateFailsTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_ASSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(kycTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("kycTokenAssociateFailsTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, ASSOCIATE_DISSOCIATE_CONTRACT))),
+                        cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_ASSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(kycTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("kycTokenAssociateTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(SUCCESS),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_ASSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(kycTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("kycTokenSecondAssociateFailsTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED))))
                 .then(
                         childRecordsCheck(
                                 "kycTokenAssociateFailsTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)))),
                         childRecordsCheck(
                                 "kycTokenAssociateTxn",
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(SUCCESS)))),
                         childRecordsCheck(
                                 "kycTokenSecondAssociateFailsTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)))),
-                        getAccountInfo(ACCOUNT).hasToken(relationshipWith(KYC_TOKEN).kyc(Revoked)));
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)))),
+                        getAccountInfo(ACCOUNT)
+                                .hasToken(relationshipWith(KYC_TOKEN).kyc(Revoked)));
     }
 
-    private HapiSpec associatePrecompileWithDelegateContractKeyForFungibleFrozen() {
+    @HapiTest
+    final HapiSpec associatePrecompileWithDelegateContractKeyForFungibleFrozen() {
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<TokenID> frozenTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("AssociatePrecompileWithDelegateContractKeyForFungibleFrozen")
+        return defaultHapiSpec(
+                        "AssociatePrecompileWithDelegateContractKeyForFungibleFrozen",
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES)
                 .given(
                         newKeyNamed(FREEZE_KEY),
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
@@ -2881,100 +2188,76 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> frozenTokenID.set(asToken(id))),
                         uploadInitCode(ASSOCIATE_DISSOCIATE_CONTRACT),
                         contractCreate(ASSOCIATE_DISSOCIATE_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenAssociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                frozenTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("frozenTokenAssociateFailsTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        ASSOCIATE_DISSOCIATE_CONTRACT))),
-                                                cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenAssociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                frozenTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("frozenTokenAssociateTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(SUCCESS),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenAssociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                frozenTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("frozenTokenSecondAssociateFailsTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_ASSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(frozenTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("frozenTokenAssociateFailsTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, ASSOCIATE_DISSOCIATE_CONTRACT))),
+                        cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_ASSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(frozenTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("frozenTokenAssociateTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(SUCCESS),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_ASSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(frozenTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("frozenTokenSecondAssociateFailsTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED))))
                 .then(
                         childRecordsCheck(
                                 "frozenTokenAssociateFailsTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)))),
                         childRecordsCheck(
                                 "frozenTokenAssociateTxn",
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(SUCCESS)))),
                         childRecordsCheck(
                                 "frozenTokenSecondAssociateFailsTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)))),
                         getAccountInfo(ACCOUNT)
                                 .hasToken(relationshipWith(FROZEN_TOKEN).freeze(Frozen)));
     }
 
-    private HapiSpec associatePrecompileWithDelegateContractKeyForFungibleVanilla() {
+    @HapiTest
+    final HapiSpec associatePrecompileWithDelegateContractKeyForFungibleVanilla() {
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<TokenID> vanillaTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("AssociatePrecompileWithDelegateContractKeyForFungibleVanilla")
+        return defaultHapiSpec(
+                        "AssociatePrecompileWithDelegateContractKeyForFungibleVanilla",
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_NONCE)
                 .given(
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
                         cryptoCreate(TOKEN_TREASURY),
@@ -2984,101 +2267,78 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> vanillaTokenID.set(asToken(id))),
                         uploadInitCode(ASSOCIATE_DISSOCIATE_CONTRACT),
                         contractCreate(ASSOCIATE_DISSOCIATE_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenAssociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("vanillaTokenAssociateFailsTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
-                                                newKeyNamed(DELEGATE_KEY)
-                                                        .shape(
-                                                                DELEGATE_CONTRACT_KEY_SHAPE
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        ASSOCIATE_DISSOCIATE_CONTRACT))),
-                                                cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenAssociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("vanillaTokenAssociateTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(SUCCESS),
-                                                contractCall(
-                                                                ASSOCIATE_DISSOCIATE_CONTRACT,
-                                                                "tokenAssociate",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via("vanillaTokenSecondAssociateFailsTxn")
-                                                        .gas(GAS_TO_OFFER)
-                                                        .hasKnownStatus(CONTRACT_REVERT_EXECUTED))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_ASSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("vanillaTokenAssociateFailsTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED),
+                        newKeyNamed(DELEGATE_KEY)
+                                .shape(DELEGATE_CONTRACT_KEY_SHAPE.signedWith(sigs(ON, ASSOCIATE_DISSOCIATE_CONTRACT))),
+                        cryptoUpdate(ACCOUNT).key(DELEGATE_KEY),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_ASSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via(VANILLA_TOKEN_ASSOCIATE_TXN)
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(SUCCESS),
+                        contractCall(
+                                        ASSOCIATE_DISSOCIATE_CONTRACT,
+                                        TOKEN_ASSOCIATE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("vanillaTokenSecondAssociateFailsTxn")
+                                .gas(GAS_TO_OFFER)
+                                .hasKnownStatus(CONTRACT_REVERT_EXECUTED))))
                 .then(
                         childRecordsCheck(
                                 "vanillaTokenAssociateFailsTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)))),
                         childRecordsCheck(
-                                "vanillaTokenAssociateTxn",
+                                VANILLA_TOKEN_ASSOCIATE_TXN,
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(SUCCESS)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(
+                                                        htsPrecompileResult().withStatus(SUCCESS)))),
                         childRecordsCheck(
                                 "vanillaTokenSecondAssociateFailsTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)))),
                         getAccountInfo(ACCOUNT).hasToken(relationshipWith(VANILLA_TOKEN)));
     }
 
-    private HapiSpec delegateCallForAssociatePrecompileSignedWithContractKeyFails() {
-        final var outerContract = "NestedAssociateDissociate";
-        final var nestedContract = "AssociateDissociate";
+    @HapiTest
+    final HapiSpec delegateCallForAssociatePrecompileSignedWithContractKeyFails() {
+        final var outerContract = NESTED_ASSOCIATE_DISSOCIATE;
+        final var nestedContract = ASSOCIATE_DISSOCIATE_CONTRACT;
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<TokenID> vanillaTokenTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("DelegateCallForAssociatePrecompileSignedWithContractKeyFails")
+        return defaultHapiSpec(
+                        "DelegateCallForAssociatePrecompileSignedWithContractKeyFails",
+                        HIGHLY_NON_DETERMINISTIC_FEES,
+                        NONDETERMINISTIC_CONSTRUCTOR_PARAMETERS,
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS)
                 .given(
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
                         cryptoCreate(TOKEN_TREASURY),
@@ -3088,59 +2348,45 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> vanillaTokenTokenID.set(asToken(id))),
                         uploadInitCode(outerContract, nestedContract),
                         contractCreate(nestedContract))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCreate(
-                                                        outerContract,
-                                                        asHeadlongAddress(
-                                                                getNestedContractAddress(
-                                                                        nestedContract, spec))),
-                                                newKeyNamed(CONTRACT_KEY)
-                                                        .shape(
-                                                                CONTRACT_KEY_SHAPE.signedWith(
-                                                                        sigs(ON, outerContract))),
-                                                cryptoUpdate(ACCOUNT).key(CONTRACT_KEY),
-                                                contractCall(
-                                                                outerContract,
-                                                                "associateDelegateCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "delegateAssociateCallWithContractKeyTxn")
-                                                        .hasKnownStatus(
-                                                                ResponseCodeEnum
-                                                                        .CONTRACT_REVERT_EXECUTED)
-                                                        .gas(GAS_TO_OFFER))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCreate(
+                                outerContract, asHeadlongAddress(getNestedContractAddress(nestedContract, spec))),
+                        newKeyNamed(CONTRACT_KEY).shape(CONTRACT_KEY_SHAPE.signedWith(sigs(ON, outerContract))),
+                        cryptoUpdate(ACCOUNT).key(CONTRACT_KEY),
+                        contractCall(
+                                        outerContract,
+                                        "associateDelegateCall",
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("delegateAssociateCallWithContractKeyTxn")
+                                .hasKnownStatus(ResponseCodeEnum.CONTRACT_REVERT_EXECUTED)
+                                .gas(GAS_TO_OFFER))))
                 .then(
                         childRecordsCheck(
                                 "delegateAssociateCallWithContractKeyTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)))),
                         getAccountInfo(ACCOUNT).hasNoTokenRelationship(VANILLA_TOKEN));
     }
 
-    private HapiSpec delegateCallForDissociatePrecompileSignedWithContractKeyFails() {
-        final var outerContract = "NestedAssociateDissociate";
-        final var nestedContract = "AssociateDissociate";
+    @HapiTest
+    final HapiSpec delegateCallForDissociatePrecompileSignedWithContractKeyFails() {
+        final var outerContract = NESTED_ASSOCIATE_DISSOCIATE;
+        final var nestedContract = ASSOCIATE_DISSOCIATE_CONTRACT;
         final AtomicReference<AccountID> accountID = new AtomicReference<>();
         final AtomicReference<TokenID> vanillaTokenTokenID = new AtomicReference<>();
 
-        return defaultHapiSpec("DelegateCallForDissociatePrecompileSignedWithContractKeyFails")
+        return defaultHapiSpec(
+                        "DelegateCallForDissociatePrecompileSignedWithContractKeyFails",
+                        NONDETERMINISTIC_CONSTRUCTOR_PARAMETERS,
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES)
                 .given(
                         cryptoCreate(ACCOUNT).exposingCreatedIdTo(accountID::set),
                         cryptoCreate(TOKEN_TREASURY),
@@ -3150,665 +2396,78 @@ public class ContractKeysHTSSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> vanillaTokenTokenID.set(asToken(id))),
                         uploadInitCode(outerContract, nestedContract),
                         contractCreate(nestedContract))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCreate(
-                                                        outerContract,
-                                                        asHeadlongAddress(
-                                                                getNestedContractAddress(
-                                                                        nestedContract, spec))),
-                                                newKeyNamed(CONTRACT_KEY)
-                                                        .shape(
-                                                                CONTRACT_KEY_SHAPE.signedWith(
-                                                                        sigs(ON, outerContract))),
-                                                cryptoUpdate(ACCOUNT).key(CONTRACT_KEY),
-                                                tokenAssociate(ACCOUNT, VANILLA_TOKEN),
-                                                contractCall(
-                                                                outerContract,
-                                                                "dissociateDelegateCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(accountID.get())),
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenTokenID
-                                                                                        .get())))
-                                                        .payingWith(GENESIS)
-                                                        .via(
-                                                                "delegateDissociateCallWithContractKeyTxn")
-                                                        .hasKnownStatus(
-                                                                ResponseCodeEnum
-                                                                        .CONTRACT_REVERT_EXECUTED)
-                                                        .gas(GAS_TO_OFFER))))
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCreate(
+                                outerContract, asHeadlongAddress(getNestedContractAddress(nestedContract, spec))),
+                        newKeyNamed(CONTRACT_KEY).shape(CONTRACT_KEY_SHAPE.signedWith(sigs(ON, outerContract))),
+                        cryptoUpdate(ACCOUNT).key(CONTRACT_KEY),
+                        tokenAssociate(ACCOUNT, VANILLA_TOKEN),
+                        contractCall(
+                                        outerContract,
+                                        "dissociateDelegateCall",
+                                        HapiParserUtil.asHeadlongAddress(asAddress(accountID.get())),
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenTokenID.get())))
+                                .payingWith(GENESIS)
+                                .via("delegateDissociateCallWithContractKeyTxn")
+                                .hasKnownStatus(ResponseCodeEnum.CONTRACT_REVERT_EXECUTED)
+                                .gas(GAS_TO_OFFER))))
                 .then(
                         childRecordsCheck(
                                 "delegateDissociateCallWithContractKeyTxn",
                                 CONTRACT_REVERT_EXECUTED,
                                 recordWith()
                                         .status(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .withStatus(
-                                                                                INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)))),
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .withStatus(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)))),
                         getAccountInfo(ACCOUNT).hasToken(relationshipWith(VANILLA_TOKEN)));
     }
 
-    private HapiSpec callForBurnWithContractKey() {
-        final var token = "Token";
-
-        return defaultHapiSpec("callBurnWithContractKey")
+    @HapiTest
+    final HapiSpec callForBurnWithContractKey() {
+        return defaultHapiSpec(
+                        "callForBurnWithContractKey",
+                        NONDETERMINISTIC_CONSTRUCTOR_PARAMETERS,
+                        NONDETERMINISTIC_FUNCTION_PARAMETERS,
+                        NONDETERMINISTIC_TRANSACTION_FEES)
                 .given(
                         newKeyNamed(MULTI_KEY),
                         cryptoCreate(TOKEN_TREASURY),
-                        tokenCreate(token)
+                        tokenCreate(TOKEN_USAGE)
                                 .tokenType(FUNGIBLE_COMMON)
                                 .initialSupply(50L)
                                 .supplyKey(MULTI_KEY)
                                 .adminKey(MULTI_KEY)
                                 .treasury(TOKEN_TREASURY),
                         uploadInitCode(BURN_TOKEN),
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCreate(
-                                                                BURN_TOKEN,
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getTokenID(
-                                                                                                token))))
-                                                        .via("creationTx"))))
+                        withOpContext((spec, opLog) -> allRunFor(
+                                spec,
+                                contractCreate(
+                                                BURN_TOKEN,
+                                                HapiParserUtil.asHeadlongAddress(asAddress(
+                                                        spec.registry().getTokenID(TOKEN_USAGE))))
+                                        .via(CREATION_TX))))
                 .when(
-                        newKeyNamed(CONTRACT_KEY)
-                                .shape(CONTRACT_KEY_SHAPE.signedWith(sigs(ON, BURN_TOKEN))),
-                        tokenUpdate(token).supplyKey(CONTRACT_KEY),
+                        newKeyNamed(CONTRACT_KEY).shape(CONTRACT_KEY_SHAPE.signedWith(sigs(ON, BURN_TOKEN))),
+                        tokenUpdate(TOKEN_USAGE).supplyKey(CONTRACT_KEY),
                         contractCall(BURN_TOKEN, BURN_TOKEN_METHOD, BigInteger.ONE, new long[0])
-                                .via("burn with contract key")
+                                .via(BURN_WITH_CONTRACT_KEY)
                                 .gas(GAS_TO_OFFER),
                         childRecordsCheck(
-                                "burn with contract key",
+                                BURN_WITH_CONTRACT_KEY,
                                 SUCCESS,
                                 recordWith()
                                         .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_BURN)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(49)))
+                                        .contractCallResult(resultWith()
+                                                .contractCallResult(htsPrecompileResult()
+                                                        .forFunction(FunctionType.HAPI_BURN)
+                                                        .withStatus(SUCCESS)
+                                                        .withTotalSupply(49)))
                                         .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(token, TOKEN_TREASURY, -1))
+                                                changingFungibleBalances().including(TOKEN_USAGE, TOKEN_TREASURY, -1))
                                         .newTotalSupply(49)))
-                .then(getAccountBalance(TOKEN_TREASURY).hasTokenBalance(token, 49));
-    }
-
-    private HapiSpec burnTokenWithFullPrefixAndPartialPrefixKeys() {
-        final var theAccount = "anybody";
-        final var fungibleToken = "fungibleToken";
-        final var firstBurnTxn = "firstBurnTxn";
-        final var secondBurnTxn = "secondBurnTxn";
-        final var amount = 99L;
-        final AtomicLong fungibleNum = new AtomicLong();
-
-        return defaultHapiSpec("burnTokenWithFullPrefixAndPartialPrefixKeys")
-                .given(
-                        newKeyNamed(MULTI_KEY),
-                        cryptoCreate(theAccount).balance(10 * ONE_HUNDRED_HBARS),
-                        cryptoCreate(TOKEN_TREASURY),
-                        tokenCreate(fungibleToken)
-                                .tokenType(TokenType.FUNGIBLE_COMMON)
-                                .initialSupply(100)
-                                .treasury(TOKEN_TREASURY)
-                                .adminKey(MULTI_KEY)
-                                .supplyKey(MULTI_KEY)
-                                .exposingCreatedIdTo(
-                                        idLit ->
-                                                fungibleNum.set(asDotDelimitedLongArray(idLit)[2])),
-                        uploadInitCode(ORDINARY_CALLS_CONTRACT),
-                        contractCreate(ORDINARY_CALLS_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCall(
-                                                                ORDINARY_CALLS_CONTRACT,
-                                                                "burnTokenCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getTokenID(
-                                                                                                fungibleToken))),
-                                                                BigInteger.ONE,
-                                                                new long[0])
-                                                        .via(firstBurnTxn)
-                                                        .payingWith(theAccount)
-                                                        .signedBy(MULTI_KEY)
-                                                        .signedBy(theAccount)
-                                                        .hasKnownStatus(SUCCESS),
-                                                contractCall(
-                                                                ORDINARY_CALLS_CONTRACT,
-                                                                "burnTokenCall",
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getTokenID(
-                                                                                                fungibleToken))),
-                                                                BigInteger.ONE,
-                                                                new long[0])
-                                                        .via(secondBurnTxn)
-                                                        .payingWith(theAccount)
-                                                        .alsoSigningWithFullPrefix(MULTI_KEY)
-                                                        .hasKnownStatus(SUCCESS))))
-                .then(
-                        childRecordsCheck(
-                                firstBurnTxn,
-                                SUCCESS,
-                                recordWith()
-                                        .status(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_BURN)
-                                                                        .withStatus(
-                                                                                INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE)))),
-                        childRecordsCheck(
-                                secondBurnTxn,
-                                SUCCESS,
-                                recordWith()
-                                        .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_BURN)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(99)))
-                                        .newTotalSupply(99)),
-                        getTokenInfo(fungibleToken).hasTotalSupply(amount),
-                        getAccountBalance(TOKEN_TREASURY).hasTokenBalance(fungibleToken, amount));
-    }
-
-    private HapiSpec mixedFramesScenarios() {
-        final var theAccount = "theAccount";
-        final var fungibleToken = "fungibleToken";
-        final var nestedContract = "MixedMintToken";
-        final var outerContract = "MixedFramesScenarios";
-        final var delegateContractDelegateContractShape =
-                KeyShape.threshOf(1, SIMPLE, DELEGATE_CONTRACT, DELEGATE_CONTRACT);
-        final var contractDelegateContractShape =
-                KeyShape.threshOf(1, SIMPLE, KeyShape.CONTRACT, DELEGATE_CONTRACT);
-        final var delegateContractDelegateContractKey = "delegateContractDelegateContractKey";
-        final var contractDelegateContractKey = "contractDelegateContractKey";
-
-        return defaultHapiSpec("HSCS_KEY_MIXED_FRAMES_SCENARIOS")
-                .given(
-                        newKeyNamed(MULTI_KEY),
-                        cryptoCreate(theAccount).balance(10 * ONE_HUNDRED_HBARS),
-                        cryptoCreate(TOKEN_TREASURY),
-                        tokenCreate(fungibleToken)
-                                .tokenType(TokenType.FUNGIBLE_COMMON)
-                                .initialSupply(50L)
-                                .supplyKey(MULTI_KEY)
-                                .adminKey(MULTI_KEY)
-                                .treasury(TOKEN_TREASURY),
-                        uploadInitCode(outerContract, nestedContract),
-                        contractCreate(nestedContract))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCreate(
-                                                                outerContract,
-                                                                asHeadlongAddress(
-                                                                        getNestedContractAddress(
-                                                                                nestedContract,
-                                                                                spec)))
-                                                        .via("creationTx"),
-                                                newKeyNamed(delegateContractDelegateContractKey)
-                                                        .shape(
-                                                                delegateContractDelegateContractShape
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        nestedContract,
-                                                                                        outerContract))),
-                                                tokenUpdate(fungibleToken)
-                                                        .supplyKey(
-                                                                delegateContractDelegateContractKey),
-                                                contractCall(
-                                                                outerContract,
-                                                                "burnCallAfterNestedMintCallWithPrecompileCall",
-                                                                BigInteger.ONE,
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getTokenID(
-                                                                                                fungibleToken))))
-                                                        .payingWith(theAccount)
-                                                        .via(
-                                                                "burnCallAfterNestedMintCallWithPrecompileCall"),
-                                                contractCall(
-                                                                outerContract,
-                                                                "burnDelegateCallAfterNestedMintCallWithPrecompileDelegateCall",
-                                                                BigInteger.ONE,
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getTokenID(
-                                                                                                fungibleToken))))
-                                                        .payingWith(theAccount)
-                                                        .via(
-                                                                "burnDelegateCallAfterNestedMintCallWithPrecompileDelegateCall"),
-                                                contractCall(
-                                                                outerContract,
-                                                                "burnDelegateCallAfterNestedMintDelegateCallWithPrecompileDelegateCall",
-                                                                BigInteger.ONE,
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getTokenID(
-                                                                                                fungibleToken))))
-                                                        .payingWith(theAccount)
-                                                        .via(
-                                                                "burnDelegateCallAfterNestedMintDelegateCallWithPrecompileDelegateCall"),
-                                                contractCall(
-                                                                outerContract,
-                                                                "burnCallAfterNestedMintDelegateCallWithPrecompileDelegateCall",
-                                                                BigInteger.ONE,
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getTokenID(
-                                                                                                fungibleToken))))
-                                                        .payingWith(theAccount)
-                                                        .via(
-                                                                "burnCallAfterNestedMintDelegateCallWithPrecompileDelegateCall"))),
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                newKeyNamed(contractDelegateContractKey)
-                                                        .shape(
-                                                                contractDelegateContractShape
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        nestedContract,
-                                                                                        outerContract))),
-                                                tokenUpdate(fungibleToken)
-                                                        .supplyKey(contractDelegateContractKey),
-                                                contractCall(
-                                                                outerContract,
-                                                                "burnDelegateCallAfterNestedMintCallWithPrecompileCall",
-                                                                BigInteger.ONE,
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getTokenID(
-                                                                                                fungibleToken))))
-                                                        .payingWith(theAccount)
-                                                        .via(
-                                                                "burnDelegateCallAfterNestedMintCallWithPrecompileCall"),
-                                                contractCall(
-                                                                outerContract,
-                                                                "burnDelegateCallAfterNestedMintDelegateCallWithPrecompileCall",
-                                                                BigInteger.ONE,
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getTokenID(
-                                                                                                fungibleToken))))
-                                                        .payingWith(theAccount)
-                                                        .via(
-                                                                "burnDelegateCallAfterNestedMintDelegateCallWithPrecompileCall"),
-                                                contractCall(
-                                                                outerContract,
-                                                                "burnCallAfterNestedMintDelegateCallWithPrecompileCall",
-                                                                BigInteger.ONE,
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getTokenID(
-                                                                                                fungibleToken))))
-                                                        .payingWith(theAccount)
-                                                        .via(
-                                                                "burnCallAfterNestedMintDelegateCallWithPrecompileCall"))),
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                newKeyNamed(contractDelegateContractKey)
-                                                        .shape(
-                                                                contractDelegateContractShape
-                                                                        .signedWith(
-                                                                                sigs(
-                                                                                        ON,
-                                                                                        outerContract,
-                                                                                        nestedContract))),
-                                                tokenUpdate(fungibleToken)
-                                                        .supplyKey(contractDelegateContractKey),
-                                                contractCall(
-                                                                outerContract,
-                                                                "burnCallAfterNestedMintCallWithPrecompileDelegateCall",
-                                                                BigInteger.ONE,
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                spec.registry()
-                                                                                        .getTokenID(
-                                                                                                fungibleToken))))
-                                                        .payingWith(theAccount)
-                                                        .via(
-                                                                "burnCallAfterNestedMintCallWithPrecompileDelegateCall"))),
-                        childRecordsCheck(
-                                "burnCallAfterNestedMintCallWithPrecompileCall",
-                                SUCCESS,
-                                recordWith()
-                                        .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_MINT)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(51)
-                                                                        .withSerialNumbers()))
-                                        .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(
-                                                                fungibleToken, TOKEN_TREASURY, 1))
-                                        .newTotalSupply(51),
-                                recordWith()
-                                        .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_BURN)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(50)))
-                                        .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(
-                                                                fungibleToken, TOKEN_TREASURY, -1))
-                                        .newTotalSupply(50)),
-                        childRecordsCheck(
-                                "burnDelegateCallAfterNestedMintCallWithPrecompileCall",
-                                SUCCESS,
-                                recordWith()
-                                        .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_MINT)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(51)
-                                                                        .withSerialNumbers()))
-                                        .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(
-                                                                fungibleToken, TOKEN_TREASURY, 1))
-                                        .newTotalSupply(51),
-                                recordWith()
-                                        .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_BURN)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(50)))
-                                        .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(
-                                                                fungibleToken, TOKEN_TREASURY, -1))
-                                        .newTotalSupply(50)),
-                        childRecordsCheck(
-                                "burnDelegateCallAfterNestedMintDelegateCallWithPrecompileCall",
-                                SUCCESS,
-                                recordWith()
-                                        .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_MINT)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(51)
-                                                                        .withSerialNumbers()))
-                                        .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(
-                                                                fungibleToken, TOKEN_TREASURY, 1))
-                                        .newTotalSupply(51),
-                                recordWith()
-                                        .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_BURN)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(50)))
-                                        .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(
-                                                                fungibleToken, TOKEN_TREASURY, -1))
-                                        .newTotalSupply(50)),
-                        childRecordsCheck(
-                                "burnCallAfterNestedMintDelegateCallWithPrecompileCall",
-                                SUCCESS,
-                                recordWith()
-                                        .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_MINT)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(51)
-                                                                        .withSerialNumbers()))
-                                        .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(
-                                                                fungibleToken, TOKEN_TREASURY, 1))
-                                        .newTotalSupply(51),
-                                recordWith()
-                                        .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_BURN)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(50)))
-                                        .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(
-                                                                fungibleToken, TOKEN_TREASURY, -1))
-                                        .newTotalSupply(50)),
-                        childRecordsCheck(
-                                "burnCallAfterNestedMintCallWithPrecompileDelegateCall",
-                                SUCCESS,
-                                recordWith()
-                                        .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_MINT)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(51)
-                                                                        .withSerialNumbers()))
-                                        .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(
-                                                                fungibleToken, TOKEN_TREASURY, 1))
-                                        .newTotalSupply(51),
-                                recordWith()
-                                        .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_BURN)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(50)))
-                                        .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(
-                                                                fungibleToken, TOKEN_TREASURY, -1))
-                                        .newTotalSupply(50)),
-                        childRecordsCheck(
-                                "burnDelegateCallAfterNestedMintCallWithPrecompileDelegateCall",
-                                SUCCESS,
-                                recordWith()
-                                        .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_MINT)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(51)
-                                                                        .withSerialNumbers()))
-                                        .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(
-                                                                fungibleToken, TOKEN_TREASURY, 1))
-                                        .newTotalSupply(51),
-                                recordWith()
-                                        .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_BURN)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(50)))
-                                        .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(
-                                                                fungibleToken, TOKEN_TREASURY, -1))
-                                        .newTotalSupply(50)),
-                        childRecordsCheck(
-                                "burnDelegateCallAfterNestedMintDelegateCallWithPrecompileDelegateCall",
-                                SUCCESS,
-                                recordWith()
-                                        .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_MINT)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(51)
-                                                                        .withSerialNumbers()))
-                                        .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(
-                                                                fungibleToken, TOKEN_TREASURY, 1))
-                                        .newTotalSupply(51),
-                                recordWith()
-                                        .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_BURN)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(50)))
-                                        .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(
-                                                                fungibleToken, TOKEN_TREASURY, -1))
-                                        .newTotalSupply(50)),
-                        childRecordsCheck(
-                                "burnCallAfterNestedMintDelegateCallWithPrecompileDelegateCall",
-                                SUCCESS,
-                                recordWith()
-                                        .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_MINT)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(51)
-                                                                        .withSerialNumbers()))
-                                        .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(
-                                                                fungibleToken, TOKEN_TREASURY, 1))
-                                        .newTotalSupply(51),
-                                recordWith()
-                                        .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .HAPI_BURN)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTotalSupply(50)))
-                                        .tokenTransfers(
-                                                changingFungibleBalances()
-                                                        .including(
-                                                                fungibleToken, TOKEN_TREASURY, -1))
-                                        .newTotalSupply(50)))
-                .then(getAccountBalance(TOKEN_TREASURY).hasTokenBalance(fungibleToken, 50));
-    }
-
-    @NotNull
-    private String getNestedContractAddress(String contract, HapiSpec spec) {
-        return AssociatePrecompileSuite.getNestedContractAddress(contract, spec);
+                .then(getAccountBalance(TOKEN_TREASURY).hasTokenBalance(TOKEN_USAGE, 49));
     }
 
     @Override

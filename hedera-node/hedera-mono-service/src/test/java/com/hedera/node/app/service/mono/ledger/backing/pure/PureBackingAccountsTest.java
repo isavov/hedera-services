@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.ledger.backing.pure;
 
 import static com.hedera.test.utils.IdUtils.asAccount;
@@ -27,13 +28,13 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import com.hedera.node.app.service.mono.state.adapters.MerkleMapLike;
 import com.hedera.node.app.service.mono.state.merkle.MerkleAccount;
 import com.hedera.node.app.service.mono.state.migration.AccountStorageAdapter;
 import com.hedera.node.app.service.mono.utils.EntityNum;
 import com.hedera.test.factories.accounts.MerkleAccountFactory;
 import com.hederahashgraph.api.proto.java.AccountID;
 import com.swirlds.merkle.map.MerkleMap;
-import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -42,7 +43,8 @@ class PureBackingAccountsTest {
     private final AccountID b = asAccount("0.0.1");
     private final EntityNum aKey = EntityNum.fromAccountId(a);
     private final EntityNum bKey = EntityNum.fromAccountId(b);
-    private final MerkleAccount aValue = MerkleAccountFactory.newAccount().balance(123L).get();
+    private final MerkleAccount aValue =
+            MerkleAccountFactory.newAccount().balance(123L).get();
 
     private MerkleMap<EntityNum, MerkleAccount> map;
     private PureBackingAccounts subject;
@@ -51,7 +53,7 @@ class PureBackingAccountsTest {
     void setup() {
         map = mock(MerkleMap.class);
 
-        subject = new PureBackingAccounts(() -> AccountStorageAdapter.fromInMemory(map));
+        subject = new PureBackingAccounts(() -> AccountStorageAdapter.fromInMemory(MerkleMapLike.from(map)));
     }
 
     @Test
@@ -79,17 +81,6 @@ class PureBackingAccountsTest {
         assertTrue(subject.contains(b));
         // and:
         verify(map, times(2)).containsKey(any());
-    }
-
-    @Test
-    void delegatesIdSet() {
-        var ids = Set.of(aKey, bKey);
-        var expectedIds = Set.of(a, b);
-
-        given(map.keySet()).willReturn(ids);
-
-        // expect:
-        assertEquals(expectedIds, subject.idSet());
     }
 
     @Test

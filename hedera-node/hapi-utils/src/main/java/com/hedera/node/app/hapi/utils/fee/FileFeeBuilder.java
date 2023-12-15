@@ -13,9 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.hapi.utils.fee;
 
-import com.hedera.node.app.hapi.utils.exception.InvalidTxBodyException;
 import com.hederahashgraph.api.proto.java.FeeComponents;
 import com.hederahashgraph.api.proto.java.FeeData;
 import com.hederahashgraph.api.proto.java.ResponseType;
@@ -71,27 +71,21 @@ public final class FileFeeBuilder extends FeeBuilder {
 
         sbpr = (long) BASIC_ENTITY_ID_SIZE + contentSize;
 
-        FeeComponents feeMatrices =
-                FeeComponents.newBuilder()
-                        .setBpt(bpt)
-                        .setVpt(vpt)
-                        .setRbh(rbs)
-                        .setSbh(sbs)
-                        .setGas(gas)
-                        .setTv(tv)
-                        .setBpr(bpr)
-                        .setSbpr(sbpr)
-                        .build();
+        FeeComponents feeMatrices = FeeComponents.newBuilder()
+                .setBpt(bpt)
+                .setVpt(vpt)
+                .setRbh(rbs)
+                .setSbh(sbs)
+                .setGas(gas)
+                .setTv(tv)
+                .setBpr(bpr)
+                .setSbpr(sbpr)
+                .build();
 
         return getQueryFeeDataMatrices(feeMatrices);
     }
 
-    public FeeData getSystemDeleteFileTxFeeMatrices(
-            TransactionBody txBody, SigValueObj numSignatures) throws InvalidTxBodyException {
-        if (txBody == null || !txBody.hasSystemDelete()) {
-            throw new InvalidTxBodyException(
-                    "System Delete Tx Body not available for Fee Calculation");
-        }
+    public FeeData getSystemDeleteFileTxFeeMatrices(TransactionBody txBody, SigValueObj numSignatures) {
         long bpt = 0;
         long vpt = 0;
         long rbs = 0;
@@ -113,28 +107,21 @@ public final class FileFeeBuilder extends FeeBuilder {
         // sbs should not be charged as the fee for storage was already paid. What if expiration is
         // changed though?
 
-        FeeComponents feeMatricesForTx =
-                FeeComponents.newBuilder()
-                        .setBpt(bpt)
-                        .setVpt(vpt)
-                        .setRbh(rbs)
-                        .setSbh(sbs)
-                        .setGas(gas)
-                        .setTv(tv)
-                        .setBpr(bpr)
-                        .setSbpr(sbpr)
-                        .build();
+        FeeComponents feeMatricesForTx = FeeComponents.newBuilder()
+                .setBpt(bpt)
+                .setVpt(vpt)
+                .setRbh(rbs)
+                .setSbh(sbs)
+                .setGas(gas)
+                .setTv(tv)
+                .setBpr(bpr)
+                .setSbpr(sbpr)
+                .build();
 
-        return getFeeDataMatrices(
-                feeMatricesForTx, numSignatures.getPayerAcctSigCount(), rbsNetwork);
+        return getFeeDataMatrices(feeMatricesForTx, numSignatures.getPayerAcctSigCount(), rbsNetwork);
     }
 
-    public FeeData getSystemUnDeleteFileTxFeeMatrices(
-            TransactionBody txBody, SigValueObj numSignatures) throws InvalidTxBodyException {
-        if (txBody == null || !txBody.hasSystemUndelete()) {
-            throw new InvalidTxBodyException(
-                    "System UnDelete Tx Body not available for Fee Calculation");
-        }
+    public FeeData getSystemUnDeleteFileTxFeeMatrices(TransactionBody txBody, SigValueObj numSignatures) {
         long bpt = 0;
         long vpt = 0;
         long rbs = 0;
@@ -154,29 +141,21 @@ public final class FileFeeBuilder extends FeeBuilder {
         // sbs should not be charged as the fee for storage was already paid. What if expiration is
         // changed though?
 
-        FeeComponents feeMatricesForTx =
-                FeeComponents.newBuilder()
-                        .setBpt(bpt)
-                        .setVpt(vpt)
-                        .setRbh(rbs)
-                        .setSbh(sbs)
-                        .setGas(gas)
-                        .setTv(tv)
-                        .setBpr(bpr)
-                        .setSbpr(sbpr)
-                        .build();
+        FeeComponents feeMatricesForTx = FeeComponents.newBuilder()
+                .setBpt(bpt)
+                .setVpt(vpt)
+                .setRbh(rbs)
+                .setSbh(sbs)
+                .setGas(gas)
+                .setTv(tv)
+                .setBpr(bpr)
+                .setSbpr(sbpr)
+                .build();
 
-        return getFeeDataMatrices(
-                feeMatricesForTx, numSignatures.getPayerAcctSigCount(), rbsNetwork);
+        return getFeeDataMatrices(feeMatricesForTx, numSignatures.getPayerAcctSigCount(), rbsNetwork);
     }
 
-    public FeeData getFileDeleteTxFeeMatrices(TransactionBody txBody, SigValueObj sigValObj)
-            throws InvalidTxBodyException {
-        if (txBody == null || !txBody.hasFileDelete()) {
-            throw new InvalidTxBodyException(
-                    "FileDelete Tx Body not available for Fee Calculation");
-        }
-
+    public FeeData getFileDeleteTxFeeMatrices(TransactionBody txBody, SigValueObj sigValObj) {
         long bpt = 0;
         long vpt = 0;
         long rbs = 0;
@@ -200,17 +179,16 @@ public final class FileFeeBuilder extends FeeBuilder {
 
         long rbsNetwork = getDefaultRBHNetworkSize();
 
-        FeeComponents feeMatricesForTx =
-                FeeComponents.newBuilder()
-                        .setBpt(bpt)
-                        .setVpt(vpt)
-                        .setRbh(rbs)
-                        .setSbh(sbs)
-                        .setGas(gas)
-                        .setTv(tv)
-                        .setBpr(bpr)
-                        .setSbpr(sbpr)
-                        .build();
+        FeeComponents feeMatricesForTx = FeeComponents.newBuilder()
+                .setBpt(bpt)
+                .setVpt(vpt)
+                .setRbh(rbs)
+                .setSbh(sbs)
+                .setGas(gas)
+                .setTv(tv)
+                .setBpr(bpr)
+                .setSbpr(sbpr)
+                .build();
 
         return getFeeDataMatrices(feeMatricesForTx, sigValObj.getPayerAcctSigCount(), rbsNetwork);
     }

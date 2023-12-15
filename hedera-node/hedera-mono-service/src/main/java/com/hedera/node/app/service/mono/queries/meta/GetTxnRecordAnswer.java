@@ -13,9 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.queries.meta;
 
 import static com.hederahashgraph.api.proto.java.HederaFunctionality.TransactionGetRecord;
+import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.ACCOUNT_DELETED;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INVALID_ACCOUNT_ID;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.OK;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.RECORD_NOT_FOUND;
@@ -48,14 +50,11 @@ public class GetTxnRecordAnswer implements AnswerService {
     private final AnswerFunctions answerFunctions;
     private final OptionValidator optionValidator;
 
-    public static final String PRIORITY_RECORD_CTX_KEY =
-            GetTxnRecordAnswer.class.getSimpleName() + "_priorityRecord";
+    public static final String PRIORITY_RECORD_CTX_KEY = GetTxnRecordAnswer.class.getSimpleName() + "_priorityRecord";
     public static final String DUPLICATE_RECORDS_CTX_KEY =
             GetTxnRecordAnswer.class.getSimpleName() + "_duplicateRecords";
-    public static final String CHILD_RECORDS_CTX_KEY =
-            GetTxnRecordAnswer.class.getSimpleName() + "_childRecords";
-    public static final String PAYER_RECORDS_CTX_KEY =
-            GetTxnRecordAnswer.class.getSimpleName() + "_payerRecords";
+    public static final String CHILD_RECORDS_CTX_KEY = GetTxnRecordAnswer.class.getSimpleName() + "_childRecords";
+    public static final String PAYER_RECORDS_CTX_KEY = GetTxnRecordAnswer.class.getSimpleName() + "_payerRecords";
 
     @Inject
     public GetTxnRecordAnswer(
@@ -85,10 +84,7 @@ public class GetTxnRecordAnswer implements AnswerService {
 
     @Override
     public Response responseGiven(
-            final Query query,
-            final @Nullable StateView view,
-            final ResponseCodeEnum validity,
-            final long cost) {
+            final Query query, final @Nullable StateView view, final ResponseCodeEnum validity, final long cost) {
         return responseFor(query, validity, cost, NO_QUERY_CTX);
     }
 
@@ -141,8 +137,7 @@ public class GetTxnRecordAnswer implements AnswerService {
                             (List<TransactionRecord>) ctx.get(DUPLICATE_RECORDS_CTX_KEY));
                 }
                 if (op.getIncludeChildRecords()) {
-                    response.addAllChildTransactionRecords(
-                            (List<TransactionRecord>) ctx.get(CHILD_RECORDS_CTX_KEY));
+                    response.addAllChildTransactionRecords((List<TransactionRecord>) ctx.get(CHILD_RECORDS_CTX_KEY));
                 }
             }
         } else {
@@ -153,12 +148,10 @@ public class GetTxnRecordAnswer implements AnswerService {
                 response.setHeader(answerOnlyHeader(OK));
                 response.setTransactionRecord(txnRecord.get());
                 if (op.getIncludeDuplicates()) {
-                    response.addAllDuplicateTransactionRecords(
-                            recordCache.getDuplicateRecords(op.getTransactionID()));
+                    response.addAllDuplicateTransactionRecords(recordCache.getDuplicateRecords(op.getTransactionID()));
                 }
                 if (op.getIncludeChildRecords()) {
-                    response.addAllChildTransactionRecords(
-                            recordCache.getChildRecords(op.getTransactionID()));
+                    response.addAllChildTransactionRecords(recordCache.getChildRecords(op.getTransactionID()));
                 }
             }
         }
@@ -173,7 +166,8 @@ public class GetTxnRecordAnswer implements AnswerService {
             return INVALID_ACCOUNT_ID;
         }
 
-        return optionValidator.queryableAccountStatus(fallbackId, view.accounts());
+        final var payerIdStatus = optionValidator.queryableAccountStatus(fallbackId, view.accounts());
+        return payerIdStatus == ACCOUNT_DELETED ? OK : payerIdStatus;
     }
 
     @Override

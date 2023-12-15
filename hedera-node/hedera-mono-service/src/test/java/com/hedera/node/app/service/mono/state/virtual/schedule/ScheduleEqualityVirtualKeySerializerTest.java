@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.virtual.schedule;
 
 import static com.hedera.node.app.service.mono.state.virtual.schedule.ScheduleEqualityVirtualKey.BYTES_IN_SERIALIZED_FORM;
@@ -25,7 +26,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 import com.swirlds.common.io.streams.SerializableDataInputStream;
-import com.swirlds.common.io.streams.SerializableDataOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import org.junit.jupiter.api.Test;
@@ -34,8 +34,7 @@ class ScheduleEqualityVirtualKeySerializerTest {
     private final long longKey = 2;
     private final long otherLongKey = 3;
 
-    private final ScheduleEqualityVirtualKeySerializer subject =
-            new ScheduleEqualityVirtualKeySerializer();
+    private final ScheduleEqualityVirtualKeySerializer subject = new ScheduleEqualityVirtualKeySerializer();
 
     @Test
     void gettersWork() {
@@ -43,8 +42,7 @@ class ScheduleEqualityVirtualKeySerializerTest {
 
         assertEquals(BYTES_IN_SERIALIZED_FORM, subject.deserializeKeySize(bin));
         assertEquals(BYTES_IN_SERIALIZED_FORM, subject.getSerializedSize());
-        assertEquals(
-                ScheduleEqualityVirtualKeySerializer.DATA_VERSION, subject.getCurrentDataVersion());
+        assertEquals(ScheduleEqualityVirtualKeySerializer.DATA_VERSION, subject.getCurrentDataVersion());
         assertEquals(ScheduleEqualityVirtualKeySerializer.CLASS_ID, subject.getClassId());
         assertEquals(ScheduleEqualityVirtualKeySerializer.CURRENT_VERSION, subject.getVersion());
     }
@@ -60,12 +58,12 @@ class ScheduleEqualityVirtualKeySerializerTest {
 
     @Test
     void serializeWorks() throws IOException {
-        final var out = mock(SerializableDataOutputStream.class);
+        final var out = mock(ByteBuffer.class);
         final var virtualKey = new ScheduleEqualityVirtualKey(longKey);
 
         assertEquals(BYTES_IN_SERIALIZED_FORM, subject.serialize(virtualKey, out));
 
-        verify(out).writeLong(longKey);
+        verify(out).putLong(longKey);
     }
 
     @Test

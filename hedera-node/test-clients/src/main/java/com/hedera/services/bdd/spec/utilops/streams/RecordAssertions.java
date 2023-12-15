@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.spec.utilops.streams;
 
 import static com.hedera.services.bdd.spec.transactions.TxnVerbs.cryptoTransfer;
@@ -31,12 +32,16 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class RecordAssertions extends UtilOp {
-    private static final Duration DEFAULT_RECORD_CLOSE_DELAY = Duration.ofMillis(100L);
+    private static final Logger LOG = LogManager.getLogger(RecordAssertions.class);
     private static final Duration DEFAULT_INTER_CHECK_DELAY = Duration.ofMillis(2_000L);
 
-    @Nullable private final String loc;
+    @Nullable
+    private final String loc;
+
     private final Duration timeout;
     private final List<RecordStreamValidator> validators;
 
@@ -44,8 +49,7 @@ public class RecordAssertions extends UtilOp {
         this(null, timeout, validators);
     }
 
-    public RecordAssertions(
-            final String loc, final Duration timeout, final RecordStreamValidator... validators) {
+    public RecordAssertions(final String loc, final Duration timeout, final RecordStreamValidator... validators) {
         this.loc = loc;
         this.timeout = timeout;
         this.validators = Arrays.asList(validators);
@@ -57,14 +61,7 @@ public class RecordAssertions extends UtilOp {
         final var deadline = Instant.now().plus(timeout);
         Throwable lastFailure;
         do {
-            Thread.sleep(DEFAULT_INTER_CHECK_DELAY.toMillis());
-            // Should trigger a new record to be written if we have crossed a 2-second boundary
-            final var triggerOp =
-                    cryptoTransfer(tinyBarsFromTo(DEFAULT_PAYER, FUNDING, 1L))
-                            .deferStatusResolution()
-                            .noLogging();
-            allRunFor(spec, triggerOp);
-            Thread.sleep(DEFAULT_RECORD_CLOSE_DELAY.toMillis());
+            triggerAndCloseAtLeastOneFile(spec);
             lastFailure = firstFailureIfAny(locToUse);
             if (lastFailure == null) {
                 // No failure, so we're done!
@@ -72,6 +69,26 @@ public class RecordAssertions extends UtilOp {
             }
         } while (Instant.now().isBefore(deadline));
         throw Objects.requireNonNull(lastFailure);
+    }
+
+    public static void triggerAndCloseAtLeastOneFile(final HapiSpec spec) throws InterruptedException {
+        Thread.sleep(DEFAULT_INTER_CHECK_DELAY.toMillis());
+        // Should trigger a new record to be written if we have crossed a 2-second boundary
+        final var triggerOp = cryptoTransfer(tinyBarsFromTo(DEFAULT_PAYER, FUNDING, 1L))
+                .deferStatusResolution()
+                .hasAnyStatusAtAll()
+                .noLogging();
+        allRunFor(spec, triggerOp);
+    }
+
+    public static void triggerAndCloseAtLeastOneFileIfNotInterrupted(final HapiSpec spec) {
+        try {
+            RecordAssertions.triggerAndCloseAtLeastOneFile(spec);
+            LOG.info("Sleeping for a second to give the record stream a (very generous) chance to close");
+            Thread.sleep(1000L);
+        } catch (final InterruptedException ignore) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     @Nullable

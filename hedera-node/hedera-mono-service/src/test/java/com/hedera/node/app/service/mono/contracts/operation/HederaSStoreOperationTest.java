@@ -13,9 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.contracts.operation;
 
-import static com.hedera.node.app.service.mono.contracts.operation.HederaSStoreOperation.ILLEGAL_STATE_CHANGE_RESULT;
 import static com.hedera.services.stream.proto.SidecarType.CONTRACT_STATE_CHANGE;
 import static org.hyperledger.besu.evm.frame.ExceptionalHaltReason.ILLEGAL_STATE_CHANGE;
 import static org.hyperledger.besu.evm.frame.ExceptionalHaltReason.INSUFFICIENT_GAS;
@@ -35,7 +35,6 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.EVM;
-import org.hyperledger.besu.evm.account.EvmAccount;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -48,13 +47,23 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class HederaSStoreOperationTest {
-    @Mock private EVM evm;
-    @Mock private EvmAccount evmAccount;
-    @Mock private GasCalculator gasCalculator;
-    @Mock private MessageFrame frame;
-    @Mock private MutableAccount mutableAccount;
-    @Mock private HederaWorldUpdater updater;
-    @Mock private GlobalDynamicProperties dynamicProperties;
+    @Mock
+    private EVM evm;
+
+    @Mock
+    private MutableAccount evmAccount;
+
+    @Mock
+    private GasCalculator gasCalculator;
+
+    @Mock
+    private MessageFrame frame;
+
+    @Mock
+    private HederaWorldUpdater updater;
+
+    @Mock
+    private GlobalDynamicProperties dynamicProperties;
 
     private HederaSStoreOperation subject;
 
@@ -64,22 +73,12 @@ class HederaSStoreOperationTest {
     }
 
     @Test
-    void recognizesImmutableAccount() {
-        givenStackItemsAndRecipientAccount();
-
-        final var result = subject.execute(frame, evm);
-
-        assertSame(ILLEGAL_STATE_CHANGE_RESULT, result);
-    }
-
-    @Test
     void recognizesIllegalStateChange() {
         givenStackItemsAndMutableRecipientAccount();
         givenColdSlot();
         given(frame.isStatic()).willReturn(true);
 
-        final var expected =
-                new Operation.OperationResult(storageCost + coldSloadCost, ILLEGAL_STATE_CHANGE);
+        final var expected = new Operation.OperationResult(storageCost + coldSloadCost, ILLEGAL_STATE_CHANGE);
 
         final var actual = subject.execute(frame, evm);
 
@@ -104,8 +103,7 @@ class HederaSStoreOperationTest {
         givenStackItemsAndMutableRecipientAccount();
         givenColdSlot();
         givenRemainingGas(storageCost);
-        final var expected =
-                new Operation.OperationResult(storageCost + coldSloadCost, INSUFFICIENT_GAS);
+        final var expected = new Operation.OperationResult(storageCost + coldSloadCost, INSUFFICIENT_GAS);
 
         final var actual = subject.execute(frame, evm);
 
@@ -117,15 +115,14 @@ class HederaSStoreOperationTest {
         givenStackItemsAndMutableRecipientAccount();
         givenColdSlot();
         givenRemainingGas(sufficientRemainingGas);
-        given(gasCalculator.calculateStorageRefundAmount(mutableAccount, key, value))
-                .willReturn(storageRefundAmount);
+        given(gasCalculator.calculateStorageRefundAmount(any(), any(), any())).willReturn(storageRefundAmount);
         final var expected = new Operation.OperationResult(storageCost + coldSloadCost, null);
 
         final var actual = subject.execute(frame, evm);
 
         assertResultsEqual(expected, actual);
         verify(frame).incrementGasRefund(storageRefundAmount);
-        verify(mutableAccount).setStorageValue(key, value);
+        verify(evmAccount).setStorageValue(key, value);
         verify(frame).storageWasUpdated(key, value);
         verify(frame).warmUpStorage(recipient, key);
     }
@@ -135,29 +132,27 @@ class HederaSStoreOperationTest {
         givenStackItemsAndMutableRecipientAccount();
         givenColdSlot();
         givenRemainingGas(sufficientRemainingGas);
-        given(gasCalculator.calculateStorageRefundAmount(mutableAccount, key, value))
-                .willReturn(storageRefundAmount);
+        given(gasCalculator.calculateStorageRefundAmount(any(), any(), any())).willReturn(storageRefundAmount);
         final var expected = new Operation.OperationResult(storageCost + coldSloadCost, null);
         final var messageStack = new ArrayDeque<MessageFrame>();
         messageStack.add(frame);
         given(frame.getMessageFrameStack()).willReturn(messageStack);
         given(updater.parentUpdater()).willReturn(Optional.empty());
         given(dynamicProperties.enabledSidecars()).willReturn(Set.of(CONTRACT_STATE_CHANGE));
-        given(mutableAccount.getAddress()).willReturn(unaliasedRecipient);
+        given(evmAccount.getAddress()).willReturn(unaliasedRecipient);
 
         final var actual = subject.execute(frame, evm);
 
         assertResultsEqual(expected, actual);
         verify(frame).incrementGasRefund(storageRefundAmount);
-        verify(mutableAccount).setStorageValue(key, value);
+        verify(evmAccount).setStorageValue(key, value);
         verify(frame).storageWasUpdated(key, value);
         verify(frame).warmUpStorage(unaliasedRecipient, key);
     }
 
     private void givenStackItemsAndMutableRecipientAccount() {
         givenStackItemsAndRecipientAccount();
-        given(evmAccount.getMutable()).willReturn(mutableAccount);
-        given(mutableAccount.getAddress()).willReturn(recipient);
+        given(evmAccount.getAddress()).willReturn(recipient);
         given(gasCalculator.calculateStorageCost(any(), any(), any())).willReturn(storageCost);
     }
 
@@ -176,8 +171,7 @@ class HederaSStoreOperationTest {
         given(gasCalculator.getColdSloadCost()).willReturn(coldSloadCost);
     }
 
-    private void assertResultsEqual(
-            final Operation.OperationResult expected, final Operation.OperationResult actual) {
+    private void assertResultsEqual(final Operation.OperationResult expected, final Operation.OperationResult actual) {
         assertEquals(expected.getGasCost(), actual.getGasCost());
         assertEquals(expected.getHaltReason(), actual.getHaltReason());
     }

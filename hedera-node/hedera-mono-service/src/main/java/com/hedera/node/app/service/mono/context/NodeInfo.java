@@ -13,13 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.context;
 
 import static com.hedera.node.app.service.mono.utils.EntityIdUtils.parseAccount;
 
 import com.hedera.node.app.service.mono.utils.EntityNum;
 import com.hederahashgraph.api.proto.java.AccountID;
-import com.swirlds.common.system.address.AddressBook;
+import com.swirlds.platform.system.address.AddressBook;
 import java.util.function.Supplier;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -52,11 +53,11 @@ public class NodeInfo {
     }
 
     /**
-     * For a staked node, validates presence of a self-account in the address book.
+     * For a non-zero stake node, validates presence of a self-account in the address book.
      *
-     * @throws IllegalStateException if the node is staked but has no account
+     * @throws IllegalStateException if the node has a non-zero stake but has no account
      */
-    public void validateSelfAccountIfStaked() {
+    public void validateSelfAccountIfNonZeroStake() {
         if (!isSelfZeroStake() && !hasSelfAccount()) {
             throw new IllegalStateException("Node is not zero-stake, but has no known account");
         }
@@ -78,8 +79,7 @@ public class NodeInfo {
 
         final int index = (int) nodeId;
         if (isIndexOutOfBounds(index)) {
-            throw new IllegalArgumentException(
-                    "The address book does not have a node at index " + index);
+            throw new IllegalArgumentException("The address book does not have a node at index " + index);
         }
         return isZeroStake[index];
     }
@@ -120,12 +120,10 @@ public class NodeInfo {
 
         final int index = (int) nodeId;
         if (isIndexOutOfBounds(index)) {
-            throw new IllegalArgumentException(
-                    "No node with id " + nodeId + " was in the address book!");
+            throw new IllegalArgumentException("No node with id " + nodeId + " was in the address book!");
         }
         if (accounts[index] == null) {
-            throw new IllegalArgumentException(
-                    "The address book did not have an account for node id " + nodeId + "!");
+            throw new IllegalArgumentException("The address book did not have an account for node id " + nodeId + "!");
         }
         return index;
     }
@@ -162,6 +160,15 @@ public class NodeInfo {
         return accountOf(selfId);
     }
 
+    /**
+     * Returns this node's id.
+     *
+     * @return this node's id
+     */
+    public long selfId() {
+        return selfId;
+    }
+
     private boolean isIndexOutOfBounds(int index) {
         return index < 0 || index >= numberOfNodes;
     }
@@ -175,15 +182,15 @@ public class NodeInfo {
         isZeroStake = new boolean[numberOfNodes];
 
         for (int i = 0; i < numberOfNodes; i++) {
-            final var address = staticBook.getAddress(i);
-            isZeroStake[i] = address.getStake() <= 0;
+            final var nodeId = staticBook.getNodeId(i);
+            final var address = staticBook.getAddress(nodeId);
+            isZeroStake[i] = address.getWeight() <= 0;
             try {
                 accounts[i] = parseAccount(address.getMemo());
                 accountKeys[i] = EntityNum.fromAccountId(accounts[i]);
             } catch (IllegalArgumentException e) {
                 if (!isZeroStake[i]) {
-                    log.error(
-                            "Cannot parse account for staked node id {}, potentially fatal!", i, e);
+                    log.error("Cannot parse account for staked node id {}, potentially fatal!", i, e);
                 }
             }
         }

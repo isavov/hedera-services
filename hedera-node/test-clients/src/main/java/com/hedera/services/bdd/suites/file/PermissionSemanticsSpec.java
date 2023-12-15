@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.file;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -36,6 +37,8 @@ import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INVALID_SIGNAT
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.UNAUTHORIZED;
 
 import com.google.protobuf.ByteString;
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.keys.ControlForKey;
 import com.hedera.services.bdd.spec.keys.KeyFactory;
@@ -47,6 +50,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+@HapiTestSuite
 public class PermissionSemanticsSpec extends HapiSuite {
     private static final Logger log = LogManager.getLogger(PermissionSemanticsSpec.class);
     public static final String NEVER_TO_BE_USED = "neverToBeUsed";
@@ -71,7 +75,8 @@ public class PermissionSemanticsSpec extends HapiSuite {
                 addressBookAdminExemptFromFeesGivenAuthorizedOps());
     }
 
-    private HapiSpec addressBookAdminExemptFromFeesGivenAuthorizedOps() {
+    @HapiTest
+    final HapiSpec addressBookAdminExemptFromFeesGivenAuthorizedOps() {
         long amount = 100 * 100_000_000L;
         AtomicReference<byte[]> origContents = new AtomicReference<>();
         return defaultHapiSpec("AddressBookAdminExemptFromFeesGivenAuthorizedOps")
@@ -90,12 +95,12 @@ public class PermissionSemanticsSpec extends HapiSuite {
                                 .contents("This is something new.")
                                 .via("unauthorizedTxn"))
                 .then(
-                        getTxnRecord("unauthorizedTxn")
-                                .hasPriority(recordWith().feeDifferentThan(0L)),
+                        getTxnRecord("unauthorizedTxn").hasPriority(recordWith().feeDifferentThan(0L)),
                         getTxnRecord("authorizedTxn").hasPriority(recordWith().fee(0L)));
     }
 
-    private HapiSpec supportsImmutableFiles() {
+    @HapiTest
+    final HapiSpec supportsImmutableFiles() {
         long extensionSecs = 666L;
         AtomicLong approxExpiry = new AtomicLong();
 
@@ -125,22 +130,19 @@ public class PermissionSemanticsSpec extends HapiSuite {
                                 .wacl(NEVER_TO_BE_USED)
                                 .hasKnownStatus(UNAUTHORIZED))
                 .then(
-                        withOpContext(
-                                (spec, opLog) -> {
-                                    approxExpiry.set(
-                                            spec.registry().getTimestamp(ETERNAL).getSeconds());
-                                }),
+                        withOpContext((spec, opLog) -> approxExpiry.set(
+                                spec.registry().getTimestamp(ETERNAL).getSeconds())),
                         fileUpdate(ETERNAL)
                                 .payingWith(CIVILIAN)
                                 .signedBy(CIVILIAN)
                                 .extendingExpiryBy(extensionSecs),
                         getFileInfo(ETERNAL)
                                 .isUnmodifiable()
-                                .hasExpiryPassing(
-                                        l -> Math.abs(l - approxExpiry.get() - extensionSecs) < 5));
+                                .hasExpiryPassing(l -> Math.abs(l - approxExpiry.get() - extensionSecs) < 5));
     }
 
-    private HapiSpec allowsDeleteWithOneTopLevelSig() {
+    @HapiTest
+    final HapiSpec allowsDeleteWithOneTopLevelSig() {
         KeyShape wacl = KeyShape.listOf(KeyShape.SIMPLE, KeyShape.listOf(2));
 
         var deleteSig = wacl.signedWith(sigs(ON, sigs(OFF, OFF)));
@@ -166,9 +168,7 @@ public class PermissionSemanticsSpec extends HapiSuite {
                                 .signedBy(GENESIS, WACL)
                                 .sigControl(ControlForKey.forKey(WACL, failedDeleteSig))
                                 .hasKnownStatus(INVALID_SIGNATURE),
-                        fileDelete("tbd")
-                                .signedBy(GENESIS, WACL)
-                                .sigControl(ControlForKey.forKey(WACL, deleteSig)));
+                        fileDelete("tbd").signedBy(GENESIS, WACL).sigControl(ControlForKey.forKey(WACL, deleteSig)));
     }
 
     @Override

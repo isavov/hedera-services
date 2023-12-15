@@ -13,8 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.fees.calculation.crypto.queries;
 
+import static com.hedera.node.app.service.mono.pbj.PbjConverter.fromPbj;
+
+import com.hedera.hapi.node.state.token.Account;
 import com.hedera.node.app.hapi.fees.usage.crypto.CryptoOpsUsage;
 import com.hedera.node.app.hapi.fees.usage.crypto.ExtantCryptoContext;
 import com.hedera.node.app.service.mono.context.primitives.StateView;
@@ -23,6 +27,7 @@ import com.hedera.node.app.service.mono.fees.calculation.QueryResourceUsageEstim
 import com.hedera.node.app.service.mono.ledger.accounts.AliasManager;
 import com.hederahashgraph.api.proto.java.FeeData;
 import com.hederahashgraph.api.proto.java.Query;
+import java.util.Collections;
 import java.util.Map;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -49,14 +54,12 @@ public final class GetAccountDetailsResourceUsage implements QueryResourceUsageE
     }
 
     @Override
-    public FeeData usageGiven(
-            final Query query, final StateView view, final Map<String, Object> ignoreCtx) {
+    public FeeData usageGiven(final Query query, final StateView view, final Map<String, Object> ignoreCtx) {
         final var op = query.getAccountDetails();
 
         final var account = op.getAccountId();
         final var accountDetails =
-                view.accountDetails(
-                        account, aliasManager, dynamicProperties.maxTokensRelsPerInfoQuery());
+                view.accountDetails(account, aliasManager, dynamicProperties.maxTokensRelsPerInfoQuery());
         /* Given the test in {@code GetAccountDetailsAnswer.checkValidity}, this can only be empty
          * under the extraordinary circumstance that the desired account expired during the query
          * answer flow (which will now fail downstream with an appropriate status code); so
@@ -65,19 +68,41 @@ public final class GetAccountDetailsResourceUsage implements QueryResourceUsageE
             return FeeData.getDefaultInstance();
         }
         final var details = accountDetails.get();
-        final var ctx =
-                ExtantCryptoContext.newBuilder()
-                        .setCurrentKey(details.getKey())
-                        .setCurrentMemo(details.getMemo())
-                        .setCurrentExpiry(details.getExpirationTime().getSeconds())
-                        .setCurrentlyHasProxy(details.hasProxyAccountId())
-                        .setCurrentNumTokenRels(details.getTokenRelationshipsCount())
-                        .setCurrentMaxAutomaticAssociations(
-                                details.getMaxAutomaticTokenAssociations())
-                        .setCurrentCryptoAllowances(details.getGrantedCryptoAllowancesList())
-                        .setCurrentTokenAllowances(details.getGrantedTokenAllowancesList())
-                        .setCurrentApproveForAllNftAllowances(details.getGrantedNftAllowancesList())
-                        .build();
+        final var ctx = ExtantCryptoContext.newBuilder()
+                .setCurrentKey(details.getKey())
+                .setCurrentMemo(details.getMemo())
+                .setCurrentExpiry(details.getExpirationTime().getSeconds())
+                .setCurrentlyHasProxy(details.hasProxyAccountId())
+                .setCurrentNumTokenRels(details.getTokenRelationshipsCount())
+                .setCurrentMaxAutomaticAssociations(details.getMaxAutomaticTokenAssociations())
+                .setCurrentCryptoAllowances(details.getGrantedCryptoAllowancesList())
+                .setCurrentTokenAllowances(details.getGrantedTokenAllowancesList())
+                .setCurrentApproveForAllNftAllowances(details.getGrantedNftAllowancesList())
+                .build();
         return cryptoOpsUsage.accountDetailsUsage(query, ctx);
+    }
+
+    /**
+     * This method is used to calculate the fee for the {@code NetworkGetAccountDetails}
+     * query in modularized code only.
+     * @param query query to be processed
+     * @param account account whose info is being retrieved
+     * @return the fee for the query
+     */
+    public FeeData usageGiven(final com.hedera.hapi.node.transaction.Query query, final Account account) {
+        if (account == null) {
+            return FeeData.getDefaultInstance();
+        }
+        final var ctx = ExtantCryptoContext.newBuilder()
+                .setCurrentKey(fromPbj(account.key()))
+                .setCurrentMemo(account.memo())
+                .setCurrentExpiry(account.expirationSecond())
+                .setCurrentNumTokenRels(account.numberAssociations())
+                .setCurrentMaxAutomaticAssociations(account.maxAutoAssociations())
+                .setCurrentCryptoAllowances(Collections.emptyMap())
+                .setCurrentTokenAllowances(Collections.emptyMap())
+                .setCurrentApproveForAllNftAllowances(Collections.emptySet())
+                .build();
+        return cryptoOpsUsage.cryptoInfoUsage(fromPbj(query), ctx);
     }
 }

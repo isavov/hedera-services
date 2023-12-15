@@ -13,87 +13,148 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.schedule.impl.handlers;
 
-import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INVALID_SCHEDULE_ID;
-import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.SCHEDULE_IS_IMMUTABLE;
-import static java.util.Objects.requireNonNull;
-
-import com.hedera.node.app.service.schedule.impl.ReadableScheduleStore;
-import com.hedera.node.app.spi.meta.PreHandleContext;
-import com.hedera.node.app.spi.meta.TransactionMetadata;
+import com.hedera.hapi.node.base.HederaFunctionality;
+import com.hedera.hapi.node.base.Key;
+import com.hedera.hapi.node.base.ResponseCodeEnum;
+import com.hedera.hapi.node.base.ScheduleID;
+import com.hedera.hapi.node.scheduled.ScheduleDeleteTransactionBody;
+import com.hedera.hapi.node.state.schedule.Schedule;
+import com.hedera.hapi.node.transaction.TransactionBody;
+import com.hedera.node.app.service.schedule.ReadableScheduleStore;
+import com.hedera.node.app.service.schedule.ScheduleRecordBuilder;
+import com.hedera.node.app.service.schedule.WritableScheduleStore;
+import com.hedera.node.app.spi.signatures.SignatureVerification;
+import com.hedera.node.app.spi.workflows.HandleContext;
+import com.hedera.node.app.spi.workflows.HandleException;
+import com.hedera.node.app.spi.workflows.PreCheckException;
+import com.hedera.node.app.spi.workflows.PreHandleContext;
 import com.hedera.node.app.spi.workflows.TransactionHandler;
+import com.hedera.node.config.data.SchedulingConfig;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
+import java.util.Objects;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
 /**
- * This class contains all workflow-related functionality regarding {@link
- * com.hederahashgraph.api.proto.java.HederaFunctionality#ScheduleDelete}.
+ * This class contains all workflow-related functionality regarding {@link HederaFunctionality#SCHEDULE_DELETE}.
  */
 @Singleton
-public class ScheduleDeleteHandler implements TransactionHandler {
+public class ScheduleDeleteHandler extends AbstractScheduleHandler implements TransactionHandler {
+
     @Inject
-    public ScheduleDeleteHandler() {}
+    public ScheduleDeleteHandler() {
+        super();
+    }
 
-    /**
-     * This method is called during the pre-handle workflow.
-     *
-     * <p>Pre-handles a {@link
-     * com.hederahashgraph.api.proto.java.HederaFunctionality#ScheduleDelete} transaction, returning
-     * the metadata required to, at minimum, validate the signatures of all required signing keys.
-     *
-     * <p>Please note: the method signature is just a placeholder which is most likely going to
-     * change.
-     *
-     * @param context the {@link PreHandleContext} which collects all information that will be
-     *     passed to {@link #handle(TransactionMetadata)}
-     * @param scheduleStore the {@link ReadableScheduleStore} that contains all scheduled-data
-     * @throws NullPointerException if one of the arguments is {@code null}
-     */
-    public void preHandle(
-            @NonNull final PreHandleContext context,
-            @NonNull final ReadableScheduleStore scheduleStore) {
-        requireNonNull(context);
-        final var op = context.getTxn().getScheduleDelete();
-        final var id = op.getScheduleID();
+    @Override
+    public void pureChecks(@Nullable final TransactionBody currentTransaction) throws PreCheckException {
+        getValidScheduleDeleteBody(currentTransaction);
+    }
 
-        // check for a missing schedule. A schedule with this id could have never existed,
-        // or it could have already been executed or deleted
-        final var scheduleLookupResult = scheduleStore.get(id);
-        if (scheduleLookupResult.isEmpty()) {
-            context.status(INVALID_SCHEDULE_ID);
-            return;
+    @NonNull
+    private ScheduleDeleteTransactionBody getValidScheduleDeleteBody(@Nullable final TransactionBody currentTransaction)
+            throws PreCheckException {
+        if (currentTransaction != null) {
+            final ScheduleDeleteTransactionBody scheduleDeleteTransaction = currentTransaction.scheduleDelete();
+            if (scheduleDeleteTransaction != null) {
+                if (scheduleDeleteTransaction.scheduleID() != null) {
+                    return scheduleDeleteTransaction;
+                } else {
+                    throw new PreCheckException(ResponseCodeEnum.INVALID_SCHEDULE_ID);
+                }
+            } else {
+                throw new PreCheckException(ResponseCodeEnum.INVALID_TRANSACTION_BODY);
+            }
+        } else {
+            throw new PreCheckException(ResponseCodeEnum.INVALID_TRANSACTION);
         }
+    }
 
-        // No need to check for SCHEDULE_PENDING_EXPIRATION, SCHEDULE_ALREADY_DELETED,
-        // SCHEDULE_ALREADY_EXECUTED
-        // if any of these are the case then the scheduled tx would not be present in scheduleStore
-
-        // check whether schedule was created with an admin key
-        // if it wasn't, the schedule can't be deleted
-        final var adminKey = scheduleLookupResult.get().adminKey();
-        if (adminKey.isEmpty()) {
-            context.status(SCHEDULE_IS_IMMUTABLE);
-            return;
+    @Override
+    public void preHandle(@NonNull final PreHandleContext context) throws PreCheckException {
+        Objects.requireNonNull(context, NULL_CONTEXT_MESSAGE);
+        final ReadableScheduleStore scheduleStore = context.createStore(ReadableScheduleStore.class);
+        final SchedulingConfig schedulingConfig = context.configuration().getConfigData(SchedulingConfig.class);
+        final boolean isLongTermEnabled = schedulingConfig.longTermEnabled();
+        final TransactionBody currentTransaction = context.body();
+        final ScheduleDeleteTransactionBody scheduleDeleteTransaction = getValidScheduleDeleteBody(currentTransaction);
+        if (scheduleDeleteTransaction.scheduleID() != null) {
+            final Schedule scheduleData =
+                    preValidate(scheduleStore, isLongTermEnabled, scheduleDeleteTransaction.scheduleID());
+            final Key adminKey = scheduleData.adminKey();
+            if (adminKey != null) context.requireKey(adminKey);
+            else throw new PreCheckException(ResponseCodeEnum.SCHEDULE_IS_IMMUTABLE);
+            // Once deleted or executed, no later transaction will change that status.
+            if (scheduleData.deleted()) throw new PreCheckException(ResponseCodeEnum.SCHEDULE_ALREADY_DELETED);
+            if (scheduleData.executed()) throw new PreCheckException(ResponseCodeEnum.SCHEDULE_ALREADY_EXECUTED);
+        } else {
+            throw new PreCheckException(ResponseCodeEnum.INVALID_TRANSACTION_BODY);
         }
+    }
 
-        // add admin key of the original ScheduleCreate tx
-        // to the list of keys required to execute this ScheduleDelete tx
-        context.addToReqNonPayerKeys(adminKey.get());
+    @Override
+    public void handle(@NonNull final HandleContext context) throws HandleException {
+        Objects.requireNonNull(context, NULL_CONTEXT_MESSAGE);
+        final WritableScheduleStore scheduleStore = context.writableStore(WritableScheduleStore.class);
+        final TransactionBody currentTransaction = context.body();
+        final SchedulingConfig schedulingConfig = context.configuration().getConfigData(SchedulingConfig.class);
+        try {
+            final ScheduleDeleteTransactionBody scheduleToDelete = getValidScheduleDeleteBody(currentTransaction);
+            final ScheduleID idToDelete = scheduleToDelete.scheduleID();
+            if (idToDelete != null) {
+                final boolean isLongTermEnabled = schedulingConfig.longTermEnabled();
+                final Schedule scheduleData = reValidate(scheduleStore, isLongTermEnabled, idToDelete);
+                if (scheduleData.hasAdminKey()) {
+                    final SignatureVerification verificationResult =
+                            context.verificationFor(scheduleData.adminKeyOrThrow());
+                    if (verificationResult.passed()) {
+                        scheduleStore.delete(idToDelete, context.consensusNow());
+                        final ScheduleRecordBuilder scheduleRecords =
+                                context.recordBuilder(ScheduleRecordBuilder.class);
+                        scheduleRecords.scheduleID(idToDelete);
+                    } else {
+                        throw new HandleException(ResponseCodeEnum.UNAUTHORIZED);
+                    }
+                } else {
+                    throw new HandleException(ResponseCodeEnum.SCHEDULE_IS_IMMUTABLE);
+                }
+            } else {
+                throw new HandleException(ResponseCodeEnum.INVALID_SCHEDULE_ID);
+            }
+        } catch (final IllegalStateException ignored) {
+            throw new HandleException(ResponseCodeEnum.INVALID_SCHEDULE_ID);
+        } catch (final PreCheckException translate) {
+            throw new HandleException(translate.responseCode());
+        }
     }
 
     /**
-     * This method is called during the handle workflow. It executes the actual transaction.
-     *
-     * <p>Please note: the method signature is just a placeholder which is most likely going to
-     * change.
-     *
-     * @param metadata the {@link TransactionMetadata} that was generated during pre-handle.
-     * @throws NullPointerException if one of the arguments is {@code null}
+     * Verify that the transaction and schedule still meet the validation criteria expressed in the
+     * {@link AbstractScheduleHandler#preValidate(ReadableScheduleStore, boolean, ScheduleID)} method.
+     * @param scheduleStore a Readable source of Schedule data from state
+     * @param isLongTermEnabled a flag indicating if long term scheduling is enabled in configuration.
+     * @param idToDelete the Schedule ID of the item to mark as deleted.
+     * @return a schedule metadata read from state for the ID given, if all validation checks pass.
+     * @throws HandleException if any validation check fails.
      */
-    public void handle(@NonNull final TransactionMetadata metadata) {
-        requireNonNull(metadata);
-        throw new UnsupportedOperationException("Not implemented");
+    @NonNull
+    protected Schedule reValidate(
+            @NonNull final ReadableScheduleStore scheduleStore,
+            final boolean isLongTermEnabled,
+            @Nullable final ScheduleID idToDelete)
+            throws HandleException {
+        try {
+            final Schedule validSchedule = preValidate(scheduleStore, isLongTermEnabled, idToDelete);
+            // Once deleted or executed, no later transaction will change that status.
+            if (validSchedule.deleted()) throw new HandleException(ResponseCodeEnum.SCHEDULE_ALREADY_DELETED);
+            if (validSchedule.executed()) throw new HandleException(ResponseCodeEnum.SCHEDULE_ALREADY_EXECUTED);
+            return validSchedule;
+        } catch (final PreCheckException translated) {
+            throw new HandleException(translated.responseCode());
+        }
     }
 }

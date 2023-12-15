@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.freeze;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -33,13 +34,12 @@ public class FreezeIntellijNetwork extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return List.of(
-                new HapiSpec[] {
-                    justFreeze(),
-                });
+        return List.of(new HapiSpec[] {
+            justFreeze(),
+        });
     }
 
-    private HapiSpec justFreeze() {
+    final HapiSpec justFreeze() {
         return defaultHapiSpec("JustFreeze")
                 .given()
                 .when()

@@ -13,10 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.submerkle;
 
+import com.hedera.test.serde.EqualityType;
 import com.hedera.test.serde.SelfSerializableDataTest;
 import com.hedera.test.utils.SeededPropertySource;
+import edu.umd.cs.findbugs.annotations.NonNull;
 
 public class FcAssessedCustomFeeSerdeTest extends SelfSerializableDataTest<FcAssessedCustomFee> {
     @Override
@@ -30,7 +33,8 @@ public class FcAssessedCustomFeeSerdeTest extends SelfSerializableDataTest<FcAss
     }
 
     @Override
-    protected FcAssessedCustomFee getExpectedObject(final int version, final int testCaseNo) {
+    protected FcAssessedCustomFee getExpectedObject(
+            final int version, final int testCaseNo, @NonNull final EqualityType equalityType) {
         final var result = super.getExpectedObject(version, testCaseNo);
         if (version < FcAssessedCustomFee.RELEASE_0171_VERSION) {
             // Need to drop the last field.

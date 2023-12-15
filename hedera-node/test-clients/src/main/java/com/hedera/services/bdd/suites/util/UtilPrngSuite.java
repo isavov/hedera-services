@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.util;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -25,6 +26,8 @@ import static com.hedera.services.bdd.spec.utilops.UtilVerbs.validateChargedUsdW
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INVALID_PRNG_RANGE;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.OK;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.suites.HapiSuite;
 import java.util.List;
@@ -32,6 +35,7 @@ import java.util.Map;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+@HapiTestSuite
 public class UtilPrngSuite extends HapiSuite {
     private static final Logger log = LogManager.getLogger(UtilPrngSuite.class);
     private static final String PRNG_IS_ENABLED = "utilPrng.isEnabled";
@@ -47,13 +51,11 @@ public class UtilPrngSuite extends HapiSuite {
     }
 
     private List<HapiSpec> positiveTests() {
-        return List.of(
-                happyPathWorksForRangeAndBitString(),
-                failsInPreCheckForNegativeRange(),
-                usdFeeAsExpected());
+        return List.of(happyPathWorksForRangeAndBitString(), failsInPreCheckForNegativeRange(), usdFeeAsExpected());
     }
 
-    private HapiSpec usdFeeAsExpected() {
+    @HapiTest
+    final HapiSpec usdFeeAsExpected() {
         double baseFee = 0.001;
         double plusRangeFee = 0.0010010316;
 
@@ -68,13 +70,20 @@ public class UtilPrngSuite extends HapiSuite {
                         getTxnRecord(baseTxn).hasOnlyPseudoRandomBytes().logged(),
                         validateChargedUsd(baseTxn, baseFee))
                 .when(
-                        hapiPrng(10).payingWith(BOB).via(plusRangeTxn).blankMemo().logged(),
-                        getTxnRecord(plusRangeTxn).hasOnlyPseudoRandomNumberInRange(10).logged(),
+                        hapiPrng(10)
+                                .payingWith(BOB)
+                                .via(plusRangeTxn)
+                                .blankMemo()
+                                .logged(),
+                        getTxnRecord(plusRangeTxn)
+                                .hasOnlyPseudoRandomNumberInRange(10)
+                                .logged(),
                         validateChargedUsdWithin(plusRangeTxn, plusRangeFee, 0.5))
                 .then();
     }
 
-    private HapiSpec failsInPreCheckForNegativeRange() {
+    @HapiTest
+    final HapiSpec failsInPreCheckForNegativeRange() {
         return defaultHapiSpec("failsInPreCheckForNegativeRange")
                 .given(
                         overridingAllOf(Map.of(PRNG_IS_ENABLED, "true")),
@@ -89,7 +98,8 @@ public class UtilPrngSuite extends HapiSuite {
                 .then();
     }
 
-    private HapiSpec happyPathWorksForRangeAndBitString() {
+    @HapiTest
+    final HapiSpec happyPathWorksForRangeAndBitString() {
         final var rangeTxn = "prngWithRange";
         final var rangeTxn1 = "prngWithRange1";
         final var prngWithoutRange = "prngWithoutRange";
@@ -103,28 +113,34 @@ public class UtilPrngSuite extends HapiSuite {
                         // n-1 running hash and running has set
                         hapiPrng().payingWith(BOB).blankMemo().via("prng").logged(),
                         // n-1, n-2 running hash and running has set
-                        getTxnRecord("prng")
-                                .hasNoPseudoRandomData() // When running this suite in CI this check
-                                // will fail since it
-                                // already has n-3 running hash
-                                .logged(),
+                        getTxnRecord("prng").logged(),
                         // n-1, n-2, n-3 running hash and running has set
                         hapiPrng(10).payingWith(BOB).via(rangeTxn1).blankMemo().logged(),
-                        getTxnRecord(rangeTxn1)
-                                .hasNoPseudoRandomData() // When running this suite in CI this check
-                                // will fail since it
-                                // already has n-3 running hash
-                                .logged(),
+                        getTxnRecord(rangeTxn1).logged(),
                         hapiPrng().payingWith(BOB).via("prng2").blankMemo().logged())
                 .when(
                         // should have pseudo random data
                         hapiPrng(10).payingWith(BOB).via(rangeTxn).blankMemo().logged(),
-                        getTxnRecord(rangeTxn).hasOnlyPseudoRandomNumberInRange(10).logged())
+                        getTxnRecord(rangeTxn)
+                                .hasOnlyPseudoRandomNumberInRange(10)
+                                .logged())
                 .then(
-                        hapiPrng().payingWith(BOB).via(prngWithoutRange).blankMemo().logged(),
-                        getTxnRecord(prngWithoutRange).hasOnlyPseudoRandomBytes().logged(),
-                        hapiPrng(0).payingWith(BOB).via(prngWithZeroRange).blankMemo().logged(),
-                        getTxnRecord(prngWithZeroRange).hasOnlyPseudoRandomBytes().logged(),
+                        hapiPrng()
+                                .payingWith(BOB)
+                                .via(prngWithoutRange)
+                                .blankMemo()
+                                .logged(),
+                        getTxnRecord(prngWithoutRange)
+                                .hasOnlyPseudoRandomBytes()
+                                .logged(),
+                        hapiPrng(0)
+                                .payingWith(BOB)
+                                .via(prngWithZeroRange)
+                                .blankMemo()
+                                .logged(),
+                        getTxnRecord(prngWithZeroRange)
+                                .hasOnlyPseudoRandomBytes()
+                                .logged(),
                         hapiPrng()
                                 .range(Integer.MAX_VALUE)
                                 .payingWith(BOB)

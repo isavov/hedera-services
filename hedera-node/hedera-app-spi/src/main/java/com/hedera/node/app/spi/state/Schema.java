@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022-2023 Hedera Hashgraph, LLC
+ * Copyright (C) 2023 Hedera Hashgraph, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,10 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.spi.state;
 
-import com.hedera.node.app.spi.SemanticVersionComparator;
-import com.hederahashgraph.api.proto.java.SemanticVersion;
+import static com.hedera.node.app.spi.HapiUtils.SEMANTIC_VERSION_COMPARATOR;
+
+import com.hedera.hapi.node.base.SemanticVersion;
+import com.hedera.pbj.runtime.Codec;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Collections;
 import java.util.Objects;
@@ -59,8 +62,8 @@ public abstract class Schema implements Comparable<Schema> {
      * a {@link StateDefinition} specifying the metadata for that state.
      *
      * <p>If a state is defined in this set that already exists, it will be redefined based on the
-     * returned values. This can be used if a state exists but needs to use a new {@link Serdes},
-     * for example.
+     * returned values. This can be used if a state exists but needs to use a new {@link Codec}, for
+     * example.
      *
      * @return A map of all states to be created. Possibly empty.
      */
@@ -76,17 +79,15 @@ public abstract class Schema implements Comparable<Schema> {
      * called with the {@link ReadableStates} of the previous version of the {@link Schema}. If
      * there was no previous version, then {@code previousStates} will be empty, but not null.
      *
-     * @param previousStates The {@link ReadableStates} of the previous {@link Schema} version
-     * @param newStates {@link WritableStates} for this schema.
+     * @param ctx {@link MigrationContext} for this schema migration
      */
-    public void migrate(@NonNull ReadableStates previousStates, @NonNull WritableStates newStates) {
-        Objects.requireNonNull(previousStates);
-        Objects.requireNonNull(newStates);
+    public void migrate(@NonNull final MigrationContext ctx) {
+        Objects.requireNonNull(ctx);
     }
 
     /**
      * The {@link Set} of state keys of all states that should be removed <b>AFTER</b> {@link
-     * #migrate(ReadableStates, WritableStates)}.
+     * #migrate(MigrationContext)}.
      *
      * @return the set of states to remove
      */
@@ -95,10 +96,22 @@ public abstract class Schema implements Comparable<Schema> {
         return Collections.emptySet();
     }
 
+    /**
+     * Called on this schema if, and only if, this schema is the most recent schema that is not newer than the
+     * version of software in use, and if the node is being restarted. Most services have nothing to do in this
+     * case, but some services may need to re-read configuration, or files on disk, or something similar. They
+     * are free to modify the state as needed in the same way that {@link #migrate(MigrationContext)} does.
+     *
+     * @param ctx {@link MigrationContext} for this schema restart operation
+     */
+    public void restart(@NonNull final MigrationContext ctx) {
+        Objects.requireNonNull(ctx);
+    }
+
     /** {@inheritDoc} */
     @Override
     public int compareTo(Schema o) {
-        return SemanticVersionComparator.INSTANCE.compare(this.version, o.version);
+        return SEMANTIC_VERSION_COMPARATOR.compare(this.version, o.version);
     }
 
     /** {@inheritDoc} */

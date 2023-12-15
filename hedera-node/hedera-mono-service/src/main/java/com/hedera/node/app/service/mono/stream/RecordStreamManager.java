@@ -13,11 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.stream;
 
+import static com.swirlds.base.units.UnitConstants.MB_TO_BYTES;
 import static com.swirlds.common.threading.manager.AdHocThreadManager.getStaticThreadManager;
-import static com.swirlds.common.utility.Units.MB_TO_BYTES;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.hedera.node.app.service.mono.context.properties.GlobalDynamicProperties;
 import com.hedera.node.app.service.mono.context.properties.NodeLocalProperties;
 import com.hedera.node.app.service.mono.state.logic.StandardProcessLogic;
@@ -30,13 +32,16 @@ import com.swirlds.common.stream.MultiStream;
 import com.swirlds.common.stream.QueueThreadObjectStream;
 import com.swirlds.common.stream.QueueThreadObjectStreamConfiguration;
 import com.swirlds.common.stream.RunningHashCalculatorForStream;
-import com.swirlds.common.system.Platform;
+import com.swirlds.platform.system.Platform;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
+import java.util.function.Predicate;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -74,6 +79,22 @@ public class RecordStreamManager {
     /** initial running Hash of records */
     private Hash initialHash = new ImmutableHash(new byte[DigestType.SHA_384.digestLength()]);
 
+    /**
+     * If non-null, indicates we are in recovery mode, and the manager should use this writer to ensure
+     * the first generated recovery record includes "prefix" items from any record file on disk whose
+     * 2-second time range includes the first consensus time in the recovery event stream.
+     *
+     * <p>That is, suppose:
+     * <ol>
+     *     <li>There is a record file {@code F} on disk with consensus times in the range {@code [X, X + 2s)}</li>
+     *     <li>The recovery event stream begins at time {@code T}, where {@code T > X} and {@code T < X + 2s}.</li>
+     * </ol>
+     * Then we need to ensure the first record file we generate includes the prefix of items from
+     * {@code F} in the time range {@code [X, T)}.
+     */
+    @Nullable
+    private RecoveryRecordsWriter recoveryRecordsWriter;
+
     /** whether the platform is in freeze period */
     private volatile boolean inFreeze = false;
 
@@ -81,15 +102,16 @@ public class RecordStreamManager {
     private final MiscRunningAvgs runningAvgs;
 
     /**
-     * @param platform the platform which initializes this RecordStreamManager instance
-     * @param runningAvgs an instance for recording the average value of recordStream queue size
-     * @param nodeLocalProperties the node-local property source, which says four things: (1) is the
-     *     record stream enabled?, (2) how many seconds should elapse before creating the next
-     *     record file, and (3) how large a capacity the record stream blocking queue should have.
-     * @param accountMemo the account of this node from the address book memo
-     * @param initialHash the initial hash
+     * @param platform              the platform which initializes this RecordStreamManager instance
+     * @param runningAvgs           an instance for recording the average value of recordStream queue size
+     * @param nodeLocalProperties   the node-local property source, which says four things: (1) is the
+     *                              record stream enabled?, (2) how many seconds should elapse before creating the next
+     *                              record file, and (3) how large a capacity the record stream blocking queue should have.
+     * @param accountMemo           the account of this node from the address book memo
+     * @param initialHash           the initial hash
+     * @param recoveryRecordsWriter if not null, the recovery records writer that should be passed to the record stream file writer
      * @throws NoSuchAlgorithmException is thrown when fails to get required MessageDigest instance
-     * @throws IOException is thrown when fails to create directory for record streaming
+     * @throws IOException              is thrown when fails to create directory for record streaming
      */
     public RecordStreamManager(
             final Platform platform,
@@ -98,36 +120,38 @@ public class RecordStreamManager {
             final String accountMemo,
             final Hash initialHash,
             final RecordStreamType streamType,
-            final GlobalDynamicProperties globalDynamicProperties)
+            final GlobalDynamicProperties globalDynamicProperties,
+            final @Nullable RecoveryRecordsWriter recoveryRecordsWriter,
+            final @NonNull Predicate<File> tryDeletion)
             throws NoSuchAlgorithmException, IOException {
-        final var nodeScopedRecordLogDir =
-                effectiveLogDir(nodeLocalProperties.recordLogDir(), accountMemo);
-        final var nodeScopedSidecarDir =
-                effectiveSidecarDir(nodeScopedRecordLogDir, nodeLocalProperties.sidecarDir());
+        final var nodeScopedRecordLogDir = effectiveLogDir(nodeLocalProperties.recordLogDir(), accountMemo);
+        final var nodeScopedSidecarDir = effectiveSidecarDir(nodeScopedRecordLogDir, nodeLocalProperties.sidecarDir());
         if (nodeLocalProperties.isRecordStreamEnabled()) {
             // the directory to which record stream files are written
             Files.createDirectories(Paths.get(nodeScopedRecordLogDir));
             Files.createDirectories(Paths.get(nodeScopedSidecarDir));
-            protobufStreamFileWriter =
-                    new RecordStreamFileWriter(
-                            nodeScopedRecordLogDir,
-                            platform,
-                            streamType,
-                            nodeScopedSidecarDir,
-                            globalDynamicProperties.getSidecarMaxSizeMb() * MB_TO_BYTES,
-                            globalDynamicProperties);
-            writeQueueThread =
-                    new QueueThreadObjectStreamConfiguration<RecordStreamObject>(
-                                    getStaticThreadManager())
-                            .setNodeId(platform.getSelfId().getId())
-                            .setCapacity(nodeLocalProperties.recordStreamQueueCapacity())
-                            .setForwardTo(protobufStreamFileWriter)
-                            .setThreadName("writeQueueThread")
-                            .setComponent("recordStream")
-                            .build();
+            protobufStreamFileWriter = new RecordStreamFileWriter(
+                    nodeScopedRecordLogDir,
+                    platform,
+                    streamType,
+                    nodeScopedSidecarDir,
+                    globalDynamicProperties.getSidecarMaxSizeMb() * MB_TO_BYTES,
+                    // If in recovery mode, we want to overwrite any on-disk files that already exist with
+                    // the "golden" records we re-generate from the recovery event stream
+                    recoveryRecordsWriter != null,
+                    tryDeletion,
+                    globalDynamicProperties);
+            writeQueueThread = new QueueThreadObjectStreamConfiguration<RecordStreamObject>(getStaticThreadManager())
+                    .setNodeId(platform.getSelfId())
+                    .setCapacity(nodeLocalProperties.recordStreamQueueCapacity())
+                    .setForwardTo(protobufStreamFileWriter)
+                    .setThreadName("writeQueueThread")
+                    .setComponent("recordStream")
+                    .build();
         }
 
         this.runningAvgs = runningAvgs;
+        this.recoveryRecordsWriter = recoveryRecordsWriter;
 
         // receives {@link RecordStreamObject}s from hashCalculator, calculates and set runningHash
         // for this object
@@ -135,21 +159,18 @@ public class RecordStreamManager {
                 new RunningHashCalculatorForStream<>();
 
         hashCalculator = new HashCalculatorForStream<>(runningHashCalculator);
-        hashQueueThread =
-                new QueueThreadObjectStreamConfiguration<RecordStreamObject>(
-                                getStaticThreadManager())
-                        .setNodeId(platform.getSelfId().getId())
-                        .setCapacity(nodeLocalProperties.recordStreamQueueCapacity())
-                        .setForwardTo(hashCalculator)
-                        .setThreadName("hashQueueThread")
-                        .setComponent("recordStream")
-                        .build();
+        hashQueueThread = new QueueThreadObjectStreamConfiguration<RecordStreamObject>(getStaticThreadManager())
+                .setNodeId(platform.getSelfId())
+                .setCapacity(nodeLocalProperties.recordStreamQueueCapacity())
+                .setForwardTo(hashCalculator)
+                .setThreadName("hashQueueThread")
+                .setComponent("recordStream")
+                .build();
 
-        multiStream =
-                new MultiStream<>(
-                        nodeLocalProperties.isRecordStreamEnabled()
-                                ? List.of(hashQueueThread, writeQueueThread)
-                                : List.of(hashQueueThread));
+        multiStream = new MultiStream<>(
+                nodeLocalProperties.isRecordStreamEnabled()
+                        ? List.of(hashQueueThread, writeQueueThread)
+                        : List.of(hashQueueThread));
         this.initialHash = initialHash;
         multiStream.setRunningHash(initialHash);
 
@@ -160,8 +181,8 @@ public class RecordStreamManager {
 
         log.info(
                 "Finish initializing RecordStreamManager with: enableRecordStreaming: {},"
-                    + " recordStreamDir: {}, sidecarRecordStreamDir: {}, recordsLogPeriod: {} secs,"
-                    + " recordStreamQueueCapacity: {}, initialHash: {}",
+                        + " recordStreamDir: {}, sidecarRecordStreamDir: {}, recordsLogPeriod: {} secs,"
+                        + " recordStreamQueueCapacity: {}, initialHash: {}",
                 nodeLocalProperties::isRecordStreamEnabled,
                 () -> nodeScopedRecordLogDir,
                 () -> nodeScopedSidecarDir,
@@ -198,6 +219,10 @@ public class RecordStreamManager {
      */
     public void addRecordStreamObject(final RecordStreamObject recordStreamObject) {
         if (!inFreeze) {
+            if (recoveryRecordsWriter != null) {
+                recoveryRecordsWriter.writeAnyPrefixRecordsGiven(recordStreamObject, this, multiStream);
+                recoveryRecordsWriter = null;
+            }
             try {
                 multiStream.addObject(recordStreamObject);
             } catch (Exception e) {
@@ -309,5 +334,11 @@ public class RecordStreamManager {
      */
     public Hash getInitialHash() {
         return new Hash(initialHash);
+    }
+
+    @Nullable
+    @VisibleForTesting
+    public RecoveryRecordsWriter getRecoveryRecordsWriter() {
+        return recoveryRecordsWriter;
     }
 }

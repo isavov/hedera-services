@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.utils;
 
 import com.google.protobuf.ByteString;
@@ -21,12 +22,14 @@ import java.util.List;
 import java.util.Random;
 
 public final class MiscEETUtils {
+    @SuppressWarnings("java:S2245") // using java.util.Random in tests is fine
+    private static final Random r = new Random(298238L);
+
     private MiscEETUtils() {}
-    ;
 
     public static byte[] genRandomBytes(int numBytes) {
         byte[] contents = new byte[numBytes];
-        (new Random()).nextBytes(contents);
+        r.nextBytes(contents);
         return contents;
     }
 

@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.reconnect;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -20,6 +21,7 @@ import static com.hedera.services.bdd.spec.queries.QueryVerbs.getAccountInfo;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.inParallel;
 import static com.hedera.services.bdd.suites.reconnect.AutoAccountCreationsBeforeReconnect.TOTAL_ACCOUNTS;
 
+import com.hedera.services.bdd.junit.HapiTest;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.assertions.AccountInfoAsserts;
 import com.hedera.services.bdd.suites.HapiSuite;
@@ -28,8 +30,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 public class AutoAccountCreationValidationsAfterReconnect extends HapiSuite {
-    private static final Logger log =
-            LogManager.getLogger(AutoAccountCreationValidationsAfterReconnect.class);
+    private static final Logger log = LogManager.getLogger(AutoAccountCreationValidationsAfterReconnect.class);
 
     @Override
     protected Logger getResultsLogger() {
@@ -46,20 +47,14 @@ public class AutoAccountCreationValidationsAfterReconnect extends HapiSuite {
     }
     /* These validations are assuming the state is from a 6N-1C test in which a client generates 10 autoAccounts in the
      * beginning of the test */
-    private HapiSpec getAccountInfoOfAutomaticallyCreatedAccounts() {
+    @HapiTest
+    final HapiSpec getAccountInfoOfAutomaticallyCreatedAccounts() {
         return defaultHapiSpec("GetAccountInfoOfAutomaticallyCreatedAccounts")
                 .given()
                 .when()
-                .then(
-                        inParallel(
-                                asOpArray(
-                                        TOTAL_ACCOUNTS,
-                                        i ->
-                                                getAccountInfo("0.0." + (i + 1004))
-                                                        .has(
-                                                                AccountInfoAsserts.accountWith()
-                                                                        .hasAlias())
-                                                        .setNode("0.0.8")
-                                                        .logged())));
+                .then(inParallel(asOpArray(TOTAL_ACCOUNTS, i -> getAccountInfo("0.0." + (i + 1054))
+                        .has(AccountInfoAsserts.accountWith().hasAlias())
+                        .setNode("0.0.8")
+                        .logged())));
     }
 }

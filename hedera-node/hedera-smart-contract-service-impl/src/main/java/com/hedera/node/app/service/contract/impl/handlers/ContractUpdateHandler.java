@@ -13,59 +13,81 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.contract.impl.handlers;
 
-import static com.hedera.node.app.service.mono.Utils.asHederaKey;
-import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INVALID_AUTORENEW_ACCOUNT;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.CONTRACT_EXPIRED_AND_PENDING_REMOVAL;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.EXISTING_AUTOMATIC_ASSOCIATIONS_EXCEED_GIVEN_LIMIT;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.EXPIRATION_REDUCTION_NOT_ALLOWED;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.INVALID_ADMIN_KEY;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.INVALID_AUTORENEW_ACCOUNT;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.INVALID_CONTRACT_ID;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.MODIFYING_IMMUTABLE_CONTRACT;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.NOT_SUPPORTED;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.REQUESTED_NUM_AUTOMATIC_ASSOCIATIONS_EXCEEDS_ASSOCIATION_LIMIT;
+import static com.hedera.node.app.service.token.api.AccountSummariesApi.SENTINEL_ACCOUNT_ID;
+import static com.hedera.node.app.spi.HapiUtils.EMPTY_KEY_LIST;
+import static com.hedera.node.app.spi.validation.ExpiryMeta.NA;
+import static com.hedera.node.app.spi.workflows.HandleException.validateFalse;
+import static com.hedera.node.app.spi.workflows.HandleException.validateTrue;
 import static java.util.Objects.requireNonNull;
 
-import com.hedera.node.app.spi.meta.PreHandleContext;
-import com.hedera.node.app.spi.meta.TransactionMetadata;
+import com.hedera.hapi.node.base.AccountID;
+import com.hedera.hapi.node.base.ContractID;
+import com.hedera.hapi.node.base.HederaFunctionality;
+import com.hedera.hapi.node.base.Key;
+import com.hedera.hapi.node.contract.ContractUpdateTransactionBody;
+import com.hedera.hapi.node.state.token.Account;
+import com.hedera.node.app.service.contract.impl.records.ContractUpdateRecordBuilder;
+import com.hedera.node.app.service.token.ReadableAccountStore;
+import com.hedera.node.app.service.token.api.TokenServiceApi;
+import com.hedera.node.app.spi.key.KeyUtils;
+import com.hedera.node.app.spi.validation.ExpiryMeta;
+import com.hedera.node.app.spi.workflows.HandleContext;
+import com.hedera.node.app.spi.workflows.HandleException;
+import com.hedera.node.app.spi.workflows.PreCheckException;
+import com.hedera.node.app.spi.workflows.PreHandleContext;
 import com.hedera.node.app.spi.workflows.TransactionHandler;
-import com.hederahashgraph.api.proto.java.AccountID;
-import com.hederahashgraph.api.proto.java.ContractUpdateTransactionBody;
-import com.hederahashgraph.api.proto.java.TransactionBody;
+import com.hedera.node.config.data.ContractsConfig;
+import com.hedera.node.config.data.EntitiesConfig;
+import com.hedera.node.config.data.LedgerConfig;
+import com.hedera.node.config.data.StakingConfig;
+import com.hedera.node.config.data.TokensConfig;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.Optional;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
 /**
- * This class contains all workflow-related functionality regarding {@link
- * com.hederahashgraph.api.proto.java.HederaFunctionality#ContractUpdate}.
+ * This class contains all workflow-related functionality regarding {@link HederaFunctionality#CONTRACT_UPDATE}.
  */
 @Singleton
 public class ContractUpdateHandler implements TransactionHandler {
-    @Inject
-    public ContractUpdateHandler() {}
 
-    /**
-     * This method is called during the pre-handle workflow.
-     *
-     * <p>Typically, this method validates the {@link TransactionBody} semantically, gathers all
-     * required keys, warms the cache, and creates the {@link TransactionMetadata} that is used in
-     * the handle stage.
-     *
-     * <p>Please note: the method signature is just a placeholder which is most likely going to
-     * change.
-     *
-     * @param context the {@link PreHandleContext} which collects all information that will be
-     *     passed to {@link #handle(TransactionMetadata)}
-     * @throws NullPointerException if one of the arguments is {@code null}
-     */
-    public void preHandle(@NonNull final PreHandleContext context) {
+    @Inject
+    public ContractUpdateHandler() {
+        // Exists for injection
+    }
+
+    @Override
+    public void preHandle(@NonNull final PreHandleContext context) throws PreCheckException {
         requireNonNull(context);
-        final var op = context.getTxn().getContractUpdateInstance();
+        final var op = context.body().contractUpdateInstanceOrThrow();
 
         if (isAdminSigRequired(op)) {
-            context.addNonPayerKey(op.getContractID());
+            final var accountStore = context.createStore(ReadableAccountStore.class);
+            final var targetId = op.contractIDOrElse(ContractID.DEFAULT);
+            final var maybeContract = accountStore.getContractById(targetId);
+            if (maybeContract != null && maybeContract.keyOrThrow().key().kind() == Key.KeyOneOfType.CONTRACT_ID) {
+                throw new PreCheckException(MODIFYING_IMMUTABLE_CONTRACT);
+            }
+            context.requireKeyOrThrow(targetId, INVALID_CONTRACT_ID);
         }
         if (hasCryptoAdminKey(op)) {
-            final var key = asHederaKey(op.getAdminKey());
-            key.ifPresent(context::addToReqNonPayerKeys);
+            context.requireKey(op.adminKeyOrThrow());
         }
-        if (op.hasAutoRenewAccountId()
-                && !op.getAutoRenewAccountId().equals(AccountID.getDefaultInstance())) {
-            context.addNonPayerKey(op.getAutoRenewAccountId(), INVALID_AUTORENEW_ACCOUNT);
+        if (op.hasAutoRenewAccountId() && !op.autoRenewAccountIdOrThrow().equals(AccountID.DEFAULT)) {
+            context.requireKeyOrThrow(op.autoRenewAccountIdOrThrow(), INVALID_AUTORENEW_ACCOUNT);
         }
     }
 
@@ -75,24 +97,182 @@ public class ContractUpdateHandler implements TransactionHandler {
                 || op.hasProxyAccountID()
                 || op.hasAutoRenewPeriod()
                 || op.hasFileID()
-                || op.getMemo().length() > 0;
+                || op.memoOrElse("").length() > 0;
     }
 
     private boolean hasCryptoAdminKey(final ContractUpdateTransactionBody op) {
-        return op.hasAdminKey() && !op.getAdminKey().hasContractID();
+        return op.hasAdminKey() && !op.adminKeyOrThrow().hasContractID();
     }
 
-    /**
-     * This method is called during the handle workflow. It executes the actual transaction.
-     *
-     * <p>Please note: the method signature is just a placeholder which is most likely going to
-     * change.
-     *
-     * @param metadata the {@link TransactionMetadata} that was generated during pre-handle.
-     * @throws NullPointerException if one of the arguments is {@code null}
-     */
-    public void handle(@NonNull final TransactionMetadata metadata) {
-        requireNonNull(metadata);
-        throw new UnsupportedOperationException("Not implemented");
+    @Override
+    public void handle(@NonNull final HandleContext context) throws HandleException {
+        final var txn = requireNonNull(context).body();
+        final var op = txn.contractUpdateInstanceOrThrow();
+        final var target = op.contractIDOrThrow();
+
+        final var accountStore = context.readableStore(ReadableAccountStore.class);
+        final var toBeUpdated = accountStore.getContractById(target);
+        validateSemantics(toBeUpdated, context, op, accountStore);
+        final var changed = update(toBeUpdated, context, op);
+
+        context.serviceApi(TokenServiceApi.class).updateContract(changed);
+        context.recordBuilder(ContractUpdateRecordBuilder.class).contractID(target);
+    }
+
+    private void validateSemantics(
+            Account contract,
+            HandleContext context,
+            ContractUpdateTransactionBody op,
+            ReadableAccountStore accountStore) {
+        validateTrue(contract != null, INVALID_CONTRACT_ID);
+        validateTrue(!contract.deleted(), INVALID_CONTRACT_ID);
+
+        if (op.hasAdminKey() && processAdminKey(op)) {
+            throw new HandleException(INVALID_ADMIN_KEY);
+        }
+
+        if (op.hasExpirationTime()) {
+            try {
+                context.attributeValidator().validateExpiry(op.expirationTime().seconds());
+            } catch (HandleException e) {
+                validateFalse(contract.expiredAndPendingRemoval(), CONTRACT_EXPIRED_AND_PENDING_REMOVAL);
+                throw e;
+            }
+        }
+
+        validateFalse(!onlyAffectsExpiry(op) && !isMutable(contract), MODIFYING_IMMUTABLE_CONTRACT);
+        validateFalse(reducesExpiry(op, contract.expirationSecond()), EXPIRATION_REDUCTION_NOT_ALLOWED);
+
+        if (op.hasMaxAutomaticTokenAssociations()) {
+            final var ledgerConfig = context.configuration().getConfigData(LedgerConfig.class);
+            final var entitiesConfig = context.configuration().getConfigData(EntitiesConfig.class);
+            final var tokensConfig = context.configuration().getConfigData(TokensConfig.class);
+            final var contractsConfig = context.configuration().getConfigData(ContractsConfig.class);
+
+            final long newMax = op.maxAutomaticTokenAssociationsOrThrow();
+
+            validateFalse(
+                    newMax > ledgerConfig.maxAutoAssociations(),
+                    REQUESTED_NUM_AUTOMATIC_ASSOCIATIONS_EXCEEDS_ASSOCIATION_LIMIT);
+            validateFalse(newMax < contract.maxAutoAssociations(), EXISTING_AUTOMATIC_ASSOCIATIONS_EXCEED_GIVEN_LIMIT);
+            validateFalse(
+                    entitiesConfig.limitTokenAssociations() && newMax > tokensConfig.maxPerAccount(),
+                    REQUESTED_NUM_AUTOMATIC_ASSOCIATIONS_EXCEEDS_ASSOCIATION_LIMIT);
+
+            validateTrue(contractsConfig.allowAutoAssociations(), NOT_SUPPORTED);
+        }
+
+        // validate expiry metadata
+        final var currentMetadata =
+                new ExpiryMeta(contract.expirationSecond(), contract.autoRenewSeconds(), contract.autoRenewAccountId());
+        final var updateMeta = new ExpiryMeta(
+                op.hasExpirationTime() ? op.expirationTime().seconds() : NA,
+                op.hasAutoRenewPeriod() ? op.autoRenewPeriod().seconds() : NA,
+                null);
+        context.expiryValidator().resolveUpdateAttempt(currentMetadata, updateMeta, false);
+
+        context.serviceApi(TokenServiceApi.class)
+                .assertValidStakingElectionForUpdate(
+                        context.configuration()
+                                .getConfigData(StakingConfig.class)
+                                .isEnabled(),
+                        contract.declineReward(),
+                        contract.stakedId().kind().name(),
+                        contract.stakedAccountId(),
+                        contract.stakedNodeId(),
+                        accountStore,
+                        context.networkInfo());
+    }
+
+    private boolean processAdminKey(ContractUpdateTransactionBody op) {
+        if (EMPTY_KEY_LIST.equals(op.adminKey())) {
+            return false;
+        }
+        return keyIfAcceptable(op.adminKey());
+    }
+
+    private boolean keyIfAcceptable(Key candidate) {
+        boolean keyIsNotValid = !KeyUtils.isValid(candidate);
+        return keyIsNotValid || candidate.contractID() != null;
+    }
+
+    private boolean onlyAffectsExpiry(ContractUpdateTransactionBody op) {
+        return !(op.hasProxyAccountID()
+                        || op.hasFileID()
+                        || affectsMemo(op)
+                        || op.hasAutoRenewPeriod()
+                        || op.hasAdminKey())
+                || op.hasMaxAutomaticTokenAssociations();
+    }
+
+    private boolean affectsMemo(ContractUpdateTransactionBody op) {
+        return op.hasMemoWrapper() || (op.memo() != null && op.memo().length() > 0);
+    }
+
+    private boolean isMutable(final Account contract) {
+        return Optional.ofNullable(contract.key())
+                .map(key -> !key.hasContractID())
+                .orElse(false);
+    }
+
+    private boolean reducesExpiry(ContractUpdateTransactionBody op, long curExpiry) {
+        return op.hasExpirationTime() && op.expirationTime().seconds() < curExpiry;
+    }
+
+    public Account update(
+            @NonNull final Account contract,
+            @NonNull final HandleContext context,
+            @NonNull final ContractUpdateTransactionBody op) {
+        final var builder = contract.copyBuilder();
+        if (op.hasAdminKey()) {
+            if (EMPTY_KEY_LIST.equals(op.adminKey())) {
+                try {
+                    var contractID = ContractID.newBuilder()
+                            .shardNum(contract.accountIdOrThrow().shardNum())
+                            .realmNum(contract.accountIdOrThrow().realmNum())
+                            .contractNum(contract.accountIdOrThrow().accountNumOrThrow())
+                            .build();
+                    var key = Key.newBuilder().contractID(contractID).build();
+                    builder.key(key);
+                } catch (NullPointerException e) {
+                    builder.key(contract.key());
+                }
+            } else {
+                builder.key(op.adminKey());
+            }
+        }
+        if (op.hasExpirationTime()) {
+            if (contract.expiredAndPendingRemoval()) {
+                builder.expiredAndPendingRemoval(false);
+            }
+            builder.expirationSecond(op.expirationTime().seconds());
+        }
+        if (op.hasAutoRenewPeriod()) {
+            builder.autoRenewSeconds(op.autoRenewPeriod().seconds());
+        }
+        if (affectsMemo(op)) {
+            final var newMemo = op.hasMemoWrapper() ? op.memoWrapper() : op.memo();
+            context.attributeValidator().validateMemo(newMemo);
+            builder.memo(newMemo);
+        }
+        if (op.hasStakedAccountId()) {
+            if (SENTINEL_ACCOUNT_ID.equals(op.stakedAccountId())) {
+                builder.stakedAccountId((AccountID) null);
+            } else {
+                builder.stakedAccountId(op.stakedAccountId());
+            }
+        } else if (op.hasStakedNodeId()) {
+            builder.stakedNodeId(op.stakedNodeId());
+        }
+        if (op.hasDeclineReward()) {
+            builder.declineReward(op.declineReward());
+        }
+        if (op.hasAutoRenewAccountId()) {
+            builder.autoRenewAccountId(op.autoRenewAccountId());
+        }
+        if (op.hasMaxAutomaticTokenAssociations()) {
+            builder.maxAutoAssociations(op.maxAutomaticTokenAssociations());
+        }
+        return builder.build();
     }
 }

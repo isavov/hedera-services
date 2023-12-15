@@ -13,12 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.file.negative;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
 import static com.hedera.services.bdd.spec.transactions.TxnVerbs.fileCreate;
 import static com.hedera.services.bdd.spec.transactions.TxnVerbs.fileDelete;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.suites.HapiSuite;
 import com.hederahashgraph.api.proto.java.ResponseCodeEnum;
@@ -26,6 +29,7 @@ import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+@HapiTestSuite
 public class DeleteFailuresSpec extends HapiSuite {
     private static final Logger log = LogManager.getLogger(DeleteFailuresSpec.class);
 
@@ -35,24 +39,19 @@ public class DeleteFailuresSpec extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return List.of(
-                new HapiSpec[] {
-                    //						handleRejectsMissingFile(),
-                    handleRejectsDeletedFile(),
-                });
+        return List.of(handleRejectsMissingFile(), handleRejectsDeletedFile());
     }
 
-    private HapiSpec handleRejectsMissingFile() {
+    @HapiTest
+    final HapiSpec handleRejectsMissingFile() {
         return defaultHapiSpec("handleRejectsMissingFile")
                 .given()
                 .when()
-                .then(
-                        fileDelete("1.2.3")
-                                .signedBy(GENESIS)
-                                .hasKnownStatus(ResponseCodeEnum.INVALID_FILE_ID));
+                .then(fileDelete("1.2.3").signedBy(GENESIS).hasKnownStatus(ResponseCodeEnum.INVALID_FILE_ID));
     }
 
-    private HapiSpec handleRejectsDeletedFile() {
+    @HapiTest
+    final HapiSpec handleRejectsDeletedFile() {
         return defaultHapiSpec("handleRejectsDeletedFile")
                 .given(fileCreate("tbd"))
                 .when(fileDelete("tbd"))

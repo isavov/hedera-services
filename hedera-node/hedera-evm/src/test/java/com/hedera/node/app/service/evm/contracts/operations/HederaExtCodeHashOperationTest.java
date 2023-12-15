@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.evm.contracts.operations;
 
 import static org.hyperledger.besu.evm.frame.ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS;
@@ -30,7 +31,7 @@ import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.internal.FixedStack;
+import org.hyperledger.besu.evm.internal.UnderflowException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,17 +41,23 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class HederaExtCodeHashOperationTest {
 
-    @Mock private AbstractLedgerEvmWorldUpdater worldUpdater;
+    @Mock
+    private AbstractLedgerEvmWorldUpdater<?, ?> worldUpdater;
 
-    @Mock private Account account;
+    @Mock
+    private Account account;
 
-    @Mock private GasCalculator gasCalculator;
+    @Mock
+    private GasCalculator gasCalculator;
 
-    @Mock private MessageFrame mf;
+    @Mock
+    private MessageFrame mf;
 
-    @Mock private EVM evm;
+    @Mock
+    private EVM evm;
 
-    @Mock private BiPredicate<Address, MessageFrame> addressValidator;
+    @Mock
+    private BiPredicate<Address, MessageFrame> addressValidator;
 
     private HederaExtCodeHashOperation subject;
 
@@ -74,8 +81,7 @@ class HederaExtCodeHashOperationTest {
 
         var opResult = subject.execute(mf, evm);
 
-        assertEquals(
-                HederaExceptionalHaltReason.INVALID_SOLIDITY_ADDRESS, opResult.getHaltReason());
+        assertEquals(HederaExceptionalHaltReason.INVALID_SOLIDITY_ADDRESS, opResult.getHaltReason());
         assertEquals(ACTUAL_COST, opResult.getGasCost());
     }
 
@@ -126,7 +132,7 @@ class HederaExtCodeHashOperationTest {
 
     @Test
     void executeThrowsInsufficientStackItems() {
-        given(mf.popStackItem()).willThrow(FixedStack.UnderflowException.class);
+        given(mf.popStackItem()).willThrow(UnderflowException.class);
 
         var opResult = subject.execute(mf, evm);
 

@@ -13,12 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.test.utils;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.google.protobuf.ByteString;
 import com.hedera.node.app.hapi.utils.sysfiles.serdes.ThrottlesJsonToProtoSerde;
+import com.hedera.node.app.service.mono.state.submerkle.ContractNonceInfo;
 import com.hedera.node.app.service.mono.state.submerkle.EntityId;
 import com.hedera.node.app.service.mono.state.submerkle.EvmFnResult;
 import com.hedera.node.app.service.mono.state.submerkle.EvmLog;
@@ -41,8 +43,7 @@ import java.util.Arrays;
 import java.util.function.Supplier;
 
 public class SerdeUtils {
-    public static byte[] serOutcome(ThrowingConsumer<DataOutputStream> serializer)
-            throws Exception {
+    public static byte[] serOutcome(ThrowingConsumer<DataOutputStream> serializer) throws Exception {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
             try (SerializableDataOutputStream out = new SerializableDataOutputStream(baos)) {
                 serializer.accept(out);
@@ -51,8 +52,7 @@ public class SerdeUtils {
         }
     }
 
-    public static <T> T deOutcome(
-            ThrowingFunction<SerializableDataInputStream, T> deserializer, byte[] repr)
+    public static <T> T deOutcome(ThrowingFunction<SerializableDataInputStream, T> deserializer, byte[] repr)
             throws Exception {
         try (ByteArrayInputStream bais = new ByteArrayInputStream(repr)) {
             try (SerializableDataInputStream in = new SerializableDataInputStream(bais)) {
@@ -62,20 +62,14 @@ public class SerdeUtils {
     }
 
     public static ThrottleDefinitions protoDefs(String testResource) throws IOException {
-        try (InputStream in =
-                ThrottlesJsonToProtoSerde.class
-                        .getClassLoader()
-                        .getResourceAsStream(testResource)) {
+        try (InputStream in = ThrottlesJsonToProtoSerde.class.getClassLoader().getResourceAsStream(testResource)) {
             return ThrottlesJsonToProtoSerde.loadProtoDefs(in);
         }
     }
 
-    public static com.hedera.node.app.hapi.utils.sysfiles.domain.throttling.ThrottleDefinitions
-            pojoDefs(String testResource) throws IOException {
-        try (InputStream in =
-                ThrottlesJsonToProtoSerde.class
-                        .getClassLoader()
-                        .getResourceAsStream(testResource)) {
+    public static com.hedera.node.app.hapi.utils.sysfiles.domain.throttling.ThrottleDefinitions pojoDefs(
+            String testResource) throws IOException {
+        try (InputStream in = ThrottlesJsonToProtoSerde.class.getClassLoader().getResourceAsStream(testResource)) {
             return ThrottlesJsonToProtoSerde.loadPojoDefs(in);
         }
     }
@@ -93,9 +87,10 @@ public class SerdeUtils {
                 that.getCreatedContractIDsList().stream()
                         .map(EntityId::fromGrpcContractId)
                         .toList(),
-                that.hasEvmAddress()
-                        ? that.getEvmAddress().getValue().toByteArray()
-                        : EvmFnResult.EMPTY,
+                that.getContractNoncesList().stream()
+                        .map(SerdeUtils::contractInfoNonceFromGrpc)
+                        .toList(),
+                that.hasEvmAddress() ? that.getEvmAddress().getValue().toByteArray() : EvmFnResult.EMPTY,
                 that.getGas(),
                 that.getAmount(),
                 that.getFunctionParameters().isEmpty()
@@ -107,9 +102,17 @@ public class SerdeUtils {
     public static EvmLog fromGrpc(ContractLoginfo grpc) {
         return new EvmLog(
                 grpc.hasContractID() ? EntityId.fromGrpcContractId(grpc.getContractID()) : null,
-                grpc.getBloom().isEmpty() ? EvmLog.MISSING_BYTES : grpc.getBloom().toByteArray(),
+                grpc.getBloom().isEmpty()
+                        ? EvmLog.MISSING_BYTES
+                        : grpc.getBloom().toByteArray(),
                 grpc.getTopicList().stream().map(ByteString::toByteArray).toList(),
                 grpc.getData().isEmpty() ? EvmLog.MISSING_BYTES : grpc.getData().toByteArray());
+    }
+
+    public static ContractNonceInfo contractInfoNonceFromGrpc(
+            com.hederahashgraph.api.proto.java.ContractNonceInfo grpc) {
+        return new ContractNonceInfo(
+                grpc.hasContractId() ? EntityId.fromGrpcContractId(grpc.getContractId()) : null, grpc.getNonce());
     }
 
     public static <T extends SelfSerializable> T deserializeFromBytes(
@@ -140,8 +143,7 @@ public class SerdeUtils {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
-        assertEquals(
-                serializedForm.length, buffer.position(), "No bytes should be left in the buffer");
+        assertEquals(serializedForm.length, buffer.position(), "No bytes should be left in the buffer");
 
         return reconstruction;
     }
@@ -162,8 +164,7 @@ public class SerdeUtils {
         return baos.toByteArray();
     }
 
-    public static <T extends VirtualValue> byte[] serializeToBuffer(
-            final T source, final int maxSerializedLen) {
+    public static <T extends VirtualValue> byte[] serializeToBuffer(final T source, final int maxSerializedLen) {
         final var buffer = ByteBuffer.wrap(new byte[maxSerializedLen]);
         try {
             source.serialize(buffer);

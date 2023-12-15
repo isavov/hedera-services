@@ -13,10 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.evm.utils;
 
 import com.hedera.node.app.service.evm.exceptions.InvalidTransactionException;
 import com.hederahashgraph.api.proto.java.ResponseCodeEnum;
+import java.util.function.Supplier;
 
 /**
  * A minimalist collection of helpers to improve readability of code that throws an {@code
@@ -39,10 +41,16 @@ public final class ValidationUtils {
         }
     }
 
-    public static void validateTrue(
-            final boolean flag, final ResponseCodeEnum code, final String failureMsg) {
+    public static void validateTrue(final boolean flag, final ResponseCodeEnum code, final String failureMsg) {
         if (!flag) {
             throw new InvalidTransactionException(failureMsg, code);
+        }
+    }
+
+    public static void validateTrue(
+            final boolean flag, final ResponseCodeEnum code, final Supplier<String> failureMsg) {
+        if (!flag) {
+            throw new InvalidTransactionException(failureMsg.get(), code);
         }
     }
 
@@ -52,10 +60,16 @@ public final class ValidationUtils {
         }
     }
 
-    public static void validateFalse(
-            final boolean flag, final ResponseCodeEnum code, final String failureMsg) {
+    public static void validateFalse(final boolean flag, final ResponseCodeEnum code, final String failureMsg) {
         if (flag) {
             throw new InvalidTransactionException(failureMsg, code);
+        }
+    }
+
+    public static void validateFalse(
+            final boolean flag, final ResponseCodeEnum code, final Supplier<String> failureMsg) {
+        if (flag) {
+            throw new InvalidTransactionException(failureMsg.get(), code);
         }
     }
 

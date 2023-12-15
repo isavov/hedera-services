@@ -13,8 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.logic;
 
+import static com.hedera.node.app.service.mono.context.properties.SemanticVersions.SEMANTIC_VERSIONS;
 import static com.hedera.node.app.service.mono.utils.Units.MIN_TRANS_TIMESTAMP_INCR_NANOS;
 
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -22,6 +24,7 @@ import com.hedera.node.app.service.mono.context.TransactionContext;
 import com.hedera.node.app.service.mono.context.primitives.StateView;
 import com.hedera.node.app.service.mono.ledger.SigImpactHistorian;
 import com.hedera.node.app.service.mono.records.ConsensusTimeTracker;
+import com.hedera.node.app.service.mono.records.RecordCache;
 import com.hedera.node.app.service.mono.state.expiry.EntityAutoExpiry;
 import com.hedera.node.app.service.mono.state.expiry.ExpiryManager;
 import com.hedera.node.app.service.mono.stats.ExecutionTimeTracker;
@@ -30,7 +33,9 @@ import com.hedera.node.app.service.mono.txns.schedule.ScheduleProcessing;
 import com.hedera.node.app.service.mono.txns.span.ExpandHandleSpan;
 import com.hedera.node.app.service.mono.utils.accessors.SwirldsTxnAccessor;
 import com.hedera.node.app.service.mono.utils.accessors.TxnAccessor;
-import com.swirlds.common.system.transaction.ConsensusTransaction;
+import com.swirlds.platform.system.SoftwareVersion;
+import com.swirlds.platform.system.transaction.ConsensusTransaction;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.time.Instant;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -53,6 +58,7 @@ public class StandardProcessLogic implements ProcessLogic {
     private final StateView workingView;
     private final ScheduleProcessing scheduleProcessing;
     private final RecordStreaming recordStreaming;
+    private final RecordCache recordCache;
 
     @Inject
     public StandardProcessLogic(
@@ -67,7 +73,8 @@ public class StandardProcessLogic implements ProcessLogic {
             final ScheduleProcessing scheduleProcessing,
             final ExecutionTimeTracker executionTimeTracker,
             final RecordStreaming recordStreaming,
-            final StateView workingView) {
+            final StateView workingView,
+            final RecordCache recordCache) {
         this.expiries = expiries;
         this.invariantChecks = invariantChecks;
         this.expandHandleSpan = expandHandleSpan;
@@ -80,12 +87,24 @@ public class StandardProcessLogic implements ProcessLogic {
         this.sigImpactHistorian = sigImpactHistorian;
         this.recordStreaming = recordStreaming;
         this.workingView = workingView;
+        this.recordCache = recordCache;
     }
 
     @Override
-    public void incorporateConsensusTxn(ConsensusTransaction platformTxn, long submittingMember) {
+    public void incorporateConsensusTxn(
+            @NonNull final ConsensusTransaction platformTxn,
+            final long submittingMember,
+            @NonNull final SoftwareVersion softwareVersion) {
+
         try {
             final var accessor = expandHandleSpan.accessorFor(platformTxn);
+            // Check if the transaction is submitted by a version before the deployed version.
+            // If so, return and set the status on the receipt to BUSY
+            if (SEMANTIC_VERSIONS.deployedSoftwareVersion().isAfter(softwareVersion)) {
+                recordCache.setStaleTransaction(
+                        accessor.getPayer(), accessor, platformTxn.getConsensusTimestamp(), submittingMember);
+                return;
+            }
             incorporate(accessor, platformTxn.getConsensusTimestamp(), submittingMember);
         } catch (InvalidProtocolBufferException e) {
             log.warn("Consensus platform txn was not gRPC!", e);
@@ -94,8 +113,7 @@ public class StandardProcessLogic implements ProcessLogic {
         }
     }
 
-    void incorporate(
-            final SwirldsTxnAccessor accessor, Instant consensusTime, final long submittingMember) {
+    void incorporate(final SwirldsTxnAccessor accessor, Instant consensusTime, final long submittingMember) {
         // Deduct 1000 nanos from the consensusTime allotted by platform, to accommodate the
         // preceding,
         // following child records and any long term scheduled transactions triggered by the
@@ -137,15 +155,11 @@ public class StandardProcessLogic implements ProcessLogic {
 
             boolean hasMore = consensusTimeTracker.hasMoreTransactionTime(false);
 
-            triggeredAccessor =
-                    scheduleProcessing.triggerNextTransactionExpiringAsNeeded(
-                            consensusTime, triggeredAccessor, !hasMore);
+            triggeredAccessor = scheduleProcessing.triggerNextTransactionExpiringAsNeeded(
+                    consensusTime, triggeredAccessor, !hasMore);
 
             if (triggeredAccessor != null) {
-                doProcess(
-                        submittingMember,
-                        consensusTimeTracker.nextTransactionTime(false),
-                        triggeredAccessor);
+                doProcess(submittingMember, consensusTimeTracker.nextTransactionTime(false), triggeredAccessor);
             } else {
                 hasMore = false;
             }
@@ -155,21 +169,16 @@ public class StandardProcessLogic implements ProcessLogic {
             }
         }
 
-        log.warn(
-                "maxProcessingLoopIterations reached in processScheduledTransactions. Waiting for"
-                    + " next call to continue. Scheduled Transaction expiration may be delayed.");
+        log.warn("maxProcessingLoopIterations reached in processScheduledTransactions. Waiting for"
+                + " next call to continue. Scheduled Transaction expiration may be delayed.");
     }
 
-    private void doProcess(
-            final long submittingMember, final Instant consensusTime, final TxnAccessor accessor) {
+    private void doProcess(final long submittingMember, final Instant consensusTime, final TxnAccessor accessor) {
         executionTimeTracker.start();
         txnManager.process(accessor, consensusTime, submittingMember);
         final var triggeredAccessor = txnCtx.triggeredTxn();
         if (triggeredAccessor != null) {
-            txnManager.process(
-                    triggeredAccessor,
-                    consensusTimeTracker.nextTransactionTime(false),
-                    submittingMember);
+            txnManager.process(triggeredAccessor, consensusTimeTracker.nextTransactionTime(false), submittingMember);
         }
         executionTimeTracker.stop();
     }

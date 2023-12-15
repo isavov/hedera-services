@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.perf.crypto;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -32,6 +33,7 @@ import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.SUCCESS;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.TRANSACTION_EXPIRED;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.UNKNOWN;
 
+import com.hedera.services.bdd.junit.HapiTest;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.HapiSpecOperation;
 import com.hedera.services.bdd.spec.utilops.LoadTest;
@@ -44,7 +46,10 @@ import org.apache.logging.log4j.Logger;
 
 public class CryptoTransferLoadTest extends LoadTest {
     private static final Logger log = LogManager.getLogger(CryptoTransferLoadTest.class);
-    private Random r = new Random();
+
+    @SuppressWarnings("java:S2245") // using java.util.Random in tests is fine
+    private Random r = new Random(528352L);
+
     private static final long TEST_ACCOUNT_STARTS_FROM = 1001L;
 
     public static void main(String... args) {
@@ -59,43 +64,43 @@ public class CryptoTransferLoadTest extends LoadTest {
         return List.of(runCryptoTransfers());
     }
 
+    @HapiTest
     protected HapiSpec runCryptoTransfers() {
         PerfTestLoadSettings settings = new PerfTestLoadSettings();
 
-        Supplier<HapiSpecOperation[]> transferBurst =
-                () -> {
-                    String sender = "sender";
-                    String receiver = "receiver";
-                    if (settings.getTotalAccounts() > 2) {
-                        int s = r.nextInt(settings.getTotalAccounts());
-                        int re = 0;
-                        do {
-                            re = r.nextInt(settings.getTotalAccounts());
-                        } while (re == s);
-                        sender = String.format("0.0.%d", TEST_ACCOUNT_STARTS_FROM + s);
-                        receiver = String.format("0.0.%d", TEST_ACCOUNT_STARTS_FROM + re);
-                    }
+        Supplier<HapiSpecOperation[]> transferBurst = () -> {
+            String sender = "sender";
+            String receiver = "receiver";
+            if (settings.getTotalAccounts() > 2) {
+                int s = r.nextInt(settings.getTotalAccounts());
+                int re = 0;
+                do {
+                    re = r.nextInt(settings.getTotalAccounts());
+                } while (re == s);
+                sender = String.format("0.0.%d", TEST_ACCOUNT_STARTS_FROM + s);
+                receiver = String.format("0.0.%d", TEST_ACCOUNT_STARTS_FROM + re);
+            }
 
-                    return new HapiSpecOperation[] {
-                        cryptoTransfer(tinyBarsFromTo(sender, receiver, 1L))
-                                .noLogging()
-                                .payingWith(sender)
-                                .signedBy(GENESIS)
-                                .suppressStats(true)
-                                .fee(100_000_000L)
-                                .hasKnownStatusFrom(
-                                        SUCCESS,
-                                        OK,
-                                        INSUFFICIENT_PAYER_BALANCE,
-                                        UNKNOWN,
-                                        TRANSACTION_EXPIRED,
-                                        INSUFFICIENT_ACCOUNT_BALANCE)
-                                .hasRetryPrecheckFrom(BUSY, PLATFORM_TRANSACTION_NOT_CREATED)
-                                .deferStatusResolution()
-                    };
-                };
+            return new HapiSpecOperation[] {
+                cryptoTransfer(tinyBarsFromTo(sender, receiver, 1L))
+                        .noLogging()
+                        .payingWith(sender)
+                        .signedBy(GENESIS)
+                        .suppressStats(true)
+                        .fee(100_000_000L)
+                        .hasKnownStatusFrom(
+                                SUCCESS,
+                                OK,
+                                INSUFFICIENT_PAYER_BALANCE,
+                                UNKNOWN,
+                                TRANSACTION_EXPIRED,
+                                INSUFFICIENT_ACCOUNT_BALANCE)
+                        .hasRetryPrecheckFrom(BUSY, PLATFORM_TRANSACTION_NOT_CREATED)
+                        .deferStatusResolution()
+            };
+        };
 
-        return defaultHapiSpec("RunCryptoTransfers")
+        return defaultHapiSpec("RunCryptoTransfers-LoadTest")
                 .given(
                         withOpContext(
                                 (spec, ignore) -> settings.setFrom(spec.setup().ciPropertiesMap())),
@@ -109,17 +114,11 @@ public class CryptoTransferLoadTest extends LoadTest {
                                 .rechargeWindow(3)
                                 .stakedNodeId(settings.getNodeToStake())
                                 .logging()
-                                .hasRetryPrecheckFrom(
-                                        BUSY,
-                                        DUPLICATE_TRANSACTION,
-                                        PLATFORM_TRANSACTION_NOT_CREATED),
+                                .hasRetryPrecheckFrom(BUSY, DUPLICATE_TRANSACTION, PLATFORM_TRANSACTION_NOT_CREATED),
                         cryptoCreate("receiver")
                                 .payingWith(GENESIS)
                                 .stakedNodeId(settings.getNodeToStake())
-                                .hasRetryPrecheckFrom(
-                                        BUSY,
-                                        DUPLICATE_TRANSACTION,
-                                        PLATFORM_TRANSACTION_NOT_CREATED)
+                                .hasRetryPrecheckFrom(BUSY, DUPLICATE_TRANSACTION, PLATFORM_TRANSACTION_NOT_CREATED)
                                 .key(GENESIS)
                                 .logging())
                 .then(

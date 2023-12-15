@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.spec.queries.meta;
 
 import static com.hedera.services.bdd.spec.queries.QueryUtils.answerCostHeader;
@@ -39,6 +40,7 @@ public class HapiGetVersionInfo extends HapiQueryOp<HapiGetVersionInfo> {
     private boolean assertNoDegenSemvers = false;
     private Optional<SemanticVersion> expectedProto = Optional.empty();
     private Optional<SemanticVersion> expectedServices = Optional.empty();
+    private String servicesSemVerBuild = "";
 
     @Override
     public HederaFunctionality type() {
@@ -65,31 +67,36 @@ public class HapiGetVersionInfo extends HapiQueryOp<HapiGetVersionInfo> {
         return this;
     }
 
+    public HapiGetVersionInfo hasServicesSemVerBuild(final String build) {
+        servicesSemVerBuild = build;
+        return this;
+    }
+
     @Override
     @SuppressWarnings("java:S5960")
     protected void assertExpectationsGiven(HapiSpec spec) throws Throwable {
         SemanticVersion actualProto = response.getNetworkGetVersionInfo().getHapiProtoVersion();
-        SemanticVersion actualServices =
-                response.getNetworkGetVersionInfo().getHederaServicesVersion();
+        SemanticVersion actualServices = response.getNetworkGetVersionInfo().getHederaServicesVersion();
         if (expectedProto.isPresent()) {
             Assertions.assertEquals(expectedProto.get(), actualProto, "Wrong HAPI proto version");
         }
         if (expectedServices.isPresent()) {
-            Assertions.assertEquals(
-                    expectedServices.get(), actualServices, "Wrong Hedera Services version");
+            Assertions.assertEquals(expectedServices.get(), actualServices, "Wrong Hedera Services version");
         }
         if (assertNoDegenSemvers) {
             var degenSemver = SemanticVersion.getDefaultInstance();
             Assertions.assertNotEquals(degenSemver, actualProto);
             Assertions.assertNotEquals(degenSemver, actualServices);
         }
+        if (!servicesSemVerBuild.isEmpty()) {
+            Assertions.assertEquals(servicesSemVerBuild, actualServices.getBuild());
+        }
     }
 
     @Override
     protected void submitWith(HapiSpec spec, Transaction payment) {
         Query query = getVersionInfoQuery(payment, false);
-        response =
-                spec.clients().getNetworkSvcStub(targetNodeFor(spec), useTls).getVersionInfo(query);
+        response = spec.clients().getNetworkSvcStub(targetNodeFor(spec), useTls).getVersionInfo(query);
         var info = response.getNetworkGetVersionInfo();
         if (verboseLoggingOn) {
             LOG.info(
@@ -99,22 +106,19 @@ public class HapiGetVersionInfo extends HapiQueryOp<HapiGetVersionInfo> {
         }
 
         if (yahcliLogger) {
-            COMMON_MESSAGES.info(
-                    String.format(
-                            "Versions :: HAPI protobufs @ %s, Hedera Services @ %s",
-                            asReadable(info.getHapiProtoVersion()),
-                            asReadable(info.getHederaServicesVersion())));
+            COMMON_MESSAGES.info(String.format(
+                    "Versions :: HAPI protobufs @ %s, Hedera Services @ %s",
+                    asReadable(info.getHapiProtoVersion()), asReadable(info.getHederaServicesVersion())));
         }
     }
 
     private String asReadable(SemanticVersion semver) {
-        var sb =
-                new StringBuilder()
-                        .append(semver.getMajor())
-                        .append(".")
-                        .append(semver.getMinor())
-                        .append(".")
-                        .append(semver.getPatch());
+        var sb = new StringBuilder()
+                .append(semver.getMajor())
+                .append(".")
+                .append(semver.getMinor())
+                .append(".")
+                .append(semver.getPatch());
         var preRelease = semver.getPre();
         if (!preRelease.isBlank()) {
             sb.append("-").append(preRelease);
@@ -137,10 +141,9 @@ public class HapiGetVersionInfo extends HapiQueryOp<HapiGetVersionInfo> {
     }
 
     private Query getVersionInfoQuery(Transaction payment, boolean costOnly) {
-        NetworkGetVersionInfoQuery getVersionQuery =
-                NetworkGetVersionInfoQuery.newBuilder()
-                        .setHeader(costOnly ? answerCostHeader(payment) : answerHeader(payment))
-                        .build();
+        NetworkGetVersionInfoQuery getVersionQuery = NetworkGetVersionInfoQuery.newBuilder()
+                .setHeader(costOnly ? answerCostHeader(payment) : answerHeader(payment))
+                .build();
         return Query.newBuilder().setNetworkGetVersionInfo(getVersionQuery).build();
     }
 

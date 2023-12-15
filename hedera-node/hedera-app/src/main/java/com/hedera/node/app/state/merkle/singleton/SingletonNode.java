@@ -13,7 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.state.merkle.singleton;
+
+import static com.hedera.node.app.state.logging.TransactionStateLogger.logSingletonRead;
+import static com.hedera.node.app.state.logging.TransactionStateLogger.logSingletonWrite;
 
 import com.hedera.node.app.state.merkle.StateMetadata;
 import com.hedera.node.app.state.merkle.StateUtils;
@@ -29,12 +33,13 @@ import edu.umd.cs.findbugs.annotations.NonNull;
  *
  * @param <T> The value type
  */
-public class SingletonNode<T> extends PartialBinaryMerkleInternal
-        implements Labeled, MerkleInternal {
+public class SingletonNode<T> extends PartialBinaryMerkleInternal implements Labeled, MerkleInternal {
     private static final long CLASS_ID = 0x3832CC837AB77BFL;
     public static final int CLASS_VERSION = 1;
 
-    // Only exists for constructable registry as it works today. Remove ASAP!
+    /**
+     * @deprecated Only exists for constructable registry as it works today. Remove ASAP!
+     */
     @Deprecated(forRemoval = true)
     public SingletonNode() {
         setLeft(new StringLeaf());
@@ -42,10 +47,8 @@ public class SingletonNode<T> extends PartialBinaryMerkleInternal
     }
 
     public SingletonNode(@NonNull final StateMetadata<?, T> md, @NonNull final T value) {
-        setLeft(
-                new StringLeaf(
-                        StateUtils.computeLabel(
-                                md.serviceName(), md.stateDefinition().stateKey())));
+        setLeft(new StringLeaf(
+                StateUtils.computeLabel(md.serviceName(), md.stateDefinition().stateKey())));
         setRight(new ValueLeaf<T>(md, value));
     }
 
@@ -77,11 +80,15 @@ public class SingletonNode<T> extends PartialBinaryMerkleInternal
 
     public T getValue() {
         final ValueLeaf<T> right = getRight();
+        // Log to transaction state log, what was read
+        logSingletonRead(getLabel(), right);
         return right.getValue();
     }
 
     public void setValue(T value) {
         ValueLeaf<T> right = getRight();
         right.setValue(value);
+        // Log to transaction state log, what was written
+        logSingletonWrite(getLabel(), value);
     }
 }

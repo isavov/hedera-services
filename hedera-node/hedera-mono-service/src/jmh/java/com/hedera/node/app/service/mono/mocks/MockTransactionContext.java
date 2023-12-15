@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.mocks;
 
 import com.google.protobuf.ByteString;
@@ -20,7 +21,6 @@ import com.hedera.node.app.hapi.utils.ethereum.EthTxData;
 import com.hedera.node.app.service.mono.context.TransactionContext;
 import com.hedera.node.app.service.mono.legacy.core.jproto.JKey;
 import com.hedera.node.app.service.mono.setup.Constructables;
-import com.hedera.node.app.service.mono.state.expiry.ExpiringEntity;
 import com.hedera.node.app.service.mono.state.submerkle.EntityId;
 import com.hedera.node.app.service.mono.state.submerkle.EvmFnResult;
 import com.hedera.node.app.service.mono.state.submerkle.ExpirableTxnRecord.Builder;
@@ -37,13 +37,17 @@ import com.hederahashgraph.api.proto.java.TopicID;
 import com.hederahashgraph.api.proto.java.TransactionID;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.time.Instant;
-import java.util.Collection;
 import java.util.List;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
 @Singleton
 public class MockTransactionContext implements TransactionContext {
+    @Override
+    public boolean isSelfSubmitted() {
+        return false;
+    }
+
     private Instant now = Constructables.SOME_TIME;
 
     @Override
@@ -68,9 +72,7 @@ public class MockTransactionContext implements TransactionContext {
 
     @Override
     public void resetFor(
-            @Nullable final TxnAccessor accessor,
-            final Instant consensusTime,
-            final long submittingMember) {
+            @Nullable final TxnAccessor accessor, final Instant consensusTime, final long submittingMember) {
         now = consensusTime;
     }
 
@@ -196,16 +198,6 @@ public class MockTransactionContext implements TransactionContext {
 
     @Override
     public TxnAccessor triggeredTxn() {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void addExpiringEntities(final Collection<ExpiringEntity> expiringEntities) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public List<ExpiringEntity> expiringEntities() {
         throw new UnsupportedOperationException();
     }
 

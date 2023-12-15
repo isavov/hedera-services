@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.virtual;
 
 import static com.hedera.node.app.service.mono.state.virtual.VirtualBlobKey.BYTES_IN_SERIALIZED_FORM;
@@ -29,7 +30,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 import com.swirlds.common.io.streams.SerializableDataInputStream;
-import com.swirlds.common.io.streams.SerializableDataOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import org.junit.jupiter.api.Test;
@@ -63,21 +63,20 @@ class VirtualBlobKeySerializerTest {
 
     @Test
     void serializeWorks() throws IOException {
-        final var out = mock(SerializableDataOutputStream.class);
+        final var out = mock(ByteBuffer.class);
         final var virtualBlobKey = new VirtualBlobKey(FILE_DATA, entityNum);
 
         assertEquals(BYTES_IN_SERIALIZED_FORM, subject.serialize(virtualBlobKey, out));
 
-        verify(out).writeByte((byte) FILE_DATA.ordinal());
-        verify(out).writeInt(entityNum);
+        verify(out).put((byte) FILE_DATA.ordinal());
+        verify(out).putInt(entityNum);
     }
 
     @Test
     void equalsUsingByteBufferWorks() throws IOException {
         final var someKey = new VirtualBlobKey(FILE_DATA, entityNum);
         final var sameTypeDiffNum = new VirtualBlobKey(FILE_DATA, otherEntityNum);
-        final var diffTypeSameNum =
-                new VirtualBlobKey(VirtualBlobKey.Type.FILE_METADATA, entityNum);
+        final var diffTypeSameNum = new VirtualBlobKey(VirtualBlobKey.Type.FILE_METADATA, entityNum);
 
         final var bin = mock(ByteBuffer.class);
         given(bin.get()).willReturn((byte) someKey.getType().ordinal());

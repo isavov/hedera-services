@@ -13,9 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.sigs;
 
 import com.hedera.node.app.service.mono.ServicesState;
+import com.hedera.node.app.service.mono.ledger.accounts.AliasManager;
 import com.hedera.node.app.service.mono.legacy.core.jproto.JKey;
 import com.hedera.node.app.service.mono.sigs.factories.ReusableBodySigningFactory;
 import com.hedera.node.app.service.mono.sigs.order.SigRequirements;
@@ -24,13 +26,13 @@ import com.hedera.node.app.service.mono.utils.accessors.SwirldsTxnAccessor;
 import com.hederahashgraph.api.proto.java.ResponseCodeEnum;
 import com.hederahashgraph.api.proto.java.Transaction;
 import com.swirlds.common.crypto.Signature;
-import com.swirlds.common.system.Round;
-import com.swirlds.common.system.SwirldDualState;
+import com.swirlds.platform.system.Round;
+import com.swirlds.platform.system.SwirldDualState;
 
 /**
  * Provides an "expand" operation that acts in-place on the {@link
  * com.swirlds.common.crypto.TransactionSignature} list of a {@link
- * com.swirlds.common.system.transaction.Transaction} whose contents are known to be a valid Hedera
+ * com.swirlds.platform.system.transaction.Transaction} whose contents are known to be a valid Hedera
  * gRPC {@link Transaction}.
  *
  * <p>This operation allows Hedera Services to use the Platform to efficiently verify <i>many</i> of
@@ -49,8 +51,7 @@ public final class HederaToPlatformSigOps {
         throw new UnsupportedOperationException("Utility Class");
     }
 
-    private static final Expansion.CryptoSigsCreation cryptoSigsFunction =
-            PlatformSigOps::createCryptoSigsFrom;
+    private static final Expansion.CryptoSigsCreation cryptoSigsFunction = PlatformSigOps::createCryptoSigsFrom;
 
     /**
      * Try to set the {@link Signature} list on the accessible platform txn to exactly the
@@ -65,18 +66,19 @@ public final class HederaToPlatformSigOps {
      *   <li>If an error occurs while creating the platform {@link Signature} objects for either the
      *       payer or the entities in non-payer roles, ignore it silently.
      * </ul>
+     *  @param txnAccessor the accessor for the platform txn
      *
-     * @param txnAccessor the accessor for the platform txn
-     * @param sigReqs facility for listing Hedera keys required to sign the gRPC txn
-     * @param pkToSigFn source of crypto sigs for the simple keys in the Hedera key leaves
+     * @param sigReqs      facility for listing Hedera keys required to sign the gRPC txn
+     * @param pkToSigFn    source of crypto sigs for the simple keys in the Hedera key leaves
+     * @param aliasManager alias to entity nums resolver
      */
     public static void expandIn(
             final SwirldsTxnAccessor txnAccessor,
             final SigRequirements sigReqs,
-            final PubKeyToSigBytes pkToSigFn) {
+            final PubKeyToSigBytes pkToSigFn,
+            final AliasManager aliasManager) {
         txnAccessor.clearCryptoSigs();
         final var scopedSigFactory = new ReusableBodySigningFactory(txnAccessor);
-        new Expansion(txnAccessor, sigReqs, pkToSigFn, cryptoSigsFunction, scopedSigFactory)
-                .execute();
+        new Expansion(txnAccessor, sigReqs, pkToSigFn, cryptoSigsFunction, scopedSigFactory, aliasManager).execute();
     }
 }

@@ -13,26 +13,39 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.test.factories.scenarios;
 
-import static com.hedera.test.factories.txns.FileDeleteFactory.newSignedFileDelete;
-
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.hedera.node.app.service.mono.utils.accessors.PlatformTxnAccessor;
+import com.hedera.test.factories.txns.FileDeleteFactory;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+import java.security.SignatureException;
 
 public enum FileDeleteScenarios implements TxnHandlingScenario {
     VANILLA_FILE_DELETE_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
-            return PlatformTxnAccessor.from(newSignedFileDelete(MISC_FILE_ID).get());
+        public PlatformTxnAccessor platformTxn()
+                throws InvalidProtocolBufferException, SignatureException, NoSuchAlgorithmException,
+                        InvalidKeyException {
+            return PlatformTxnAccessor.from(
+                    FileDeleteFactory.newSignedFileDelete(MISC_FILE_ID).get());
         }
     },
     IMMUTABLE_FILE_DELETE_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
-            return PlatformTxnAccessor.from(newSignedFileDelete(IMMUTABLE_FILE_ID).get());
+        public PlatformTxnAccessor platformTxn()
+                throws InvalidProtocolBufferException, SignatureException, NoSuchAlgorithmException,
+                        InvalidKeyException {
+            return PlatformTxnAccessor.from(
+                    FileDeleteFactory.newSignedFileDelete(IMMUTABLE_FILE_ID).get());
         }
     },
     MISSING_FILE_DELETE_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
-            return PlatformTxnAccessor.from(newSignedFileDelete(MISSING_FILE_ID).get());
+        public PlatformTxnAccessor platformTxn()
+                throws InvalidProtocolBufferException, SignatureException, NoSuchAlgorithmException,
+                        InvalidKeyException {
+            return PlatformTxnAccessor.from(
+                    FileDeleteFactory.newSignedFileDelete(MISSING_FILE_ID).get());
         }
     }
 }

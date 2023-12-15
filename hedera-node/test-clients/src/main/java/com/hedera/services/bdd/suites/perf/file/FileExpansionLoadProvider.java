@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.perf.file;
 
 import static com.hedera.services.bdd.spec.HapiSpecSetup.getDefaultNodeProps;
@@ -32,6 +33,7 @@ import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.MAX_FILE_SIZE_
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.SUCCESS;
 import static java.util.concurrent.TimeUnit.MINUTES;
 
+import com.hedera.services.bdd.junit.HapiTest;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.HapiSpecOperation;
 import com.hedera.services.bdd.spec.infrastructure.OpProvider;
@@ -70,8 +72,7 @@ public class FileExpansionLoadProvider extends HapiSuite {
     private static final Logger log = LogManager.getLogger(FileExpansionLoadProvider.class);
 
     private static final String MAX_FILE_SIZE_KB_PROP = "files.maxSizeKb";
-    private static final String DEFAULT_MAX_FILE_SIZE_KB =
-            getDefaultNodeProps().get(MAX_FILE_SIZE_KB_PROP);
+    private static final String DEFAULT_MAX_FILE_SIZE_KB = getDefaultNodeProps().get(MAX_FILE_SIZE_KB_PROP);
     /* Useful for manipulating the # of FileCreates vs # of FileAppends */
     private static final String OVERRIDE_MAX_FILE_SIZE_KB = "512";
 
@@ -91,22 +92,19 @@ public class FileExpansionLoadProvider extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return List.of(
-                new HapiSpec[] {
-                    runFileExpansions(),
-                });
+        return List.of(runFileExpansions());
     }
 
-    private HapiSpec runFileExpansions() {
+    @HapiTest
+    final HapiSpec runFileExpansions() {
         return HapiSpec.defaultHapiSpec("RunFileExpansions")
                 .given(
                         overriding(MAX_FILE_SIZE_KB_PROP, OVERRIDE_MAX_FILE_SIZE_KB),
                         stdMgmtOf(duration, unit, maxOpsPerSec),
                         mgmtOfIntProp(numActiveTargets, "numActiveTargets"))
-                .when(
-                        runWithProvider(fileExpansionsFactory())
-                                .lasting(duration::get, unit::get)
-                                .maxOpsPerSec(maxOpsPerSec::get))
+                .when(runWithProvider(fileExpansionsFactory())
+                        .lasting(duration::get, unit::get)
+                        .maxOpsPerSec(maxOpsPerSec::get))
                 .then(overriding(MAX_FILE_SIZE_KB_PROP, DEFAULT_MAX_FILE_SIZE_KB));
     }
 
@@ -118,72 +116,60 @@ public class FileExpansionLoadProvider extends HapiSuite {
         final var key = "multi";
         final var waclShape = KeyShape.listOf(SIMPLE, threshOf(1, 3), listOf(2));
 
-        return spec ->
-                new OpProvider() {
-                    @Override
-                    public List<HapiSpecOperation> suggestedInitializers() {
-                        final List<HapiSpecOperation> ops = new ArrayList<>();
-                        ops.add(newKeyNamed(key).shape(waclShape));
-                        for (int i = 0, n = numActiveTargets.get(); i < n; i++) {
-                            ops.add(
-                                    fileCreate(targetNameFn.apply(i))
-                                            .key(key)
-                                            .noLogging()
-                                            .contents(DATA_CHUNK)
-                                            .payingWith(GENESIS));
-                        }
-                        return ops;
-                    }
+        return spec -> new OpProvider() {
+            @Override
+            public List<HapiSpecOperation> suggestedInitializers() {
+                final List<HapiSpecOperation> ops = new ArrayList<>();
+                ops.add(newKeyNamed(key).shape(waclShape));
+                for (int i = 0, n = numActiveTargets.get(); i < n; i++) {
+                    ops.add(fileCreate(targetNameFn.apply(i))
+                            .key(key)
+                            .noLogging()
+                            .contents(DATA_CHUNK)
+                            .payingWith(GENESIS));
+                }
+                return ops;
+            }
 
-                    @Override
-                    public Optional<HapiSpecOperation> get() {
-                        HapiSpecOperation op;
-                        if (usableTargets.size() < numActiveTargets.get()) {
-                            final var name = targetNameFn.apply(nextTargetNum.getAndIncrement());
-                            op =
-                                    fileCreate(name)
-                                            .noLogging()
-                                            .key(key)
-                                            .contents(DATA_CHUNK)
-                                            .payingWith(GENESIS)
-                                            .deferStatusResolution()
-                                            .exposingNumTo(
-                                                    num -> {
-                                                        usableTargets.add(name);
-                                                    });
-                        } else {
-                            final var skips = r.nextInt(usableTargets.size());
-                            final var iter = usableTargets.iterator();
-                            try {
-                                for (int i = 0; i < skips; i++) {
-                                    iter.next();
-                                }
-                                final var target = iter.next();
-                                op =
-                                        fileAppend(target)
-                                                .noLogging()
-                                                .deferStatusResolution()
-                                                .payingWith(GENESIS)
-                                                .content(DATA_CHUNK)
-                                                .hasKnownStatusFrom(MAX_FILE_SIZE_EXCEEDED, SUCCESS)
-                                                .alertingPost(
-                                                        code -> {
-                                                            if (code == MAX_FILE_SIZE_EXCEEDED) {
-                                                                log.info(
-                                                                        "File {} reached max size,"
-                                                                                + " no longer in"
-                                                                                + " rotation",
-                                                                        target);
-                                                                usableTargets.remove(target);
-                                                            }
-                                                        });
-                            } catch (Exception ignore) {
-                                op = noOp();
-                            }
+            @Override
+            public Optional<HapiSpecOperation> get() {
+                HapiSpecOperation op;
+                if (usableTargets.size() < numActiveTargets.get()) {
+                    final var name = targetNameFn.apply(nextTargetNum.getAndIncrement());
+                    op = fileCreate(name)
+                            .noLogging()
+                            .key(key)
+                            .contents(DATA_CHUNK)
+                            .payingWith(GENESIS)
+                            .deferStatusResolution()
+                            .exposingNumTo(num -> usableTargets.add(name));
+                } else {
+                    final var skips = r.nextInt(usableTargets.size());
+                    final var iter = usableTargets.iterator();
+                    try {
+                        for (int i = 0; i < skips; i++) {
+                            iter.next();
                         }
-                        return Optional.of(op);
+                        final var target = iter.next();
+                        op = fileAppend(target)
+                                .noLogging()
+                                .deferStatusResolution()
+                                .payingWith(GENESIS)
+                                .content(DATA_CHUNK)
+                                .hasKnownStatusFrom(MAX_FILE_SIZE_EXCEEDED, SUCCESS)
+                                .alertingPost(code -> {
+                                    if (code == MAX_FILE_SIZE_EXCEEDED) {
+                                        log.info("File {} reached max size," + " no longer in" + " rotation", target);
+                                        usableTargets.remove(target);
+                                    }
+                                });
+                    } catch (Exception ignore) {
+                        op = noOp();
                     }
-                };
+                }
+                return Optional.of(op);
+            }
+        };
     }
 
     @Override

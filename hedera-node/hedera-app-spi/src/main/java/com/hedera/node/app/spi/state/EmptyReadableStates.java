@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.spi.state;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -22,22 +23,31 @@ import java.util.Set;
 
 /** An implementation of {@link ReadableStates} that is always empty. */
 public final class EmptyReadableStates implements ReadableStates {
+    public static final ReadableStates INSTANCE = new EmptyReadableStates();
+
     @NonNull
     @Override
-    public <K extends Comparable<K>, V> ReadableKVState<K, V> get(@NonNull String stateKey) {
+    public <K, V> ReadableKVState<K, V> get(@NonNull final String stateKey) {
         Objects.requireNonNull(stateKey);
         throw new IllegalArgumentException("There are no k/v states");
     }
 
     @NonNull
     @Override
-    public <T> ReadableSingletonState<T> getSingleton(@NonNull String stateKey) {
+    public <T> ReadableSingletonState<T> getSingleton(@NonNull final String stateKey) {
         Objects.requireNonNull(stateKey);
         throw new IllegalArgumentException("There are no singleton states");
     }
 
+    @NonNull
     @Override
-    public boolean contains(@NonNull String stateKey) {
+    public <E> ReadableQueueState<E> getQueue(@NonNull final String stateKey) {
+        Objects.requireNonNull(stateKey);
+        throw new IllegalArgumentException("There are no queue states");
+    }
+
+    @Override
+    public boolean contains(@NonNull final String stateKey) {
         return false;
     }
 

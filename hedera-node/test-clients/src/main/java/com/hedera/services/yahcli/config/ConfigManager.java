@@ -13,11 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.yahcli.config;
 
 import static com.hedera.services.bdd.spec.HapiPropertySource.asDotDelimitedLongArray;
 import static com.hedera.services.yahcli.config.ConfigUtils.*;
+import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toSet;
 
 import com.hedera.services.bdd.suites.utils.sysfiles.serdes.StandardSerdes;
 import com.hedera.services.bdd.suites.utils.sysfiles.serdes.ThrottlesJsonToGrpcBytes;
@@ -28,11 +31,11 @@ import com.hedera.services.yahcli.config.domain.NodeConfig;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
+import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.Constructor;
 import picocli.CommandLine;
@@ -55,7 +58,7 @@ public class ConfigManager {
 
     static ConfigManager from(Yahcli yahcli) throws IOException {
         var yamlLoc = yahcli.getConfigLoc();
-        var yamlIn = new Yaml(new Constructor(GlobalConfig.class));
+        var yamlIn = new Yaml(new Constructor(GlobalConfig.class, new LoaderOptions()));
         try (InputStream fin = Files.newInputStream(Paths.get(yamlLoc))) {
             GlobalConfig globalConfig = yamlIn.load(fin);
             return new ConfigManager(yahcli, globalConfig);
@@ -99,10 +102,7 @@ public class ConfigManager {
         if (keyFile.getAbsolutePath().endsWith("pem")) {
             Optional<String> finalPassphrase = getFinalPassphrase(keyFile);
             if (!isValid(keyFile, finalPassphrase)) {
-                fail(
-                        String.format(
-                                "No valid passphrase could be obtained for PEM %s!",
-                                keyFile.getName()));
+                fail(String.format("No valid passphrase could be obtained for PEM %s!", keyFile.getName()));
             }
             specConfig.put("default.payer.pemKeyLoc", keyFile.getPath());
             specConfig.put("default.payer.pemKeyPassphrase", finalPassphrase.get());
@@ -127,12 +127,11 @@ public class ConfigManager {
         var optPassFile = ConfigUtils.passFileFor(keyFile);
         if (optPassFile.isPresent()) {
             try {
-                finalPassphrase = Optional.of(Files.readString(optPassFile.get().toPath()).trim());
+                finalPassphrase =
+                        Optional.of(Files.readString(optPassFile.get().toPath()).trim());
             } catch (IOException e) {
-                System.out.println(
-                        String.format(
-                                "Password file inaccessible for PEM %s ('%s')!",
-                                keyFile.getName(), e.getMessage()));
+                System.out.println(String.format(
+                        "Password file inaccessible for PEM %s ('%s')!", keyFile.getName(), e.getMessage()));
             }
         }
         if (!isValid(keyFile, finalPassphrase)) {
@@ -158,6 +157,33 @@ public class ConfigManager {
         return yahcli.getFixedFee();
     }
 
+    public int numNodesInTargetNet() {
+        assertTargetNetIsKnown();
+        final ConfigManager freshConfig;
+        try {
+            freshConfig = ConfigManager.from(yahcli);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        final var baseNetwork = requireNonNull(freshConfig.global.getNetworks().get(targetName));
+        return baseNetwork.getNodes().size();
+    }
+
+    public Set<Long> nodeIdsInTargetNet() {
+        assertTargetNetIsKnown();
+        final ConfigManager freshConfig;
+        try {
+            freshConfig = ConfigManager.from(yahcli);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        final var baseNetwork = requireNonNull(freshConfig.global.getNetworks().get(targetName));
+        return baseNetwork.getNodes().stream()
+                .map(NodeConfig::getId)
+                .map(i -> (long) i)
+                .collect(toSet());
+    }
+
     public void assertNoMissingDefaults() {
         assertTargetNetIsKnown();
         assertDefaultPayerIsKnown();
@@ -171,11 +197,9 @@ public class ConfigManager {
 
     private void assertDefaultPayerIsKnown() {
         if (yahcli.getPayer() == null && targetNet.getDefaultPayer() == null) {
-            fail(
-                    String.format(
-                            "No payer was specified, and no default is available in %s for network"
-                                    + " '%s'",
-                            yahcli.getConfigLoc(), targetName));
+            fail(String.format(
+                    "No payer was specified, and no default is available in %s for network" + " '%s'",
+                    yahcli.getConfigLoc(), targetName));
         }
         defaultPayer = Optional.ofNullable(yahcli.getPayer()).orElse(targetNet.getDefaultPayer());
     }
@@ -184,34 +208,28 @@ public class ConfigManager {
         if (yahcli.getNet() == null
                 && global.getDefaultNetwork() == null
                 && global.getNetworks().size() != 1) {
-            fail(
-                    String.format(
-                            "No target network was specified, and no default from %d networks is"
-                                    + " given in %s",
-                            global.getNetworks().size(), yahcli.getConfigLoc()));
+            fail(String.format(
+                    "No target network was specified, and no default from %d networks is" + " given in %s",
+                    global.getNetworks().size(), yahcli.getConfigLoc()));
         }
-        targetName =
-                Optional.ofNullable(yahcli.getNet())
-                        .orElse(
-                                Optional.ofNullable(global.getDefaultNetwork())
-                                        .orElse(global.getNetworks().keySet().iterator().next()));
+        targetName = Optional.ofNullable(yahcli.getNet())
+                .orElse(Optional.ofNullable(global.getDefaultNetwork())
+                        .orElse(global.getNetworks().keySet().iterator().next()));
         if (!global.getNetworks().containsKey(targetName)) {
-            fail(
-                    String.format(
-                            "Target network '%s' not configured in %s, only %s are known",
-                            targetName,
-                            yahcli.getConfigLoc(),
-                            global.getNetworks().keySet().stream()
-                                    .map(s -> "'" + s + "'")
-                                    .collect(toList())));
+            fail(String.format(
+                    "Target network '%s' not configured in %s, only %s are known",
+                    targetName,
+                    yahcli.getConfigLoc(),
+                    global.getNetworks().keySet().stream()
+                            .map(s -> "'" + s + "'")
+                            .collect(toList())));
         }
         targetNet = global.getNetworks().get(targetName);
         if (yahcli.getNodeIpv4Addr() != null) {
             final var ip = yahcli.getNodeIpv4Addr();
-            var nodeAccount =
-                    (yahcli.getNodeAccount() == null)
-                            ? MISSING_NODE_ACCOUNT
-                            : asDotDelimitedLongArray(yahcli.getNodeAccount())[2];
+            var nodeAccount = (yahcli.getNodeAccount() == null)
+                    ? MISSING_NODE_ACCOUNT
+                    : asDotDelimitedLongArray(yahcli.getNodeAccount())[2];
             final var nodes = targetNet.getNodes();
             if (nodeAccount == MISSING_NODE_ACCOUNT) {
                 for (final var node : nodes) {
@@ -223,11 +241,7 @@ public class ConfigManager {
             }
 
             if (nodeAccount == MISSING_NODE_ACCOUNT) {
-                fail(
-                        String.format(
-                                "Account of node with ip '%s' was not specified, and not in"
-                                        + " config.yml",
-                                ip));
+                fail(String.format("Account of node with ip '%s' was not specified, and not in" + " config.yml", ip));
             }
 
             final var overrideConfig = new NodeConfig();

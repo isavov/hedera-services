@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.contract.hapi;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -31,6 +32,8 @@ import static com.hedera.services.bdd.suites.contract.Utils.FunctionType.FUNCTIO
 import static com.hedera.services.bdd.suites.contract.Utils.asAddress;
 import static com.hedera.services.bdd.suites.contract.Utils.getABIFor;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.HapiSpecOperation;
 import com.hedera.services.bdd.spec.transactions.TxnVerbs;
@@ -43,7 +46,9 @@ import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+@HapiTestSuite
 public class ContractMusicalChairsSuite extends HapiSuite {
+
     private static final Logger log = LogManager.getLogger(ContractMusicalChairsSuite.class);
 
     public static void main(String... args) {
@@ -60,7 +65,8 @@ public class ContractMusicalChairsSuite extends HapiSuite {
         return List.of(playGame());
     }
 
-    private HapiSpec playGame() {
+    @HapiTest
+    final HapiSpec playGame() {
         final var dj = "dj";
         final var players = IntStream.range(1, 30).mapToObj(i -> "Player" + i).toList();
         final var contract = "MusicalChairs";
@@ -73,19 +79,14 @@ public class ContractMusicalChairsSuite extends HapiSuite {
         given.add(cryptoCreate(dj).balance(10 * ONE_HUNDRED_HBARS));
         given.add(getAccountInfo(DEFAULT_CONTRACT_SENDER).savingSnapshot(DEFAULT_CONTRACT_SENDER));
         given.add(uploadInitCode(contract));
-        given.add(
-                withOpContext(
-                        (spec, opLog) ->
-                                allRunFor(
-                                        spec,
-                                        contractCreate(
-                                                        contract,
-                                                        asHeadlongAddress(
-                                                                spec.registry()
-                                                                        .getAccountInfo(
-                                                                                DEFAULT_CONTRACT_SENDER)
-                                                                        .getContractAccountID()))
-                                                .payingWith(dj))));
+        given.add(withOpContext((spec, opLog) -> allRunFor(
+                spec,
+                contractCreate(
+                                contract,
+                                asHeadlongAddress(spec.registry()
+                                        .getAccountInfo(DEFAULT_CONTRACT_SENDER)
+                                        .getContractAccountID()))
+                        .payingWith(dj))));
 
         ////// Add the players //////
         players.stream().map(TxnVerbs::cryptoCreate).forEach(given::add);
@@ -96,13 +97,10 @@ public class ContractMusicalChairsSuite extends HapiSuite {
         ////// 100 "random" seats taken //////
         new Random(0x1337)
                 .ints(100, 0, 29)
-                .forEach(
-                        i ->
-                                when.add(
-                                        contractCall(contract, "sitDown")
-                                                .payingWith(players.get(i))
-                                                .refusingEthConversion()
-                                                .hasAnyStatusAtAll())); // sometimes a player sits
+                .forEach(i -> when.add(contractCall(contract, "sitDown")
+                        .payingWith(players.get(i))
+                        .refusingEthConversion()
+                        .hasAnyStatusAtAll())); // sometimes a player sits
         // too soon, so don't fail
         // on reverts
 
@@ -110,28 +108,16 @@ public class ContractMusicalChairsSuite extends HapiSuite {
         then.add(contractCall(contract, "stopMusic").payingWith(DEFAULT_CONTRACT_SENDER));
 
         ////// And the winner is..... //////
-        then.add(
-                withOpContext(
-                        (spec, opLog) ->
-                                allRunFor(
-                                        spec,
-                                        contractCallLocal(contract, "whoIsOnTheBubble")
-                                                .has(
-                                                        resultWith()
-                                                                .resultThruAbi(
-                                                                        getABIFor(
-                                                                                FUNCTION,
-                                                                                "whoIsOnTheBubble",
-                                                                                contract),
-                                                                        isLiteralResult(
-                                                                                new Object[] {
-                                                                                    HapiParserUtil
-                                                                                            .asHeadlongAddress(
-                                                                                                    asAddress(
-                                                                                                            spec.registry()
-                                                                                                                    .getAccountID(
-                                                                                                                            "Player13")))
-                                                                                }))))));
+        then.add(withOpContext((spec, opLog) -> allRunFor(
+                spec,
+                contractCallLocal(contract, "whoIsOnTheBubble")
+                        .has(resultWith()
+                                .resultThruAbi(
+                                        getABIFor(FUNCTION, "whoIsOnTheBubble", contract),
+                                        isLiteralResult(new Object[] {
+                                            HapiParserUtil.asHeadlongAddress(
+                                                    asAddress(spec.registry().getAccountID("Player13")))
+                                        }))))));
 
         return defaultHapiSpec("playGame")
                 .given(given.toArray(HapiSpecOperation[]::new))

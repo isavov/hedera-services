@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.reconnect;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -68,15 +69,13 @@ public class CreateTokensBeforeReconnect extends HapiSuite {
                 .deferStatusResolution();
     }
 
-    private HapiSpec runCreateTopics() {
-        PerfTestLoadSettings settings =
-                new PerfTestLoadSettings(
-                        TOKEN_CREATION_RECONNECT_TPS,
-                        DEFAULT_MINS_FOR_RECONNECT_TESTS,
-                        DEFAULT_TOKEN_THREADS_FOR_RECONNECT_TESTS);
+    final HapiSpec runCreateTopics() {
+        PerfTestLoadSettings settings = new PerfTestLoadSettings(
+                TOKEN_CREATION_RECONNECT_TPS,
+                DEFAULT_MINS_FOR_RECONNECT_TESTS,
+                DEFAULT_TOKEN_THREADS_FOR_RECONNECT_TESTS);
 
-        Supplier<HapiSpecOperation[]> createBurst =
-                () -> new HapiSpecOperation[] {generateTopicCreateOperation()};
+        Supplier<HapiSpecOperation[]> createBurst = () -> new HapiSpecOperation[] {generateTopicCreateOperation()};
 
         return defaultHapiSpec("RunCreateTokens")
                 .given(logIt(ignore -> settings.toString()))

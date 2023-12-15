@@ -13,132 +13,348 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package grpc;
 
-import com.google.protobuf.ByteString;
-import com.hederahashgraph.api.proto.java.*;
+import com.hedera.hapi.node.base.Transaction;
+import com.hedera.hapi.node.transaction.Query;
+import com.hedera.hapi.node.transaction.Response;
+import com.hedera.hapi.node.transaction.TransactionResponse;
+import com.hedera.node.app.grpc.impl.netty.NettyGrpcServerManager;
+import com.hedera.node.app.services.ServicesRegistry;
+import com.hedera.node.app.spi.Service;
+import com.hedera.node.app.spi.fixtures.TestBase;
+import com.hedera.node.app.spi.fixtures.state.NoOpGenesisRecordsBuilder;
+import com.hedera.node.app.state.merkle.MerkleSchemaRegistry;
+import com.hedera.node.app.workflows.ingest.IngestWorkflow;
+import com.hedera.node.app.workflows.query.QueryWorkflow;
+import com.hedera.node.config.VersionedConfigImpl;
+import com.hedera.node.config.data.GrpcConfig;
+import com.hedera.node.config.data.NettyConfig;
+import com.hedera.pbj.runtime.RpcMethodDefinition;
+import com.hedera.pbj.runtime.RpcServiceDefinition;
+import com.swirlds.common.constructable.ConstructableRegistry;
 import com.swirlds.common.metrics.Metrics;
+import com.swirlds.common.metrics.config.MetricsConfig;
 import com.swirlds.common.metrics.platform.DefaultMetrics;
 import com.swirlds.common.metrics.platform.DefaultMetricsFactory;
 import com.swirlds.common.metrics.platform.MetricKeyRegistry;
-import com.swirlds.common.system.NodeId;
-import io.helidon.grpc.server.GrpcRouting;
-import io.helidon.grpc.server.GrpcServer;
-import io.helidon.grpc.server.GrpcServerConfiguration;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
+import com.swirlds.common.platform.NodeId;
+import com.swirlds.config.api.Configuration;
+import com.swirlds.config.api.ConfigurationBuilder;
+import com.swirlds.config.api.source.ConfigSource;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import io.grpc.CallOptions;
+import io.grpc.Channel;
+import io.grpc.MethodDescriptor;
+import io.grpc.MethodDescriptor.Marshaller;
+import io.grpc.MethodDescriptor.MethodType;
+import io.grpc.netty.NettyChannelBuilder;
+import io.grpc.stub.ClientCalls;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.ConnectException;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.CountDownLatch;
+import java.util.HashSet;
+import java.util.NoSuchElementException;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.function.Consumer;
+import org.assertj.core.api.Assumptions;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 
-abstract class GrpcTestBase {
-    private static final ScheduledExecutorService METRIC_EXECUTOR =
-            Executors.newSingleThreadScheduledExecutor();
+/**
+ * Base class for testing the gRPC handling engine. This implementation is not suitable for general integration testing,
+ * but is tailored for testing the gRPC engine itself. Specifically, it does not use real workflow implementations, but
+ * allows subclasses to mock them instead to test various failure scenarios.
+ *
+ * <p>Our use of gRPC deals in bytes -- we do not ask the gRPC system to serialize and deserialize
+ * our protobuf objects. Because of this, we *can* actually test using any type of byte[] payload (including strings!)
+ * rather than protobuf objects.
+ */
+abstract class GrpcTestBase extends TestBase {
+    /** Used as a dependency to the {@link Metrics} system. */
+    private static final ScheduledExecutorService METRIC_EXECUTOR = Executors.newSingleThreadScheduledExecutor();
 
-    private GrpcServer grpcServer;
+    /** A built-in {@link IngestWorkflow} which succeeds and does nothing. */
+    protected static final IngestWorkflow NOOP_INGEST_WORKFLOW = (requestBuffer, responseBuffer) -> {};
+    /** A built-in {@link QueryWorkflow} which succeeds and does nothing. */
+    protected static final QueryWorkflow NOOP_QUERY_WORKFLOW = (requestBuffer, responseBuffer) -> {};
 
-    protected Metrics metrics;
-    protected String host;
-    protected int port;
+    /**
+     * Represents "this node" in our tests.
+     */
+    private final NodeId nodeSelfId = new NodeId(7);
 
-    @BeforeEach
-    void setUp() throws InterruptedException, UnknownHostException {
-        final var latch = new CountDownLatch(1);
-        metrics =
-                new DefaultMetrics(
-                        new NodeId(false, 0),
-                        new MetricKeyRegistry(),
-                        METRIC_EXECUTOR,
-                        new DefaultMetricsFactory());
-        final var config = GrpcServerConfiguration.builder().port(0).build();
-        final var routingBuilder = GrpcRouting.builder();
-        configureRouting(routingBuilder);
-        grpcServer = GrpcServer.create(config, routingBuilder.build());
+    /**
+     * This {@link NettyGrpcServerManager} is used to handle the wire protocol tasks and delegate to our gRPC handlers
+     */
+    private NettyGrpcServerManager grpcServer;
 
-        // Block until the startup has completed, so all tests can run knowing the server
-        // is set up and ready to go.
-        grpcServer.start().thenAccept(server -> latch.countDown());
-        latch.await();
+    private final Configuration configuration = ConfigurationBuilder.create()
+            .withConfigDataType(MetricsConfig.class)
+            .build();
 
-        // Get the host and port dynamically now that the server is running.
-        host = InetAddress.getLocalHost().getHostName();
-        port = grpcServer.port();
+    /**
+     * The gRPC system has extensive metrics. This object allows us to inspect them and make sure they are being set
+     * correctly for different types of calls.
+     */
+    protected final Metrics metrics = new DefaultMetrics(
+            nodeSelfId,
+            new MetricKeyRegistry(),
+            METRIC_EXECUTOR,
+            new DefaultMetricsFactory(configuration.getConfigData(MetricsConfig.class)),
+            configuration.getConfigData(MetricsConfig.class));
+    /** The query method to set up on the server. Only one method supported today */
+    private String queryMethodName;
+    /** The ingest method to set up on the server. Only one method supported today */
+    private String ingestMethodName;
+    /** The ingest workflow to use. */
+    private IngestWorkflow ingestWorkflow = NOOP_INGEST_WORKFLOW;
+    /** The query workflow to use. */
+    private QueryWorkflow queryWorkflow = NOOP_QUERY_WORKFLOW;
+    /** The channel on the client to connect to the grpc server */
+    private Channel channel;
+
+    /**
+     */
+    protected void registerQuery(
+            @NonNull final String methodName,
+            @NonNull final IngestWorkflow ingestWorkflow,
+            @NonNull final QueryWorkflow queryWorkflow) {
+        this.queryMethodName = methodName;
+        this.queryWorkflow = queryWorkflow;
+        this.ingestWorkflow = ingestWorkflow;
+    }
+
+    protected void registerIngest(
+            @NonNull final String methodName,
+            @NonNull final IngestWorkflow ingestWorkflow,
+            @NonNull final QueryWorkflow queryWorkflow) {
+        this.ingestMethodName = methodName;
+        this.ingestWorkflow = ingestWorkflow;
+        this.queryWorkflow = queryWorkflow;
+    }
+
+    /** Starts the grpcServer and sets up the clients. */
+    protected void startServer() {
+        final var testService = new Service() {
+            @NonNull
+            @Override
+            public String getServiceName() {
+                return "TestService";
+            }
+
+            @NonNull
+            @Override
+            public Set<RpcServiceDefinition> rpcDefinitions() {
+                return Set.of(new RpcServiceDefinition() {
+                    @NonNull
+                    @Override
+                    public String basePath() {
+                        return "proto.TestService";
+                    }
+
+                    @NonNull
+                    @Override
+                    public Set<RpcMethodDefinition<? extends Record, ? extends Record>> methods() {
+                        final var set = new HashSet<RpcMethodDefinition<? extends Record, ? extends Record>>();
+                        if (queryMethodName != null) {
+                            set.add(new RpcMethodDefinition<>(queryMethodName, Query.class, Response.class));
+                        }
+                        if (ingestMethodName != null) {
+                            set.add(new RpcMethodDefinition<>(
+                                    ingestMethodName, Transaction.class, TransactionResponse.class));
+                        }
+                        return set;
+                    }
+                });
+            }
+        };
+
+        final var cr = ConstructableRegistry.getInstance();
+        final var registry = new MerkleSchemaRegistry(cr, "TestService", new NoOpGenesisRecordsBuilder());
+        final var registration = new ServicesRegistry.Registration(testService, registry);
+        final var config = createConfig(new TestSource());
+        this.grpcServer = new NettyGrpcServerManager(
+                () -> new VersionedConfigImpl(config, 1),
+                () -> Set.of(registration),
+                ingestWorkflow,
+                queryWorkflow,
+                metrics);
+
+        grpcServer.start();
+
+        this.channel = NettyChannelBuilder.forAddress("localhost", grpcServer.port())
+                .usePlaintext()
+                .build();
     }
 
     @AfterEach
     void tearDown() {
-        grpcServer.shutdown();
+        if (this.grpcServer != null) this.grpcServer.stop();
+        grpcServer = null;
+        ingestWorkflow = NOOP_INGEST_WORKFLOW;
+        queryWorkflow = NOOP_QUERY_WORKFLOW;
+        queryMethodName = null;
+        ingestMethodName = null;
     }
 
-    protected abstract void configureRouting(GrpcRouting.Builder rb);
-
-    protected Transaction createSubmitMessageTransaction(int topicId, String msg) {
-        final var data =
-                ConsensusSubmitMessageTransactionBody.newBuilder()
-                        .setTopicID(TopicID.newBuilder().setTopicNum(topicId).build())
-                        .setMessage(ByteString.copyFrom(msg, StandardCharsets.UTF_8))
-                        .build();
-
-        return createTransaction(bodyBuilder -> bodyBuilder.setConsensusSubmitMessage(data));
+    /**
+     * Called to invoke a service's function that had been previously registered with one of the {@code register}
+     * methods, using the given payload and receiving the given response. Since the gRPC code only deals in bytes, we
+     * can test everything with just strings, no protobuf encoding required.
+     *
+     * @param service  The service to invoke
+     * @param function The function on the service to invoke
+     * @param payload  The payload to send to the function on the service
+     * @return The response from the service function.
+     */
+    protected String send(final String service, final String function, final String payload) {
+        return ClientCalls.blockingUnaryCall(
+                channel,
+                MethodDescriptor.<String, String>newBuilder()
+                        .setFullMethodName(service + "/" + function)
+                        .setRequestMarshaller(new StringMarshaller())
+                        .setResponseMarshaller(new StringMarshaller())
+                        .setType(MethodType.UNARY)
+                        .build(),
+                CallOptions.DEFAULT,
+                payload);
     }
 
-    protected Transaction createCreateTopicTransaction(String memo) {
-        final var data = ConsensusCreateTopicTransactionBody.newBuilder().setMemo(memo).build();
-
-        return createTransaction(bodyBuilder -> bodyBuilder.setConsensusCreateTopic(data));
+    protected Configuration createConfig(@NonNull final TestSource testConfig) {
+        return ConfigurationBuilder.create()
+                .withConfigDataType(MetricsConfig.class)
+                .withConfigDataType(GrpcConfig.class)
+                .withConfigDataType(NettyConfig.class)
+                .withSource(testConfig)
+                .build();
     }
 
-    protected Transaction createUncheckedSubmitTransaction() {
-        final var data =
-                UncheckedSubmitBody.newBuilder().setTransactionBytes(ByteString.EMPTY).build();
-
-        return createTransaction(bodyBuilder -> bodyBuilder.setUncheckedSubmit(data));
+    /**
+     * Checks whether a server process is listening on the given port
+     *
+     * @param portNumber The port to check
+     */
+    protected static boolean isListening(int portNumber) {
+        try (final var socket = new Socket("localhost", portNumber)) {
+            return socket.isConnected();
+        } catch (ConnectException connect) {
+            return false;
+        } catch (Exception e) {
+            throw new RuntimeException(
+                    "Unexpected error while checking whether the port '" + portNumber + "' was free", e);
+        }
     }
 
-    protected Transaction createTransaction(Consumer<TransactionBody.Builder> txBodyBuilder) {
-        final var txId =
-                TransactionID.newBuilder()
-                        .setTransactionValidStart(
-                                Timestamp.newBuilder().setSeconds(2838283).setNanos(99902).build())
-                        .setAccountID(AccountID.newBuilder().setAccountNum(1001).build())
-                        .build();
+    /**
+     * A config source used by this test to specify the config values
+     */
+    protected static final class TestSource implements ConfigSource {
+        private int port = 0;
+        private int tlsPort = 0;
+        private int startRetries = 3;
+        private int startRetryIntervalMs = 100;
 
-        final var bodyBuilder =
-                TransactionBody.newBuilder()
-                        .setTransactionID(txId)
-                        .setMemo("A Memo")
-                        .setTransactionFee(1_000_000);
-        txBodyBuilder.accept(bodyBuilder);
-        final var body = bodyBuilder.build();
+        @Override
+        public int getOrdinal() {
+            return 1000;
+        }
 
-        final var signedTx =
-                SignedTransaction.newBuilder().setBodyBytes(body.toByteString()).build();
+        @NonNull
+        @Override
+        public Set<String> getPropertyNames() {
+            return Set.of("grpc.port", "grpc.tlsPort", "netty.startRetryIntervalMs", "netty.startRetries");
+        }
 
-        return Transaction.newBuilder().setSignedTransactionBytes(signedTx.toByteString()).build();
+        @Nullable
+        @Override
+        public String getValue(@NonNull String s) throws NoSuchElementException {
+            return switch (s) {
+                case "grpc.port" -> String.valueOf(port);
+                case "grpc.tlsPort" -> String.valueOf(tlsPort);
+                case "netty.startRetryIntervalMs" -> String.valueOf(startRetryIntervalMs);
+                case "netty.startRetries" -> String.valueOf(startRetries);
+                default -> null;
+            };
+        }
+
+        public int port() {
+            return port;
+        }
+
+        public TestSource withPort(final int value) {
+            this.port = value;
+            return this;
+        }
+
+        // Locates a free port on its own
+        public TestSource withFreePort() {
+            this.port = findFreePort();
+            Assumptions.assumeThat(this.port).isGreaterThan(0);
+            return this;
+        }
+
+        public TestSource withTlsPort(final int value) {
+            this.tlsPort = value;
+            return this;
+        }
+
+        // Locates a free port on its own
+        public TestSource withFreeTlsPort() {
+            this.tlsPort = findFreePort();
+            Assumptions.assumeThat(this.tlsPort).isGreaterThan(0);
+            return this;
+        }
+
+        public TestSource withStartRetries(final int value) {
+            this.startRetries = value;
+            return this;
+        }
+
+        public TestSource withStartRetryIntervalMs(final int value) {
+            this.startRetryIntervalMs = value;
+            return this;
+        }
+
+        private int findFreePort() {
+            for (int i = 1024; i < 10_000; i++) {
+                if (i != port && i != tlsPort && isPortFree(i)) {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        /**
+         * Checks whether the given port is free
+         *
+         * @param portNumber The port to check
+         */
+        private boolean isPortFree(int portNumber) {
+            return !isListening(portNumber);
+        }
     }
 
-    protected Query createGetTopicInfoQuery(int topicId) {
-        final var data =
-                ConsensusGetTopicInfoQuery.newBuilder()
-                        .setTopicID(TopicID.newBuilder().setTopicNum(topicId).build())
-                        .build();
+    protected static final class StringMarshaller implements Marshaller<String> {
 
-        return Query.newBuilder().setConsensusGetTopicInfo(data).build();
-    }
+        @Override
+        public InputStream stream(String value) {
+            return new ByteArrayInputStream(value.getBytes(StandardCharsets.UTF_8));
+        }
 
-    protected Query createGetExecutionTimeQuery() {
-        final var data = NetworkGetExecutionTimeQuery.newBuilder().build();
-
-        return Query.newBuilder().setNetworkGetExecutionTime(data).build();
-    }
-
-    protected Query createGetLiveHashQuery() {
-        final var data = CryptoGetLiveHashQuery.newBuilder().build();
-
-        return Query.newBuilder().setCryptoGetLiveHash(data).build();
+        @Override
+        public String parse(InputStream stream) {
+            try {
+                return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
     }
 }

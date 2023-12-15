@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.virtual;
 
 import static com.hedera.node.app.service.mono.files.store.FcBlobsBytesStore.LEGACY_BLOB_CODE_INDEX;
@@ -23,13 +24,12 @@ import com.hedera.node.app.service.mono.utils.MiscUtils;
 import com.swirlds.common.io.streams.SerializableDataInputStream;
 import com.swirlds.common.io.streams.SerializableDataOutputStream;
 import com.swirlds.virtualmap.VirtualKey;
-import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
-public class VirtualBlobKey implements VirtualKey<VirtualBlobKey> {
+public class VirtualBlobKey implements VirtualKey {
+    public static final int CURRENT_VERSION = 1;
 
-    static final int CURRENT_VERSION = 1;
     static final int BYTES_IN_SERIALIZED_FORM = 5;
     static final long CLASS_ID = 0x11b982c14217d523L;
 
@@ -56,16 +56,14 @@ public class VirtualBlobKey implements VirtualKey<VirtualBlobKey> {
 
     public static VirtualBlobKey fromPath(final String path) {
         final var code = path.charAt(LEGACY_BLOB_CODE_INDEX);
-        final var packedNum =
-                BitPackUtils.codeFromNum(parseLong(path.substring(LEGACY_BLOB_CODE_INDEX + 1)));
+        final var packedNum = BitPackUtils.codeFromNum(parseLong(path.substring(LEGACY_BLOB_CODE_INDEX + 1)));
 
         return switch (code) {
             case 'f' -> new VirtualBlobKey(Type.FILE_DATA, packedNum);
             case 'k' -> new VirtualBlobKey(Type.FILE_METADATA, packedNum);
             case 's' -> new VirtualBlobKey(Type.CONTRACT_BYTECODE, packedNum);
             case 'e' -> new VirtualBlobKey(Type.SYSTEM_DELETED_ENTITY_EXPIRY, packedNum);
-            default -> throw new IllegalArgumentException(
-                    "Invalid code in blob path '" + path + "'");
+            default -> throw new IllegalArgumentException("Invalid code in blob path '" + path + "'");
         };
     }
 
@@ -82,8 +80,7 @@ public class VirtualBlobKey implements VirtualKey<VirtualBlobKey> {
     }
 
     @Override
-    public void deserialize(final SerializableDataInputStream in, final int version)
-            throws IOException {
+    public void deserialize(final SerializableDataInputStream in, final int version) throws IOException {
         type = BLOB_TYPES[0xff & in.readByte()];
         entityNumCode = in.readInt();
     }
@@ -133,18 +130,6 @@ public class VirtualBlobKey implements VirtualKey<VirtualBlobKey> {
 
     public int getEntityNumCode() {
         return entityNumCode;
-    }
-
-    @Override
-    public int compareTo(@NonNull final VirtualBlobKey that) {
-        if (this == that) {
-            return 0;
-        }
-        final int order = Integer.compare(this.entityNumCode, that.entityNumCode);
-        if (order != 0) {
-            return order;
-        }
-        return this.type.compareTo(that.type);
     }
 
     @Override

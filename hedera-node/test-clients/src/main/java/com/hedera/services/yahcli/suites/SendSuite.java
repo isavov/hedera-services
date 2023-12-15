@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.yahcli.suites;
 
 import static com.hedera.services.bdd.spec.transactions.TxnVerbs.cryptoTransfer;
@@ -23,9 +24,9 @@ import static com.hedera.services.bdd.spec.transactions.token.TokenMovement.movi
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.transactions.HapiTxnOp;
 import com.hedera.services.bdd.suites.HapiSuite;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.List;
 import java.util.Map;
-import javax.annotation.Nullable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -35,7 +36,10 @@ public class SendSuite extends HapiSuite {
     private final Map<String, String> specConfig;
     private final String memo;
     private final String beneficiary;
-    @Nullable private final String denomination;
+
+    @Nullable
+    private final String denomination;
+
     private final boolean schedule;
     private final long unitsToSend;
 
@@ -60,20 +64,14 @@ public class SendSuite extends HapiSuite {
     }
 
     private HapiSpec doSend() {
-        var transfer =
-                denomination == null
-                        ? (HapiTxnOp<?>)
-                                cryptoTransfer(
-                                                tinyBarsFromTo(
-                                                        DEFAULT_PAYER, beneficiary, unitsToSend))
-                                        .memo(memo)
-                                        .signedBy(DEFAULT_PAYER)
-                        : (HapiTxnOp<?>)
-                                cryptoTransfer(
-                                                moving(unitsToSend, denomination)
-                                                        .between(DEFAULT_PAYER, beneficiary))
-                                        .memo(memo)
-                                        .signedBy(DEFAULT_PAYER);
+        var transfer = denomination == null
+                ? (HapiTxnOp<?>) cryptoTransfer(tinyBarsFromTo(DEFAULT_PAYER, beneficiary, unitsToSend))
+                        .memo(memo)
+                        .signedBy(DEFAULT_PAYER)
+                : (HapiTxnOp<?>)
+                        cryptoTransfer(moving(unitsToSend, denomination).between(DEFAULT_PAYER, beneficiary))
+                                .memo(memo)
+                                .signedBy(DEFAULT_PAYER);
 
         // flag that transferred as parameter to schedule a transaction or to execute right away
         if (schedule) {

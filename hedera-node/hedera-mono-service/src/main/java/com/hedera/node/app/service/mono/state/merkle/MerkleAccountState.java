@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.merkle;
 
 import static com.hedera.node.app.service.mono.legacy.core.jproto.JKey.equalUpToDecodability;
@@ -45,7 +46,7 @@ import com.hedera.node.app.service.mono.state.submerkle.FcTokenAllowanceId;
 import com.hedera.node.app.service.mono.state.virtual.ContractKey;
 import com.hedera.node.app.service.mono.state.virtual.KeyPackingUtils;
 import com.hedera.node.app.service.mono.utils.EntityNum;
-import com.swirlds.common.exceptions.MutabilityException;
+import com.swirlds.base.state.MutabilityException;
 import com.swirlds.common.io.streams.SerializableDataInputStream;
 import com.swirlds.common.io.streams.SerializableDataOutputStream;
 import com.swirlds.common.merkle.MerkleLeaf;
@@ -257,8 +258,7 @@ public class MerkleAccountState extends PartialMerkleLeaf implements MerkleLeaf 
     }
 
     @Override
-    public void deserialize(final SerializableDataInputStream in, final int version)
-            throws IOException {
+    public void deserialize(final SerializableDataInputStream in, final int version) throws IOException {
         key = readNullable(in, JKeySerializer::deserialize);
         expiry = in.readLong();
         hbarBalance = in.readLong();
@@ -305,11 +305,8 @@ public class MerkleAccountState extends PartialMerkleLeaf implements MerkleLeaf 
                 final byte marker = in.readByte();
                 if (marker != KeyPackingUtils.MISSING_KEY_SENTINEL) {
                     firstUint256KeyNonZeroBytes = marker;
-                    firstUint256Key =
-                            KeyPackingUtils.deserializeUint256Key(
-                                    firstUint256KeyNonZeroBytes,
-                                    in,
-                                    SerializableDataInputStream::readByte);
+                    firstUint256Key = KeyPackingUtils.deserializeUint256Key(
+                            firstUint256KeyNonZeroBytes, in, SerializableDataInputStream::readByte);
                 }
             }
             autoRenewAccount = readNullableSerializable(in);
@@ -392,7 +389,6 @@ public class MerkleAccountState extends PartialMerkleLeaf implements MerkleLeaf 
                 && this.deleted == that.deleted
                 && this.smartContract == that.smartContract
                 && this.receiverSigRequired == that.receiverSigRequired
-                && Objects.equals(this.proxy, that.proxy)
                 && this.nftsOwned == that.nftsOwned
                 && this.numContractKvPairs == that.numContractKvPairs
                 && this.ethereumNonce == that.ethereumNonce
@@ -408,7 +404,13 @@ public class MerkleAccountState extends PartialMerkleLeaf implements MerkleLeaf 
                 && this.numPositiveBalances == that.numPositiveBalances
                 && this.headTokenId == that.headTokenId
                 && this.numTreasuryTitles == that.numTreasuryTitles
-                && Objects.equals(this.autoRenewAccount, that.autoRenewAccount)
+                // Note that we this is temporary solution till we have an AccountId in place
+                && Optional.ofNullable(this.autoRenewAccount).stream()
+                        .mapToLong(EntityId::num)
+                        .findAny()
+                        .equals(Optional.ofNullable(that.autoRenewAccount).stream()
+                                .mapToLong(EntityId::num)
+                                .findAny())
                 && this.headNftId == that.headNftId
                 && this.headNftSerialNum == that.headNftSerialNum
                 && this.stakedToMe == that.stakedToMe
@@ -739,8 +741,7 @@ public class MerkleAccountState extends PartialMerkleLeaf implements MerkleLeaf 
         return Collections.unmodifiableMap(fungibleTokenAllowances);
     }
 
-    public void setFungibleTokenAllowances(
-            final SortedMap<FcTokenAllowanceId, Long> fungibleTokenAllowances) {
+    public void setFungibleTokenAllowances(final SortedMap<FcTokenAllowanceId, Long> fungibleTokenAllowances) {
         assertMutable("fungibleTokenAllowances");
         this.fungibleTokenAllowances = fungibleTokenAllowances;
     }
@@ -749,16 +750,13 @@ public class MerkleAccountState extends PartialMerkleLeaf implements MerkleLeaf 
         return fungibleTokenAllowances;
     }
 
-    public void setFungibleTokenAllowancesUnsafe(
-            final Map<FcTokenAllowanceId, Long> fungibleTokenAllowances) {
+    public void setFungibleTokenAllowancesUnsafe(final Map<FcTokenAllowanceId, Long> fungibleTokenAllowances) {
         assertMutable("fungibleTokenAllowances");
         this.fungibleTokenAllowances = fungibleTokenAllowances;
     }
 
     public ContractKey getFirstContractStorageKey() {
-        return firstUint256Key == null
-                ? null
-                : new ContractKey(BitPackUtils.numFromCode(number), firstUint256Key);
+        return firstUint256Key == null ? null : new ContractKey(BitPackUtils.numFromCode(number), firstUint256Key);
     }
 
     public int[] getFirstUint256Key() {
@@ -839,8 +837,7 @@ public class MerkleAccountState extends PartialMerkleLeaf implements MerkleLeaf 
 
     private void assertMutable(final String proximalField) {
         if (isImmutable()) {
-            throw new MutabilityException(
-                    "Cannot set " + proximalField + " on an immutable account state!");
+            throw new MutabilityException("Cannot set " + proximalField + " on an immutable account state!");
         }
     }
 }

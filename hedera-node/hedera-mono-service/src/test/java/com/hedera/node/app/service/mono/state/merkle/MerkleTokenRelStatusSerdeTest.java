@@ -13,10 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.merkle;
 
+import com.hedera.node.app.service.mono.state.migration.TokenRelationStateTranslator;
+import com.hedera.test.serde.EqualityType;
 import com.hedera.test.serde.SelfSerializableDataTest;
 import com.hedera.test.utils.SeededPropertySource;
+import edu.umd.cs.findbugs.annotations.NonNull;
 
 public class MerkleTokenRelStatusSerdeTest extends SelfSerializableDataTest<MerkleTokenRelStatus> {
     @Override
@@ -30,12 +34,16 @@ public class MerkleTokenRelStatusSerdeTest extends SelfSerializableDataTest<Merk
     }
 
     @Override
-    protected MerkleTokenRelStatus getExpectedObject(final int version, final int testCaseNo) {
+    protected MerkleTokenRelStatus getExpectedObject(
+            final int version, final int testCaseNo, @NonNull final EqualityType equalityType) {
         var expected = super.getExpectedObject(version, testCaseNo);
         if (version < MerkleTokenRelStatus.RELEASE_0250_VERSION) {
             expected.setNext(0);
             expected.setPrev(0);
         }
-        return expected;
+        final var pbjTokenRelation = TokenRelationStateTranslator.tokenRelationFromMerkleTokenRelStatus(expected);
+        final var merkleTokenRelStatus =
+                TokenRelationStateTranslator.merkleTokenRelStatusFromTokenRelation(pbjTokenRelation);
+        return merkleTokenRelStatus;
     }
 }

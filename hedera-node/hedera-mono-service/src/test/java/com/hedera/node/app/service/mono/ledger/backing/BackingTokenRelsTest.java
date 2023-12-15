@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.ledger.backing;
 
 import static com.hedera.node.app.service.mono.ledger.backing.BackingTokenRels.asTokenRel;
@@ -23,7 +24,6 @@ import static com.hedera.test.utils.IdUtils.asToken;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.BDDMockito.any;
 import static org.mockito.BDDMockito.given;
@@ -62,12 +62,9 @@ class BackingTokenRelsTest {
     private final EntityNumPair aKey = fromAccountTokenRel(a, at);
     private final EntityNumPair bKey = fromAccountTokenRel(b, bt);
     private final EntityNumPair cKey = fromAccountTokenRel(c, ct);
-    private final MerkleTokenRelStatus aValue =
-            new MerkleTokenRelStatus(aBalance, aFrozen, aKyc, automaticAssociation);
-    private final MerkleTokenRelStatus bValue =
-            new MerkleTokenRelStatus(bBalance, bFrozen, bKyc, automaticAssociation);
-    private final MerkleTokenRelStatus cValue =
-            new MerkleTokenRelStatus(cBalance, cFrozen, cKyc, automaticAssociation);
+    private final MerkleTokenRelStatus aValue = new MerkleTokenRelStatus(aBalance, aFrozen, aKyc, automaticAssociation);
+    private final MerkleTokenRelStatus bValue = new MerkleTokenRelStatus(bBalance, bFrozen, bKyc, automaticAssociation);
+    private final MerkleTokenRelStatus cValue = new MerkleTokenRelStatus(cBalance, cFrozen, cKyc, automaticAssociation);
 
     private MerkleMap<EntityNumPair, MerkleTokenRelStatus> rels;
 
@@ -155,12 +152,6 @@ class BackingTokenRelsTest {
         // and:
         verify(rels, times(2)).getForModify(any());
         verify(rels, times(1)).get(any());
-    }
-
-    @Test
-    void irrelevantMethodsNotSupported() {
-        // expect:
-        assertThrows(UnsupportedOperationException.class, subject::idSet);
     }
 
     @Test

@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.context;
 
 import static com.hedera.node.app.service.mono.context.AppsManager.APPS;
@@ -22,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.node.app.service.mono.ServicesApp;
+import com.swirlds.common.platform.NodeId;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,10 +32,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class AppsManagerTest {
-    private final long nodeIdA = 1L;
-    private final long nodeIdB = 2L;
+    private final NodeId nodeIdA = new NodeId(1L);
+    private final NodeId nodeIdB = new NodeId(2L);
 
-    @Mock private ServicesApp app;
+    @Mock
+    private ServicesApp app;
 
     @AfterEach
     void cleanup() {

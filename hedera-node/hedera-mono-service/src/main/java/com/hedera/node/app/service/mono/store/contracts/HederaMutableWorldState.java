@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.store.contracts;
 
 /*
@@ -41,6 +42,7 @@ import com.hedera.node.app.service.evm.store.contracts.HederaEvmMutableWorldStat
 import com.hedera.node.app.service.mono.ledger.accounts.ContractCustomizer;
 import com.hederahashgraph.api.proto.java.ContractID;
 import java.util.List;
+import java.util.Map;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.evm.worldstate.WorldView;
@@ -86,6 +88,8 @@ public interface HederaMutableWorldState extends HederaEvmMutableWorldState, Wor
      */
     List<ContractID> getCreatedContractIds();
 
+    Map<ContractID, Long> getContractNonces();
+
     /**
      * Returns the contract customizations requested by the sender of a top-level HAPI
      * contractCreate.
@@ -103,4 +107,10 @@ public interface HederaMutableWorldState extends HederaEvmMutableWorldState, Wor
 
     /** Clears the customizations requested by the sender of a top-level HAPI contractCreate. */
     void resetHapiSenderCustomizer();
+
+    /** Ensures we begin the transaction with an empty list of contract creations. */
+    void clearProvisionalContractCreations();
+
+    /** Ensures we begin the transaction with an empty map of contract nonces. */
+    void clearContractNonces();
 }

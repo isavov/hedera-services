@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.fees.calculation.schedule.queries;
 
 import static com.hedera.node.app.service.mono.queries.schedule.GetScheduleInfoAnswer.SCHEDULE_INFO_CTX_KEY;
@@ -24,6 +25,7 @@ import com.hedera.node.app.service.mono.context.primitives.StateView;
 import com.hedera.node.app.service.mono.fees.calculation.QueryResourceUsageEstimator;
 import com.hederahashgraph.api.proto.java.FeeData;
 import com.hederahashgraph.api.proto.java.Query;
+import com.hederahashgraph.api.proto.java.ScheduleInfo;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.Map;
 import javax.inject.Inject;
@@ -44,19 +46,35 @@ public final class GetScheduleInfoResourceUsage implements QueryResourceUsageEst
     }
 
     @Override
-    public FeeData usageGiven(
-            final Query query, final StateView view, @Nullable final Map<String, Object> queryCtx) {
+    public FeeData usageGiven(final Query query, final StateView view, @Nullable final Map<String, Object> queryCtx) {
         final var op = query.getScheduleGetInfo();
         final var optionalInfo = view.infoForSchedule(op.getScheduleID());
         if (optionalInfo.isPresent()) {
             final var info = optionalInfo.get();
             putIfNotNull(queryCtx, SCHEDULE_INFO_CTX_KEY, info);
-            final var scheduleCtxBuilder =
-                    ExtantScheduleContext.newBuilder()
-                            .setScheduledTxn(info.getScheduledTransactionBody())
-                            .setMemo(info.getMemo())
-                            .setNumSigners(info.getSigners().getKeysCount())
-                            .setResolved(info.hasExecutionTime() || info.hasDeletionTime());
+            final var scheduleCtxBuilder = ExtantScheduleContext.newBuilder()
+                    .setScheduledTxn(info.getScheduledTransactionBody())
+                    .setMemo(info.getMemo())
+                    .setNumSigners(info.getSigners().getKeysCount())
+                    .setResolved(info.hasExecutionTime() || info.hasDeletionTime());
+            if (info.hasAdminKey()) {
+                scheduleCtxBuilder.setAdminKey(info.getAdminKey());
+            } else {
+                scheduleCtxBuilder.setNoAdminKey();
+            }
+            return scheduleOpsUsage.scheduleInfoUsage(query, scheduleCtxBuilder.build());
+        } else {
+            return FeeData.getDefaultInstance();
+        }
+    }
+
+    public FeeData usageGiven(final Query query, final ScheduleInfo info) {
+        if (info != null) {
+            final var scheduleCtxBuilder = ExtantScheduleContext.newBuilder()
+                    .setScheduledTxn(info.getScheduledTransactionBody())
+                    .setMemo(info.getMemo())
+                    .setNumSigners(info.getSigners().getKeysCount())
+                    .setResolved(info.hasExecutionTime() || info.hasDeletionTime());
             if (info.hasAdminKey()) {
                 scheduleCtxBuilder.setAdminKey(info.getAdminKey());
             } else {

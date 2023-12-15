@@ -1,22 +1,27 @@
-import com.hedera.node.app.service.schedule.impl.ScheduleServiceImpl;
-
 module com.hedera.node.app.service.schedule.impl {
-    requires transitive com.hedera.node.app.service.scheduled;
-    requires org.apache.commons.lang3;
-    requires com.hedera.node.app.service.mono;
-    requires com.swirlds.virtualmap;
-    requires dagger;
-    requires javax.inject;
+    requires transitive com.hedera.node.app.hapi.fees;
+    // Only ScheduleServiceStateTranslator requires this item, when that is removed, this should also be removed.
+    requires transitive com.hedera.node.app.service.mono;
+    requires transitive com.hedera.node.app.service.schedule;
+    requires transitive com.hedera.node.app.spi;
+    requires transitive com.hedera.node.hapi;
+    requires transitive dagger;
+    requires transitive javax.inject;
+    requires com.hedera.node.app.hapi.utils;
+    // Required for ReadableAccountStore to read payer account details on create, sign, or query
+    requires com.hedera.node.app.service.token;
+    requires com.hedera.node.config;
+    requires com.google.common;
+    requires com.hedera.pbj.runtime;
+    requires com.swirlds.config.api;
+    requires static com.github.spotbugs.annotations;
+    requires static java.compiler; // javax.annotation.processing.Generated
+    requires org.apache.logging.log4j;
 
-    exports com.hedera.node.app.service.schedule.impl to
-            com.hedera.node.app.service.schedule.impl.test,
-            com.hedera.node.app.service.scheduled.impl.test,
-            com.hedera.node.app;
-    exports com.hedera.node.app.service.schedule.impl.handlers to
-            com.hedera.node.app.service.schedule.impl.test,
-            com.hedera.node.app;
-    exports com.hedera.node.app.service.schedule.impl.components;
+    exports com.hedera.node.app.service.schedule.impl;
+    exports com.hedera.node.app.service.schedule.impl.handlers;
+    exports com.hedera.node.app.service.schedule.impl.codec;
 
     provides com.hedera.node.app.service.schedule.ScheduleService with
-            ScheduleServiceImpl;
+            com.hedera.node.app.service.schedule.impl.ScheduleServiceImpl;
 }

@@ -13,57 +13,54 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.token.impl.handlers;
 
 import static java.util.Objects.requireNonNull;
 
-import com.hedera.node.app.spi.meta.PreHandleContext;
-import com.hedera.node.app.spi.meta.TransactionMetadata;
+import com.hedera.hapi.node.base.HederaFunctionality;
+import com.hedera.hapi.node.base.ResponseCodeEnum;
+import com.hedera.node.app.spi.fees.FeeContext;
+import com.hedera.node.app.spi.fees.Fees;
+import com.hedera.node.app.spi.workflows.HandleContext;
+import com.hedera.node.app.spi.workflows.HandleException;
+import com.hedera.node.app.spi.workflows.PreCheckException;
+import com.hedera.node.app.spi.workflows.PreHandleContext;
 import com.hedera.node.app.spi.workflows.TransactionHandler;
-import com.hederahashgraph.api.proto.java.TransactionBody;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
 /**
  * This class contains all workflow-related functionality regarding {@link
- * com.hederahashgraph.api.proto.java.HederaFunctionality#CryptoAddLiveHash}.
+ * HederaFunctionality#CRYPTO_ADD_LIVE_HASH}.
+ *
+ * This transaction type is not currently supported. It is reserved for future use.
  */
 @Singleton
 public class CryptoAddLiveHashHandler implements TransactionHandler {
     @Inject
-    public CryptoAddLiveHashHandler() {}
-
-    /**
-     * This method is called during the pre-handle workflow.
-     *
-     * <p>Typically, this method validates the {@link TransactionBody} semantically, gathers all
-     * required keys, warms the cache, and creates the {@link TransactionMetadata} that is used in
-     * the handle stage.
-     *
-     * <p>Please note: the method signature is just a placeholder which is most likely going to
-     * change.
-     *
-     * @param context the {@link PreHandleContext} which collects all information that will be
-     *     passed to {@link #handle(TransactionMetadata)}
-     * @throws NullPointerException if one of the arguments is {@code null}
-     */
-    public void preHandle(@NonNull final PreHandleContext context) {
-        requireNonNull(context);
-        throw new UnsupportedOperationException("Not implemented");
+    public CryptoAddLiveHashHandler() {
+        // Exists for injection
     }
 
-    /**
-     * This method is called during the handle workflow. It executes the actual transaction.
-     *
-     * <p>Please note: the method signature is just a placeholder which is most likely going to
-     * change.
-     *
-     * @param metadata the {@link TransactionMetadata} that was generated during pre-handle.
-     * @throws NullPointerException if one of the arguments is {@code null}
-     */
-    public void handle(@NonNull final TransactionMetadata metadata) {
-        requireNonNull(metadata);
-        throw new UnsupportedOperationException("Not implemented");
+    @Override
+    public void preHandle(@NonNull final PreHandleContext context) throws PreCheckException {
+        requireNonNull(context);
+        throw new PreCheckException(ResponseCodeEnum.NOT_SUPPORTED);
+    }
+
+    @Override
+    public void handle(@NonNull final HandleContext context) throws HandleException {
+        // this will never actually get called
+        // because preHandle will throw a PreCheckException
+        // before we get here
+        throw new HandleException(ResponseCodeEnum.NOT_SUPPORTED);
+    }
+
+    @NonNull
+    @Override
+    public Fees calculateFees(final FeeContext feeContext) {
+        return Fees.FREE;
     }
 }

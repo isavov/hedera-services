@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.reconnect;
 
 import static com.hedera.services.bdd.spec.HapiSpec.customHapiSpec;
@@ -61,11 +62,10 @@ public class SchedulesExpiryDuringReconnect extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return List.of(
-                runTransfersBeforeReconnect(), suiteSetup(), expireSchedulesDuringReconnect());
+        return List.of(runTransfersBeforeReconnect(), suiteSetup(), expireSchedulesDuringReconnect());
     }
 
-    private HapiSpec expireSchedulesDuringReconnect() {
+    final HapiSpec expireSchedulesDuringReconnect() {
         String soonToBeExpiredSchedule = "schedule-1";
         String longLastingSchedule = "schedule-2";
         String oneOtherSchedule = "schedule-3";
@@ -94,8 +94,7 @@ public class SchedulesExpiryDuringReconnect extends HapiSuite {
                 .when(
                         fileUpdate(APP_PROPERTIES)
                                 .payingWith(GENESIS)
-                                .overridingProps(
-                                        Map.of("ledger.schedule.txExpiryTimeSecs", "1800")),
+                                .overridingProps(Map.of("ledger.schedule.txExpiryTimeSecs", "1800")),
                         scheduleCreate(
                                         longLastingSchedule,
                                         cryptoTransfer(tinyBarsFromTo(GENESIS, FUNDING, 2))
@@ -141,11 +140,10 @@ public class SchedulesExpiryDuringReconnect extends HapiSuite {
                                 .sleepingBetweenRetriesFor(10),
                         fileUpdate(APP_PROPERTIES)
                                 .payingWith(GENESIS)
-                                .overridingProps(
-                                        Map.of("ledger.schedule.txExpiryTimeSecs", "1000")),
+                                .overridingProps(Map.of("ledger.schedule.txExpiryTimeSecs", "1000")),
                         scheduleCreate(
                                         duplicateSchedule,
-                                        cryptoTransfer(tinyBarsFromTo(GENESIS, FUNDING, 1))
+                                        cryptoTransfer(tinyBarsFromTo(GENESIS, FUNDING, 2))
                                                 .fee(ONE_HBAR))
                                 .fee(ONE_HUNDRED_HBARS)
                                 .hasPrecheckFrom(STANDARD_PERMISSIBLE_PRECHECKS)
@@ -154,8 +152,10 @@ public class SchedulesExpiryDuringReconnect extends HapiSuite {
                                 .adminKey(DEFAULT_PAYER)
                                 .logging()
                                 .advertisingCreation(),
+                        sleepFor(Duration.ofSeconds(60).toMillis()),
                         getScheduleInfo(longLastingSchedule)
                                 .setNode(reconnectingNode)
+                                .logging()
                                 .hasScheduledTxnIdSavedBy(longLastingSchedule)
                                 .hasCostAnswerPrecheck(OK),
                         getScheduleInfo(oneOtherSchedule)
@@ -169,14 +169,11 @@ public class SchedulesExpiryDuringReconnect extends HapiSuite {
                                 .hasCostAnswerPrecheck(INVALID_SCHEDULE_ID));
     }
 
-    private HapiSpec suiteSetup() {
+    final HapiSpec suiteSetup() {
         return defaultHapiSpec("suiteSetup")
                 .given()
                 .when()
-                .then(
-                        overriding(
-                                "ledger.schedule.txExpiryTimeSecs",
-                                "" + SCHEDULE_EXPIRY_TIME_SECS));
+                .then(overriding("ledger.schedule.txExpiryTimeSecs", "" + SCHEDULE_EXPIRY_TIME_SECS));
     }
 
     @Override

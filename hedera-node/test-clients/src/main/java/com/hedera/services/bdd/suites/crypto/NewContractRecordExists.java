@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.crypto;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -47,7 +48,7 @@ public class NewContractRecordExists extends HapiSuite {
         return List.of(newContractIsReflectedInRecordStream());
     }
 
-    private HapiSpec newContractIsReflectedInRecordStream() {
+    final HapiSpec newContractIsReflectedInRecordStream() {
         final var creation = "creation";
         final AtomicReference<Instant> consensusTime = new AtomicReference<>();
         return defaultHapiSpec(EMPTY_CONTRACT)
@@ -56,19 +57,11 @@ public class NewContractRecordExists extends HapiSuite {
                         contractCreate(EMPTY_CONTRACT).hasKnownStatus(SUCCESS).via(creation),
                         getTxnRecord(creation)
                                 .exposingTo(
-                                        protoRecord ->
-                                                consensusTime.set(
-                                                        asInstant(
-                                                                        protoRecord
-                                                                                .getConsensusTimestamp())
-                                                                .plusNanos(0))))
-                .then(
-                        sourcing(
-                                () ->
-                                        assertEventuallyPasses(
-                                                new ContractExistenceValidator(
-                                                        EMPTY_CONTRACT, consensusTime.get()),
-                                                Duration.ofMillis(2_100))));
+                                        protoRecord -> consensusTime.set(asInstant(protoRecord.getConsensusTimestamp())
+                                                .plusNanos(0))))
+                .then(sourcing(() -> assertEventuallyPasses(
+                        new ContractExistenceValidator(EMPTY_CONTRACT, consensusTime.get()),
+                        Duration.ofMillis(2_100))));
     }
 
     @Override

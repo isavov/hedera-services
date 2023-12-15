@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.freeze;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -46,18 +47,15 @@ public final class FreezeUpgrade extends HapiSuite {
         return List.of(new HapiSpec[] {freezeUpgrade()});
     }
 
-    private HapiSpec freezeUpgrade() {
+    final HapiSpec freezeUpgrade() {
         return defaultHapiSpec("FreezeUpgrade")
                 .given(initializeSettings())
-                .when(
-                        sourcing(
-                                () ->
-                                        UtilVerbs.freezeUpgrade()
-                                                .startingIn(upgradeDelay())
-                                                .minutes()
-                                                .withUpdateFile(upgradeFileId())
-                                                .payingWith(GENESIS)
-                                                .havingHash(upgradeFileHash())))
+                .when(sourcing(() -> UtilVerbs.freezeUpgrade()
+                        .startingIn(upgradeDelay())
+                        .minutes()
+                        .withUpdateFile(upgradeFileId())
+                        .payingWith(GENESIS)
+                        .havingHash(upgradeFileHash())))
                 .then();
     }
 }

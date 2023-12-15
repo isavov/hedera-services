@@ -13,12 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.ledger.backing;
 
 import com.hedera.node.app.service.mono.ledger.accounts.TestAccount;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 
 public class HashMapTestAccounts implements BackingStore<Long, TestAccount> {
     private Map<Long, TestAccount> testAccounts = new HashMap<>();
@@ -46,11 +46,6 @@ public class HashMapTestAccounts implements BackingStore<Long, TestAccount> {
     @Override
     public boolean contains(Long id) {
         return testAccounts.containsKey(id);
-    }
-
-    @Override
-    public Set<Long> idSet() {
-        return testAccounts.keySet();
     }
 
     @Override

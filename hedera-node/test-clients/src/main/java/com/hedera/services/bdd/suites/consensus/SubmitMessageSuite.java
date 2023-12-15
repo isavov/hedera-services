@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.consensus;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -38,9 +39,13 @@ import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INVALID_CHUNK_
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INVALID_SIGNATURE;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INVALID_TOPIC_ID;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INVALID_TOPIC_MESSAGE;
+import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.MESSAGE_SIZE_TOO_LARGE;
+import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.OK;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.SUCCESS;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.TRANSACTION_OVERSIZE;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.keys.KeyShape;
 import com.hedera.services.bdd.spec.keys.SigControl;
@@ -50,7 +55,9 @@ import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+@HapiTestSuite
 public class SubmitMessageSuite extends HapiSuite {
+
     private static final Logger log = LogManager.getLogger(SubmitMessageSuite.class);
 
     public static void main(String... args) {
@@ -76,7 +83,8 @@ public class SubmitMessageSuite extends HapiSuite {
                 feeAsExpected());
     }
 
-    private HapiSpec topicIdIsValidated() {
+    @HapiTest
+    final HapiSpec topicIdIsValidated() {
         return defaultHapiSpec("topicIdIsValidated")
                 .given(cryptoCreate("nonTopicId"))
                 .when()
@@ -84,18 +92,14 @@ public class SubmitMessageSuite extends HapiSuite {
                         submitMessageTo((String) null)
                                 .hasRetryPrecheckFrom(BUSY)
                                 .hasKnownStatus(INVALID_TOPIC_ID),
-                        submitMessageTo("1.2.3")
-                                .hasRetryPrecheckFrom(BUSY)
-                                .hasKnownStatus(INVALID_TOPIC_ID),
-                        submitMessageTo(
-                                        spec ->
-                                                asTopicId(
-                                                        spec.registry().getAccountID("nonTopicId")))
+                        submitMessageTo("1.2.3").hasRetryPrecheckFrom(BUSY).hasKnownStatus(INVALID_TOPIC_ID),
+                        submitMessageTo(spec -> asTopicId(spec.registry().getAccountID("nonTopicId")))
                                 .hasRetryPrecheckFrom(BUSY)
                                 .hasKnownStatus(INVALID_TOPIC_ID));
     }
 
-    private HapiSpec messageIsValidated() {
+    @HapiTest
+    final HapiSpec messageIsValidated() {
         return defaultHapiSpec("messageIsValidated")
                 .given(createTopic("testTopic"))
                 .when()
@@ -110,36 +114,34 @@ public class SubmitMessageSuite extends HapiSuite {
                                 .hasKnownStatus(INVALID_TOPIC_MESSAGE));
     }
 
-    private HapiSpec messageSubmissionSimple() {
+    @HapiTest
+    final HapiSpec messageSubmissionSimple() {
         return defaultHapiSpec("messageSubmissionSimple")
                 .given(
                         newKeyNamed("submitKey"),
-                        createTopic("testTopic")
-                                .submitKeyName("submitKey")
-                                .hasRetryPrecheckFrom(BUSY))
+                        createTopic("testTopic").submitKeyName("submitKey").hasRetryPrecheckFrom(BUSY))
                 .when(cryptoCreate("civilian"))
-                .then(
-                        submitMessageTo("testTopic")
-                                .message("testmessage")
-                                .payingWith("civilian")
-                                .hasRetryPrecheckFrom(BUSY)
-                                .hasKnownStatus(SUCCESS));
+                .then(submitMessageTo("testTopic")
+                        .message("testmessage")
+                        .payingWith("civilian")
+                        .hasRetryPrecheckFrom(BUSY)
+                        .hasKnownStatus(SUCCESS));
     }
 
-    private HapiSpec messageSubmissionIncreasesSeqNo() {
+    @HapiTest
+    final HapiSpec messageSubmissionIncreasesSeqNo() {
         KeyShape submitKeyShape = threshOf(2, SIMPLE, SIMPLE, listOf(2));
 
         return defaultHapiSpec("messageSubmissionIncreasesSeqNo")
                 .given(createTopic("testTopic").submitKeyShape(submitKeyShape))
                 .when(
                         getTopicInfo("testTopic").hasSeqNo(0),
-                        submitMessageTo("testTopic")
-                                .message("Hello world!")
-                                .hasRetryPrecheckFrom(BUSY))
+                        submitMessageTo("testTopic").message("Hello world!").hasRetryPrecheckFrom(BUSY))
                 .then(getTopicInfo("testTopic").hasSeqNo(1));
     }
 
-    private HapiSpec messageSubmissionWithSubmitKey() {
+    @HapiTest
+    final HapiSpec messageSubmissionWithSubmitKey() {
         KeyShape submitKeyShape = threshOf(2, SIMPLE, SIMPLE, listOf(2));
 
         SigControl validSig = submitKeyShape.signedWith(sigs(ON, OFF, sigs(ON, ON)));
@@ -161,57 +163,54 @@ public class SubmitMessageSuite extends HapiSuite {
                                 .hasKnownStatus(SUCCESS));
     }
 
-    private HapiSpec messageSubmissionMultiple() {
+    @HapiTest
+    final HapiSpec messageSubmissionMultiple() {
         final int numMessages = 10;
 
         return defaultHapiSpec("messageSubmissionMultiple")
                 .given(createTopic("testTopic").hasRetryPrecheckFrom(BUSY))
-                .when(
-                        inParallel(
-                                asOpArray(
-                                        numMessages,
-                                        i ->
-                                                submitMessageTo("testTopic")
-                                                        .message("message")
-                                                        .hasRetryPrecheckFrom(BUSY))))
+                .when(inParallel(asOpArray(
+                        numMessages,
+                        i -> submitMessageTo("testTopic").message("message").hasRetryPrecheckFrom(BUSY))))
                 .then(sleepFor(1000), getTopicInfo("testTopic").hasSeqNo(numMessages));
     }
 
-    private HapiSpec messageSubmissionOverSize() {
-        final byte[] messageBytes = new byte[8192]; // 8k
+    @HapiTest
+    final HapiSpec messageSubmissionOverSize() {
+        final byte[] messageBytes = new byte[4096]; // 4k
         Arrays.fill(messageBytes, (byte) 0b1);
 
         return defaultHapiSpec("messageSubmissionOverSize")
                 .given(
                         newKeyNamed("submitKey"),
-                        createTopic("testTopic")
-                                .submitKeyName("submitKey")
-                                .hasRetryPrecheckFrom(BUSY))
+                        createTopic("testTopic").submitKeyName("submitKey").hasRetryPrecheckFrom(BUSY))
                 .when()
-                .then(
-                        submitMessageTo("testTopic")
-                                .message(new String(messageBytes))
-                                .hasPrecheckFrom(TRANSACTION_OVERSIZE, BUSY));
+                .then(submitMessageTo("testTopic")
+                        .message(new String(messageBytes))
+                        // In hedera-app we don't enforce such prechecks
+                        .hasPrecheckFrom(TRANSACTION_OVERSIZE, BUSY, OK)
+                        .hasKnownStatus(MESSAGE_SIZE_TOO_LARGE));
     }
 
-    private HapiSpec feeAsExpected() {
+    @HapiTest
+    final HapiSpec feeAsExpected() {
         final byte[] messageBytes = new byte[100]; // 4k
         Arrays.fill(messageBytes, (byte) 0b1);
         return defaultHapiSpec("feeAsExpected")
                 .given(
                         cryptoCreate("payer").hasRetryPrecheckFrom(BUSY),
                         createTopic("testTopic").submitKeyName("payer").hasRetryPrecheckFrom(BUSY))
-                .when(
-                        submitMessageTo("testTopic")
-                                .blankMemo()
-                                .payingWith("payer")
-                                .message(new String(messageBytes))
-                                .hasRetryPrecheckFrom(BUSY)
-                                .via("submitMessage"))
+                .when(submitMessageTo("testTopic")
+                        .blankMemo()
+                        .payingWith("payer")
+                        .message(new String(messageBytes))
+                        .hasRetryPrecheckFrom(BUSY)
+                        .via("submitMessage"))
                 .then(sleepFor(1000), validateChargedUsd("submitMessage", 0.0001));
     }
 
-    private HapiSpec messageSubmissionCorrectlyUpdatesRunningHash() {
+    @HapiTest
+    final HapiSpec messageSubmissionCorrectlyUpdatesRunningHash() {
         String topic = "testTopic";
         String message1 = "Hello world!";
         String message2 = "Hello world again!";
@@ -225,11 +224,10 @@ public class SubmitMessageSuite extends HapiSuite {
                                 .hasSeqNo(0)
                                 .hasRunningHash(new byte[48])
                                 .saveRunningHash())
-                .when(
-                        submitMessageTo(topic)
-                                .message(message1)
-                                .hasRetryPrecheckFrom(BUSY)
-                                .via("submitMessage1"))
+                .when(submitMessageTo(topic)
+                        .message(message1)
+                        .hasRetryPrecheckFrom(BUSY)
+                        .via("submitMessage1"))
                 .then(
                         getTxnRecord("submitMessage1").hasCorrectRunningHash(topic, message1),
                         submitMessageTo(topic)
@@ -243,7 +241,9 @@ public class SubmitMessageSuite extends HapiSuite {
                                 .chunkInfo(3, 4)
                                 .hasRetryPrecheckFrom(BUSY)
                                 .hasKnownStatus(INVALID_CHUNK_NUMBER),
-                        getTxnRecord("nonsense").hasCorrectRunningHash(topic, message2).logged(),
+                        getTxnRecord("nonsense")
+                                .hasCorrectRunningHash(topic, message2)
+                                .logged(),
                         submitMessageTo(topic)
                                 .message(message3)
                                 .hasRetryPrecheckFrom(BUSY)

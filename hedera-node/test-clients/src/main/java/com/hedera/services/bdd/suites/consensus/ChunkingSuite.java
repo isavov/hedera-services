@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.consensus;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -25,13 +26,17 @@ import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INVALID_CHUNK_
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INVALID_CHUNK_TRANSACTION_ID;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.SUCCESS;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.suites.HapiSuite;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+@HapiTestSuite
 public class ChunkingSuite extends HapiSuite {
+
     private static final Logger log = LogManager.getLogger(ChunkingSuite.class);
     private static final int CHUNK_SIZE = 1024;
 
@@ -46,13 +51,11 @@ public class ChunkingSuite extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return List.of(
-                chunkNumberIsValidated(),
-                chunkTransactionIDIsValidated(),
-                longMessageIsFragmentedIntoChunks());
+        return List.of(chunkNumberIsValidated(), chunkTransactionIDIsValidated(), longMessageIsFragmentedIntoChunks());
     }
 
-    private HapiSpec chunkNumberIsValidated() {
+    @HapiTest
+    final HapiSpec chunkNumberIsValidated() {
         return defaultHapiSpec("chunkNumberIsValidated")
                 .given(createTopic("testTopic"))
                 .when()
@@ -74,7 +77,8 @@ public class ChunkingSuite extends HapiSuite {
                                 .hasKnownStatus(SUCCESS));
     }
 
-    private HapiSpec chunkTransactionIDIsValidated() {
+    @HapiTest
+    final HapiSpec chunkTransactionIDIsValidated() {
         return defaultHapiSpec("chunkTransactionIDIsValidated")
                 .given(cryptoCreate("initialTransactionPayer"), createTopic("testTopic"))
                 .when()
@@ -114,7 +118,8 @@ public class ChunkingSuite extends HapiSuite {
                                 .hasKnownStatus(SUCCESS));
     }
 
-    private HapiSpec longMessageIsFragmentedIntoChunks() {
+    @HapiTest
+    final HapiSpec longMessageIsFragmentedIntoChunks() {
         String fileForLongMessage = "src/main/resource/RandomLargeBinary.bin";
         return defaultHapiSpec("longMessageIsFragmentedIntoChunks")
                 .given(cryptoCreate("payer"), createTopic("testTopic"))

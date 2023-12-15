@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.spec.utilops.inventory;
 
 import com.google.common.base.MoreObjects;
@@ -23,10 +24,10 @@ import com.hedera.services.bdd.spec.keys.deterministic.Bip0032;
 import com.hedera.services.bdd.spec.keys.deterministic.Ed25519Factory;
 import com.hedera.services.bdd.spec.utilops.UtilOp;
 import com.swirlds.common.utility.CommonUtils;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.util.Optional;
-import javax.annotation.Nullable;
 import javax.crypto.ShortBufferException;
 import net.i2p.crypto.eddsa.EdDSAPrivateKey;
 import net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable;
@@ -66,23 +67,18 @@ public class SpecKeyFromMnemonic extends UtilOp {
     }
 
     static void createAndLinkSimpleKey(
-            HapiSpec spec,
-            byte[] privateKey,
-            String name,
-            Optional<String> linkedId,
-            @Nullable Logger logToUse) {
+            HapiSpec spec, byte[] privateKey, String name, Optional<String> linkedId, @Nullable Logger logToUse) {
         var params = EdDSANamedCurveTable.getByName(EdDSANamedCurveTable.ED_25519);
         var privateKeySpec = new EdDSAPrivateKeySpec(privateKey, params);
         var pk = new EdDSAPrivateKey(privateKeySpec);
         var pubKeyHex = CommonUtils.hex(pk.getAbyte());
         if (logToUse != null) {
-            logToUse.info("Hex-encoded public key: " + pubKeyHex);
+            logToUse.info("Hex-encoded public key: {}", pubKeyHex);
         }
         var key = Ed25519Factory.populatedFrom(pk.getAbyte());
         spec.registry().saveKey(name, key);
         spec.keys().incorporate(name, pubKeyHex, pk, KeyShape.SIMPLE);
-        linkedId.ifPresent(
-                s -> spec.registry().saveAccountId(name, HapiPropertySource.asAccount(s)));
+        linkedId.ifPresent(s -> spec.registry().saveAccountId(name, HapiPropertySource.asAccount(s)));
     }
 
     @Override

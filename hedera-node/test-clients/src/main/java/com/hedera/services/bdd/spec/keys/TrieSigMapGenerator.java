@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.spec.keys;
 
 import static java.util.stream.Collectors.collectingAndThen;
@@ -32,6 +33,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.Assertions;
@@ -77,39 +79,40 @@ public class TrieSigMapGenerator implements SigMapGenerator {
     }
 
     @Override
-    public SignatureMap forPrimitiveSigs(
-            final HapiSpec spec, final List<Map.Entry<byte[], byte[]>> keySigs) {
-        List<byte[]> keys = keySigs.stream().map(Map.Entry::getKey).collect(toList());
-        ByteTrie trie = new ByteTrie(keys);
+    public SignatureMap forPrimitiveSigs(final HapiSpec spec, final List<Map.Entry<byte[], byte[]>> keySigs) {
+        Set<ByteString> keys = keySigs.stream()
+                .map(Map.Entry::getKey)
+                .map(ByteString::copyFrom)
+                .collect(Collectors.toSet());
+        ByteTrie trie = new ByteTrie(keys.stream().map(ByteString::toByteArray).collect(toList()));
 
         final Set<ByteString> alwaysFullPrefixes =
                 (fullPrefixKeys == null) ? Collections.emptySet() : fullPrefixSetFor(spec);
 
         final Function<byte[], byte[]> prefixCalc = getPrefixCalcFor(trie);
         return keySigs.stream()
-                .map(
-                        keySig -> {
-                            final var key = keySig.getKey();
-                            final var wrappedKey = ByteString.copyFrom(key);
-                            final var effPrefix =
-                                    alwaysFullPrefixes.contains(wrappedKey)
-                                            ? wrappedKey
-                                            : ByteString.copyFrom(prefixCalc.apply(key));
-                            if (key.length == 32) {
-                                return SignaturePair.newBuilder()
-                                        .setPubKeyPrefix(effPrefix)
-                                        .setEd25519(ByteString.copyFrom(keySig.getValue()))
-                                        .build();
-                            } else {
-                                return SignaturePair.newBuilder()
-                                        .setPubKeyPrefix(effPrefix)
-                                        .setECDSASecp256K1(ByteString.copyFrom(keySig.getValue()))
-                                        .build();
-                            }
-                        })
-                .collect(
-                        collectingAndThen(
-                                toList(), l -> SignatureMap.newBuilder().addAllSigPair(l).build()));
+                .filter(keySig -> keySig.getValue().length > 0)
+                .map(keySig -> {
+                    final var key = keySig.getKey();
+                    final var wrappedKey = ByteString.copyFrom(key);
+                    final var effPrefix = alwaysFullPrefixes.contains(wrappedKey)
+                            ? wrappedKey
+                            : ByteString.copyFrom(prefixCalc.apply(key));
+                    if (key.length == 32) {
+                        return SignaturePair.newBuilder()
+                                .setPubKeyPrefix(effPrefix)
+                                .setEd25519(ByteString.copyFrom(keySig.getValue()))
+                                .build();
+                    } else {
+                        return SignaturePair.newBuilder()
+                                .setPubKeyPrefix(effPrefix)
+                                .setECDSASecp256K1(ByteString.copyFrom(keySig.getValue()))
+                                .build();
+                    }
+                })
+                .collect(collectingAndThen(
+                        toList(),
+                        l -> SignatureMap.newBuilder().addAllSigPair(l).build()));
     }
 
     private Set<ByteString> fullPrefixSetFor(final HapiSpec spec) {
@@ -152,7 +155,8 @@ public class TrieSigMapGenerator implements SigMapGenerator {
                     prefix = trie.randomPrefix(key.length);
                     break;
             }
-            log.debug(CommonUtils.hex(key) + " gets prefix " + CommonUtils.hex(prefix));
+            final String message = String.format("%s gets prefix %s", CommonUtils.hex(key), CommonUtils.hex(prefix));
+            log.debug(message);
             return prefix;
         };
     }
@@ -164,7 +168,9 @@ public class TrieSigMapGenerator implements SigMapGenerator {
         }
 
         Node root = new Node();
-        Random r = new Random();
+
+        @SuppressWarnings("java:S2245") // using java.util.Random in tests is fine
+        Random r = new Random(870235L);
 
         public ByteTrie(List<byte[]> allA) {
             allA.stream().forEach(a -> insert(a));

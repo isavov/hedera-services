@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.validation;
 
 import static com.hedera.services.bdd.spec.queries.QueryVerbs.getAccountInfo;
@@ -45,6 +46,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 public class TokenPuvSuite extends HapiSuite {
+
     private static final Logger log = LogManager.getLogger(TokenPuvSuite.class);
 
     private final MiscConfig miscConfig;
@@ -57,49 +59,42 @@ public class TokenPuvSuite extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return List.of(
-                new HapiSpec[] {
-                    cleanupIfNecessary(), initialAssociation(), initialFunding(),
-                });
+        return List.of(new HapiSpec[] {
+            cleanupIfNecessary(), initialAssociation(), initialFunding(),
+        });
     }
 
-    private HapiSpec initialFunding() {
+    final HapiSpec initialFunding() {
         return HapiSpec.customHapiSpec("InitialFunding")
                 .withProperties(targetInfo.toCustomProperties(miscConfig))
                 .given(
-                        cryptoTransfer(
-                                moving(Amounts.BESTOWED_CAT_TOKENS, Names.CAT_TOKEN)
-                                        .between(Names.TREASURY, Names.CAT_BENEFICIARY)),
-                        cryptoTransfer(
-                                        moving(Amounts.BESTOWED_TACO_TOKENS, Names.TACO_TOKEN)
-                                                .between(Names.TREASURY, Names.TACO_BENEFICIARY))
+                        cryptoTransfer(moving(Amounts.BESTOWED_CAT_TOKENS, Names.CAT_TOKEN)
+                                .between(Names.TREASURY, Names.CAT_BENEFICIARY)),
+                        cryptoTransfer(moving(Amounts.BESTOWED_TACO_TOKENS, Names.TACO_TOKEN)
+                                        .between(Names.TREASURY, Names.TACO_BENEFICIARY))
                                 .hasKnownStatus(ResponseCodeEnum.ACCOUNT_FROZEN_FOR_TOKEN))
                 .when(
                         tokenUnfreeze(Names.TACO_TOKEN, Names.TACO_BENEFICIARY),
-                        cryptoTransfer(
-                                        moving(Amounts.BESTOWED_TACO_TOKENS, Names.TACO_TOKEN)
-                                                .between(Names.TREASURY, Names.TACO_BENEFICIARY))
+                        cryptoTransfer(moving(Amounts.BESTOWED_TACO_TOKENS, Names.TACO_TOKEN)
+                                        .between(Names.TREASURY, Names.TACO_BENEFICIARY))
                                 .hasKnownStatus(ResponseCodeEnum.ACCOUNT_KYC_NOT_GRANTED_FOR_TOKEN),
                         grantTokenKyc(Names.TACO_TOKEN, Names.TACO_BENEFICIARY),
-                        cryptoTransfer(
-                                moving(Amounts.BESTOWED_TACO_TOKENS, Names.TACO_TOKEN)
-                                        .between(Names.TREASURY, Names.TACO_BENEFICIARY)))
+                        cryptoTransfer(moving(Amounts.BESTOWED_TACO_TOKENS, Names.TACO_TOKEN)
+                                .between(Names.TREASURY, Names.TACO_BENEFICIARY)))
                 .then(
                         getAccountInfo(Names.TACO_BENEFICIARY)
-                                .hasToken(
-                                        relationshipWith(Names.TACO_TOKEN)
-                                                .freeze(TokenFreezeStatus.Unfrozen)
-                                                .kyc(TokenKycStatus.Granted)
-                                                .balance(Amounts.BESTOWED_TACO_TOKENS)),
+                                .hasToken(relationshipWith(Names.TACO_TOKEN)
+                                        .freeze(TokenFreezeStatus.Unfrozen)
+                                        .kyc(TokenKycStatus.Granted)
+                                        .balance(Amounts.BESTOWED_TACO_TOKENS)),
                         getAccountInfo(Names.CAT_BENEFICIARY)
-                                .hasToken(
-                                        relationshipWith(Names.CAT_TOKEN)
-                                                .freeze(TokenFreezeStatus.FreezeNotApplicable)
-                                                .kyc(TokenKycStatus.KycNotApplicable)
-                                                .balance(Amounts.BESTOWED_CAT_TOKENS)));
+                                .hasToken(relationshipWith(Names.CAT_TOKEN)
+                                        .freeze(TokenFreezeStatus.FreezeNotApplicable)
+                                        .kyc(TokenKycStatus.KycNotApplicable)
+                                        .balance(Amounts.BESTOWED_CAT_TOKENS)));
     }
 
-    private HapiSpec initialAssociation() {
+    final HapiSpec initialAssociation() {
         return HapiSpec.customHapiSpec("InitialAssociation")
                 .withProperties(targetInfo.toCustomProperties(miscConfig))
                 .given(
@@ -108,25 +103,23 @@ public class TokenPuvSuite extends HapiSuite {
                 .when()
                 .then(
                         getAccountInfo(Names.TACO_BENEFICIARY)
-                                .hasToken(
-                                        relationshipWith(Names.TACO_TOKEN)
-                                                .freeze(TokenFreezeStatus.Frozen)
-                                                .kyc(TokenKycStatus.Revoked)),
+                                .hasToken(relationshipWith(Names.TACO_TOKEN)
+                                        .freeze(TokenFreezeStatus.Frozen)
+                                        .kyc(TokenKycStatus.Revoked)),
                         getAccountInfo(Names.CAT_BENEFICIARY)
-                                .hasToken(
-                                        relationshipWith(Names.CAT_TOKEN)
-                                                .freeze(TokenFreezeStatus.FreezeNotApplicable)
-                                                .kyc(TokenKycStatus.KycNotApplicable)));
+                                .hasToken(relationshipWith(Names.CAT_TOKEN)
+                                        .freeze(TokenFreezeStatus.FreezeNotApplicable)
+                                        .kyc(TokenKycStatus.KycNotApplicable)));
     }
 
-    private HapiSpec cleanupIfNecessary() {
+    final HapiSpec cleanupIfNecessary() {
         return HapiSpec.customHapiSpec("CleanupIfNecessary")
                 .withProperties(targetInfo.toCustomProperties(miscConfig))
                 .given()
                 .when()
                 .then(
-                        ensureDissociated(
-                                Names.CAT_BENEFICIARY, List.of(Names.CAT_TOKEN, Names.TACO_TOKEN)));
+                        ensureDissociated(Names.CAT_BENEFICIARY, List.of(Names.CAT_TOKEN, Names.TACO_TOKEN)),
+                        ensureDissociated(Names.TACO_BENEFICIARY, List.of(Names.CAT_TOKEN, Names.TACO_TOKEN)));
     }
 
     public void initEntitiesIfNeeded() {
@@ -199,6 +192,7 @@ public class TokenPuvSuite extends HapiSuite {
     }
 
     static class Names {
+
         static final String CAT_TOKEN = "puvCatToken";
         static final String CAT_TOKEN_ADMIN = "puvCatTokenAdmin";
         static final String TACO_TOKEN = "puvTacoToken";
@@ -214,6 +208,7 @@ public class TokenPuvSuite extends HapiSuite {
     }
 
     static class Amounts {
+
         static final long BESTOWED_CAT_TOKENS = 123;
         static final long BESTOWED_TACO_TOKENS = 456;
     }

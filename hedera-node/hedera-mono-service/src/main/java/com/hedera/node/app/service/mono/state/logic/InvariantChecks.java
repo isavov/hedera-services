@@ -13,9 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.logic;
 
-import com.hedera.node.app.service.mono.context.NodeInfo;
 import com.hedera.node.app.service.mono.state.merkle.MerkleNetworkContext;
 import com.hedera.node.app.service.mono.utils.accessors.SwirldsTxnAccessor;
 import java.time.Instant;
@@ -37,17 +37,14 @@ import org.apache.logging.log4j.Logger;
 public class InvariantChecks {
     private static final Logger log = LogManager.getLogger(InvariantChecks.class);
 
-    private final NodeInfo nodeInfo;
     private final Supplier<MerkleNetworkContext> networkCtx;
 
     @Inject
-    public InvariantChecks(NodeInfo nodeInfo, Supplier<MerkleNetworkContext> networkCtx) {
-        this.nodeInfo = nodeInfo;
+    public InvariantChecks(Supplier<MerkleNetworkContext> networkCtx) {
         this.networkCtx = networkCtx;
     }
 
-    public boolean holdFor(
-            SwirldsTxnAccessor accessor, Instant consensusTime, long submittingMember) {
+    public boolean holdFor(SwirldsTxnAccessor accessor, Instant consensusTime, long submittingMember) {
         final var currentNetworkCtx = networkCtx.get();
         final var lastConsensusTime = currentNetworkCtx.consensusTimeOfLastHandledTxn();
         if (lastConsensusTime != null && !consensusTime.isAfter(lastConsensusTime)) {
@@ -60,15 +57,6 @@ public class InvariantChecks {
                     lastConsensusTime);
             return false;
         }
-
-        if (nodeInfo.isZeroStake(submittingMember)) {
-            log.warn(
-                    "Invariant failure! Zero-stake node {} submitted {}",
-                    submittingMember,
-                    accessor.getSignedTxnWrapper());
-            return false;
-        }
-
         return true;
     }
 }

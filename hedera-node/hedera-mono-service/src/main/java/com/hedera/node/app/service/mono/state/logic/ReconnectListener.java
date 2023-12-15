@@ -13,12 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.logic;
 
 import com.hedera.node.app.service.mono.ServicesState;
 import com.hedera.node.app.service.mono.txns.network.UpgradeActions;
-import com.swirlds.common.notification.listeners.ReconnectCompleteListener;
-import com.swirlds.common.notification.listeners.ReconnectCompleteNotification;
+import com.swirlds.platform.listeners.ReconnectCompleteListener;
+import com.swirlds.platform.listeners.ReconnectCompleteNotification;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import org.apache.logging.log4j.LogManager;
@@ -38,8 +39,7 @@ public class ReconnectListener implements ReconnectCompleteListener {
     @Override
     public void notify(final ReconnectCompleteNotification notification) {
         log.info(
-                "Notification Received: Reconnect Finished. "
-                        + "consensusTimestamp: {}, roundNumber: {}, sequence: {}",
+                "Notification Received: Reconnect Finished. " + "consensusTimestamp: {}, roundNumber: {}, sequence: {}",
                 notification.getConsensusTimestamp(),
                 notification.getRoundNumber(),
                 notification.getSequence());

@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.test.serde;
 
 import static com.hedera.node.app.service.mono.state.virtual.entities.OnDiskAccountSerdeTest.NUM_ON_DISK_ACCOUNT_TEST_CASES;
@@ -69,6 +70,7 @@ import com.hedera.node.app.service.mono.state.virtual.entities.OnDiskTokenRel;
 import com.hedera.node.app.service.mono.stream.RecordsRunningHashLeaf;
 import com.hedera.test.utils.SeededPropertySource;
 import com.hedera.test.utils.SerdeUtils;
+import com.swirlds.common.FastCopyable;
 import com.swirlds.common.io.SelfSerializable;
 import com.swirlds.common.utility.CommonUtils;
 import com.swirlds.virtualmap.VirtualValue;
@@ -109,6 +111,7 @@ public class SerializedForms {
         }
     }
 
+    @SuppressWarnings("unchecked")
     public static <T extends SelfSerializable> void assertSameSerialization(
             final Class<T> type,
             final Function<SeededPropertySource, T> factory,
@@ -119,8 +122,13 @@ public class SerializedForms {
         final var actual = SerdeUtils.serialize(example);
         final var expected = loadForm(type, version, testCaseNo);
         assertArrayEquals(expected, actual, "Regression in serializing test case #" + testCaseNo);
+        if (type.isAssignableFrom(FastCopyable.class)) {
+            assertSameCopySerialization(
+                    testCaseNo, (FastCopyable) example, copy -> SerdeUtils.serialize((T) copy), expected);
+        }
     }
 
+    @SuppressWarnings("unchecked")
     public static <T extends VirtualValue> void assertSameBufferSerialization(
             final Class<T> type,
             final Function<SeededPropertySource, T> factory,
@@ -131,10 +139,20 @@ public class SerializedForms {
         final var actual = SerdeUtils.serializeToBuffer(example, MAX_SERIALIAZED_LEN);
         final var expected = loadForm(type, version, testCaseNo);
         assertArrayEquals(expected, actual, "Regression in serializing test case #" + testCaseNo);
+        assertSameCopySerialization(
+                testCaseNo, (FastCopyable) example, copy -> SerdeUtils.serialize((T) copy), expected);
+    }
+
+    private static <T extends FastCopyable> void assertSameCopySerialization(
+            final int testCaseNo, final T example, final Function<T, byte[]> serializer, final byte[] expected) {
+        final var copy = example.copy();
+        @SuppressWarnings("unchecked")
+        final var copyActual = serializer.apply((T) copy);
+        assertArrayEquals(expected, copyActual, "Regression in serializing test case #" + testCaseNo + " (copy)");
     }
 
     private static void generateSerializedData() {
-        GENERATOR_MAPPING.get(MerkleNetworkContext.class).run();
+        GENERATOR_MAPPING.get(MerkleToken.class).run();
         //        for (var entry : GENERATOR_MAPPING.entrySet()) {
         //            entry.getValue().run();
         //        }
@@ -152,153 +170,69 @@ public class SerializedForms {
      * instance and generates an instance of the class filled with random data - an integer
      * specifying the number of test cases to generate.
      */
-    private static final Map<Class<? extends SelfSerializable>, Runnable> GENERATOR_MAPPING =
-            Map.ofEntries(
-                    entry(
-                            MerklePayerRecords.class,
-                            SeededPropertySource::nextPayerRecords,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            OnDiskAccount.class,
-                            SeededPropertySource::nextOnDiskAccount,
-                            NUM_ON_DISK_ACCOUNT_TEST_CASES),
-                    entry(
-                            OnDiskTokenRel.class,
-                            SeededPropertySource::nextOnDiskTokenRel,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            CurrencyAdjustments.class,
-                            SeededPropertySource::nextCurrencyAdjustments,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            EntityId.class,
-                            SeededPropertySource::nextEntityId,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            EvmFnResult.class,
-                            SeededPropertySource::nextEvmResult,
-                            EvmFnResultSerdeTest.NUM_TEST_CASES),
-                    entry(
-                            EvmLog.class,
-                            SeededPropertySource::nextEvmLog,
-                            EvmLogSerdeTest.NUM_TEST_CASES),
-                    entry(
-                            ExchangeRates.class,
-                            SeededPropertySource::nextExchangeRates,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            ExpirableTxnRecord.class,
-                            SeededPropertySource::nextRecord,
-                            ExpirableTxnRecordSerdeTest.NUM_TEST_CASES),
-                    entry(
-                            FcAssessedCustomFee.class,
-                            SeededPropertySource::nextAssessedFee,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            FcCustomFee.class,
-                            SeededPropertySource::nextCustomFee,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            FcTokenAllowance.class,
-                            SeededPropertySource::nextFcTokenAllowance,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            FcTokenAllowanceId.class,
-                            SeededPropertySource::nextAllowanceId,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            FcTokenAssociation.class,
-                            SeededPropertySource::nextTokenAssociation,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            BytesElement.class,
-                            SeededPropertySource::nextFilePart,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            MerkleAccountState.class,
-                            SeededPropertySource::nextAccountState,
-                            MerkleAccountStateSerdeTest.NUM_TEST_CASES),
-                    entry(
-                            MerkleEntityId.class,
-                            SeededPropertySource::nextMerkleEntityId,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            MerkleNetworkContext.class,
-                            SeededPropertySource::next0320NetworkContext,
-                            MerkleNetworkContextSerdeTest.NUM_TEST_CASES),
-                    entry(
-                            MerkleScheduledTransactionsState.class,
-                            SeededPropertySource::nextScheduledTransactionsState,
-                            MerkleScheduledTransactionsStateSerdeTest.NUM_TEST_CASES),
-                    entry(
-                            MerkleSchedule.class,
-                            MerkleScheduleSerdeTest::nextSchedule,
-                            MerkleScheduleSerdeTest.NUM_TEST_CASES),
-                    entry(
-                            MerkleSpecialFiles.class,
-                            SeededPropertySource::nextMerkleSpecialFiles,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            MerkleToken.class,
-                            SeededPropertySource::nextToken,
-                            MerkleTokenSerdeTest.NUM_TEST_CASES),
-                    entry(
-                            MerkleTokenRelStatus.class,
-                            SeededPropertySource::nextMerkleTokenRelStatus,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            MerkleTopic.class,
-                            SeededPropertySource::nextTopic,
-                            MerkleTopicSerdeTest.NUM_TEST_CASES),
-                    entry(
-                            MerkleUniqueToken.class,
-                            SeededPropertySource::next0260UniqueToken,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            NftAdjustments.class,
-                            SeededPropertySource::nextOwnershipChanges,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            RecordsRunningHashLeaf.class,
-                            SeededPropertySource::nextRecordsRunningHashLeaf,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            TxnId.class,
-                            SeededPropertySource::nextTxnId,
-                            TxnIdSerdeTest.NUM_TEST_CASES),
-                    entry(
-                            TxnReceipt.class,
-                            TxnReceiptSerdeTest::receiptFactory,
-                            2 * MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            ContractKey.class,
-                            SeededPropertySource::nextContractKey,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            ContractValue.class,
-                            SeededPropertySource::nextContractValue,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            VirtualBlobKey.class,
-                            SeededPropertySource::nextVirtualBlobKey,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            VirtualBlobValue.class,
-                            SeededPropertySource::nextVirtualBlobValue,
-                            MIN_TEST_CASES_PER_VERSION),
-                    entry(
-                            MerkleStakingInfo.class,
-                            SeededPropertySource::nextStakingInfo,
-                            MerkleStakingInfoSerdeTest.NUM_TEST_CASES),
-                    entry(
-                            SerializableSemVers.class,
-                            SeededPropertySource::nextSerializableSemVers,
-                            2 * MIN_TEST_CASES_PER_VERSION));
+    private static final Map<Class<? extends SelfSerializable>, Runnable> GENERATOR_MAPPING = Map.ofEntries(
+            entry(MerklePayerRecords.class, SeededPropertySource::nextPayerRecords, MIN_TEST_CASES_PER_VERSION),
+            entry(OnDiskAccount.class, SeededPropertySource::nextOnDiskAccount, NUM_ON_DISK_ACCOUNT_TEST_CASES),
+            entry(OnDiskTokenRel.class, SeededPropertySource::nextOnDiskTokenRel, MIN_TEST_CASES_PER_VERSION),
+            entry(CurrencyAdjustments.class, SeededPropertySource::nextCurrencyAdjustments, MIN_TEST_CASES_PER_VERSION),
+            entry(EntityId.class, SeededPropertySource::nextEntityId, MIN_TEST_CASES_PER_VERSION),
+            entry(EvmFnResult.class, SeededPropertySource::nextEvmResult, EvmFnResultSerdeTest.NUM_TEST_CASES),
+            entry(EvmLog.class, SeededPropertySource::nextEvmLog, EvmLogSerdeTest.NUM_TEST_CASES),
+            entry(ExchangeRates.class, SeededPropertySource::nextExchangeRates, MIN_TEST_CASES_PER_VERSION),
+            entry(
+                    ExpirableTxnRecord.class,
+                    SeededPropertySource::nextRecord,
+                    ExpirableTxnRecordSerdeTest.NUM_TEST_CASES),
+            entry(FcAssessedCustomFee.class, SeededPropertySource::nextAssessedFee, MIN_TEST_CASES_PER_VERSION),
+            entry(FcCustomFee.class, SeededPropertySource::nextCustomFee, MIN_TEST_CASES_PER_VERSION),
+            entry(FcTokenAllowance.class, SeededPropertySource::nextFcTokenAllowance, MIN_TEST_CASES_PER_VERSION),
+            entry(FcTokenAllowanceId.class, SeededPropertySource::nextAllowanceId, MIN_TEST_CASES_PER_VERSION),
+            entry(FcTokenAssociation.class, SeededPropertySource::nextTokenAssociation, MIN_TEST_CASES_PER_VERSION),
+            entry(BytesElement.class, SeededPropertySource::nextFilePart, MIN_TEST_CASES_PER_VERSION),
+            entry(
+                    MerkleAccountState.class,
+                    SeededPropertySource::nextAccountState,
+                    MerkleAccountStateSerdeTest.NUM_TEST_CASES),
+            entry(MerkleEntityId.class, SeededPropertySource::nextMerkleEntityId, MIN_TEST_CASES_PER_VERSION),
+            entry(
+                    MerkleNetworkContext.class,
+                    SeededPropertySource::next0320NetworkContext,
+                    MerkleNetworkContextSerdeTest.NUM_TEST_CASES),
+            entry(
+                    MerkleScheduledTransactionsState.class,
+                    SeededPropertySource::nextScheduledTransactionsState,
+                    MerkleScheduledTransactionsStateSerdeTest.NUM_TEST_CASES),
+            entry(MerkleSchedule.class, MerkleScheduleSerdeTest::nextSchedule, MerkleScheduleSerdeTest.NUM_TEST_CASES),
+            entry(MerkleSpecialFiles.class, SeededPropertySource::nextMerkleSpecialFiles, MIN_TEST_CASES_PER_VERSION),
+            entry(MerkleToken.class, SeededPropertySource::nextToken, MerkleTokenSerdeTest.NUM_TEST_CASES),
+            entry(
+                    MerkleTokenRelStatus.class,
+                    SeededPropertySource::nextMerkleTokenRelStatus,
+                    MIN_TEST_CASES_PER_VERSION),
+            entry(MerkleTopic.class, SeededPropertySource::nextTopic, MerkleTopicSerdeTest.NUM_TEST_CASES),
+            entry(MerkleUniqueToken.class, SeededPropertySource::next0260UniqueToken, MIN_TEST_CASES_PER_VERSION),
+            entry(NftAdjustments.class, SeededPropertySource::nextOwnershipChanges, MIN_TEST_CASES_PER_VERSION),
+            entry(
+                    RecordsRunningHashLeaf.class,
+                    SeededPropertySource::nextRecordsRunningHashLeaf,
+                    MIN_TEST_CASES_PER_VERSION),
+            entry(TxnId.class, SeededPropertySource::nextTxnId, TxnIdSerdeTest.NUM_TEST_CASES),
+            entry(TxnReceipt.class, TxnReceiptSerdeTest::receiptFactory, 2 * MIN_TEST_CASES_PER_VERSION),
+            entry(ContractKey.class, SeededPropertySource::nextContractKey, MIN_TEST_CASES_PER_VERSION),
+            entry(ContractValue.class, SeededPropertySource::nextContractValue, MIN_TEST_CASES_PER_VERSION),
+            entry(VirtualBlobKey.class, SeededPropertySource::nextVirtualBlobKey, MIN_TEST_CASES_PER_VERSION),
+            entry(VirtualBlobValue.class, SeededPropertySource::nextVirtualBlobValue, MIN_TEST_CASES_PER_VERSION),
+            entry(
+                    MerkleStakingInfo.class,
+                    SeededPropertySource::next0371StakingInfo,
+                    MerkleStakingInfoSerdeTest.NUM_TEST_CASES),
+            entry(
+                    SerializableSemVers.class,
+                    SeededPropertySource::nextSerializableSemVers,
+                    2 * MIN_TEST_CASES_PER_VERSION));
 
     private static <T extends SelfSerializable> void saveForCurrentVersion(
-            final Class<T> type,
-            final Function<SeededPropertySource, T> factory,
-            final int numTestCases) {
+            final Class<T> type, final Function<SeededPropertySource, T> factory, final int numTestCases) {
         final var instance = SelfSerializableDataTest.instantiate(type);
         final var currentVersion = instance.getVersion();
         for (int i = 0; i < numTestCases; i++) {
@@ -322,9 +256,8 @@ public class SerializedForms {
 
     private static <T extends SelfSerializable> Path pathFor(
             final Class<T> type, final int version, final int testCaseNo) {
-        return Paths.get(
-                SERIALIZED_FORMS_LOC
-                        + File.separator
-                        + String.format(FORM_TPL, type.getSimpleName(), version, testCaseNo));
+        return Paths.get(SERIALIZED_FORMS_LOC
+                + File.separator
+                + String.format(FORM_TPL, type.getSimpleName(), version, testCaseNo));
     }
 }

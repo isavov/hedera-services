@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Hedera Hashgraph, LLC
+ * Copyright (C) 2021-2023 Hedera Hashgraph, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.virtual;
 
 import com.hedera.node.app.service.mono.state.virtual.entities.OnDiskTokenRel;
-import com.swirlds.common.io.streams.SerializableDataOutputStream;
 import com.swirlds.merkledb.serialize.ValueSerializer;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -64,8 +64,7 @@ public class OnDiskTokenRelMerkleDbValueSerializer implements ValueSerializer<On
     // Value serialization
 
     @Override
-    public int serialize(final OnDiskTokenRel value, final SerializableDataOutputStream out)
-            throws IOException {
+    public int serialize(final OnDiskTokenRel value, final ByteBuffer out) throws IOException {
         Objects.requireNonNull(value);
         Objects.requireNonNull(out);
         value.serialize(out);
@@ -75,8 +74,7 @@ public class OnDiskTokenRelMerkleDbValueSerializer implements ValueSerializer<On
     // Value deserialization
 
     @Override
-    public OnDiskTokenRel deserialize(final ByteBuffer buffer, final long version)
-            throws IOException {
+    public OnDiskTokenRel deserialize(final ByteBuffer buffer, final long version) throws IOException {
         Objects.requireNonNull(buffer);
         final OnDiskTokenRel value = new OnDiskTokenRel();
         value.deserialize(buffer, (int) version);

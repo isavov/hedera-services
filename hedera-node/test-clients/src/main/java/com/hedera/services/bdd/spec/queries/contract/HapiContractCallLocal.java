@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.spec.queries.contract;
 
 import static com.hedera.services.bdd.spec.assertions.AssertUtils.rethrowSummaryError;
@@ -36,11 +37,14 @@ import com.hederahashgraph.api.proto.java.ContractID;
 import com.hederahashgraph.api.proto.java.HederaFunctionality;
 import com.hederahashgraph.api.proto.java.Query;
 import com.hederahashgraph.api.proto.java.Response;
+import com.hederahashgraph.api.proto.java.ResponseCodeEnum;
 import com.hederahashgraph.api.proto.java.Transaction;
 import com.swirlds.common.utility.CommonUtils;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
@@ -60,6 +64,18 @@ public class HapiContractCallLocal extends HapiQueryOp<HapiContractCallLocal> {
     private Optional<ContractFnResultAsserts> expectations = Optional.empty();
     private Optional<Function<HapiSpec, Object[]>> paramsFn = Optional.empty();
     private Optional<Consumer<Object[]>> typedResultsObs = Optional.empty();
+
+    @Nullable
+    private byte[] explicitRawParams;
+
+    @Nullable
+    private Consumer<byte[]> rawResultsObs;
+
+    @Nullable
+    private Consumer<ContractFunctionResult> resultsObs;
+
+    @Nullable
+    private BiConsumer<ResponseCodeEnum, ContractFunctionResult> fullResultsObs;
 
     @Override
     public HederaFunctionality type() {
@@ -85,6 +101,11 @@ public class HapiContractCallLocal extends HapiQueryOp<HapiContractCallLocal> {
         paramsFn = Optional.of(fn);
     }
 
+    public HapiContractCallLocal(String contract, byte[] rawParams) {
+        this.contract = contract;
+        this.explicitRawParams = rawParams;
+    }
+
     public HapiContractCallLocal(String contract) {
         this.abi = FALLBACK_ABI;
         this.params = new Object[0];
@@ -93,6 +114,22 @@ public class HapiContractCallLocal extends HapiQueryOp<HapiContractCallLocal> {
 
     public HapiContractCallLocal has(ContractFnResultAsserts provider) {
         expectations = Optional.of(provider);
+        return this;
+    }
+
+    public HapiContractCallLocal exposingResultTo(final Consumer<ContractFunctionResult> resultsObs) {
+        this.resultsObs = resultsObs;
+        return this;
+    }
+
+    public HapiContractCallLocal exposingFullResultTo(
+            final BiConsumer<ResponseCodeEnum, ContractFunctionResult> fullResultsObs) {
+        this.fullResultsObs = fullResultsObs;
+        return this;
+    }
+
+    public HapiContractCallLocal exposingRawResultsTo(final Consumer<byte[]> obs) {
+        rawResultsObs = obs;
         return this;
     }
 
@@ -121,7 +158,8 @@ public class HapiContractCallLocal extends HapiQueryOp<HapiContractCallLocal> {
         if (expectations.isPresent()) {
             ContractFunctionResult actual = response.getContractCallLocal().getFunctionResult();
             if (!loggingOff) {
-                final String hex = CommonUtils.hex(actual.getContractCallResult().toByteArray());
+                final String hex =
+                        CommonUtils.hex(actual.getContractCallResult().toByteArray());
                 LOG.info(hex);
             }
             ErroringAsserts<ContractFunctionResult> asserts = expectations.get().assertsFor(spec);
@@ -138,10 +176,7 @@ public class HapiContractCallLocal extends HapiQueryOp<HapiContractCallLocal> {
     @Override
     protected void submitWith(HapiSpec spec, Transaction payment) throws Throwable {
         Query query = getContractCallLocal(spec, payment, false);
-        response =
-                spec.clients()
-                        .getScSvcStub(targetNodeFor(spec), useTls)
-                        .contractCallLocalMethod(query);
+        response = spec.clients().getScSvcStub(targetNodeFor(spec), useTls).contractCallLocalMethod(query);
         if (verboseLoggingOn) {
             LOG.info(
                     "{}{} result = {}",
@@ -150,6 +185,14 @@ public class HapiContractCallLocal extends HapiQueryOp<HapiContractCallLocal> {
                     response.getContractCallLocal()::getFunctionResult);
         }
 
+        if (resultsObs != null) {
+            resultsObs.accept(response.getContractCallLocal().getFunctionResult());
+        }
+        if (fullResultsObs != null) {
+            fullResultsObs.accept(
+                    response.getContractCallLocal().getHeader().getNodeTransactionPrecheckCode(),
+                    response.getContractCallLocal().getFunctionResult());
+        }
         final var rawResult =
                 response.getContractCallLocal().getFunctionResult().getContractCallResult();
         saveResultToEntry.ifPresent(s -> spec.registry().saveBytes(s, rawResult));
@@ -162,44 +205,45 @@ public class HapiContractCallLocal extends HapiQueryOp<HapiContractCallLocal> {
                 typedResultsObs.get().accept(new Object[1]);
             }
         }
+        if (rawResultsObs != null) {
+            rawResultsObs.accept(rawResult.toByteArray());
+        }
     }
 
     @Override
     protected long lookupCostWith(HapiSpec spec, Transaction payment) throws Throwable {
         Query query = getContractCallLocal(spec, payment, true);
         Response response =
-                spec.clients()
-                        .getScSvcStub(targetNodeFor(spec), useTls)
-                        .contractCallLocalMethod(query);
+                spec.clients().getScSvcStub(targetNodeFor(spec), useTls).contractCallLocalMethod(query);
         return costFrom(response);
     }
 
     private Query getContractCallLocal(HapiSpec spec, Transaction payment, boolean costOnly) {
-        if (details.isPresent()) {
-            ActionableContractCallLocal actionable =
-                    spec.registry().getActionableLocalCall(details.get());
-            contract = actionable.getContract();
-            abi = actionable.getDetails().getAbi();
-            params = actionable.getDetails().getExampleArgs();
-        } else if (paramsFn.isPresent()) {
-            params = paramsFn.get().apply(spec);
+        final byte[] callData;
+        if (explicitRawParams == null) {
+            if (details.isPresent()) {
+                ActionableContractCallLocal actionable = spec.registry().getActionableLocalCall(details.get());
+                contract = actionable.getContract();
+                abi = actionable.getDetails().getAbi();
+                params = actionable.getDetails().getExampleArgs();
+            } else if (paramsFn.isPresent()) {
+                params = paramsFn.get().apply(spec);
+            }
+            callData = encodeParametersForCall(params, abi);
+        } else {
+            callData = explicitRawParams;
         }
 
-        byte[] callData = encodeParametersForCall(params, abi);
-
         @SuppressWarnings("java:S1874")
-        final var opBuilder =
-                ContractCallLocalQuery.newBuilder()
-                        .setHeader(costOnly ? answerCostHeader(payment) : answerHeader(payment))
-                        .setFunctionParameters(ByteString.copyFrom(callData))
-                        .setGas(gas.orElse(spec.setup().defaultCallGas()))
-                        .setMaxResultSize(
-                                maxResultSize.orElse(spec.setup().defaultMaxLocalCallRetBytes()));
+        final var opBuilder = ContractCallLocalQuery.newBuilder()
+                .setHeader(costOnly ? answerCostHeader(payment) : answerHeader(payment))
+                .setFunctionParameters(ByteString.copyFrom(callData))
+                .setGas(gas.orElse(spec.setup().defaultCallGas()))
+                .setMaxResultSize(maxResultSize.orElse(spec.setup().defaultMaxLocalCallRetBytes()));
 
         if (contract.length() == HEXED_EVM_ADDRESS_LEN) {
             opBuilder.setContractID(
-                    ContractID.newBuilder()
-                            .setEvmAddress(ByteString.copyFrom(CommonUtils.unhex(contract))));
+                    ContractID.newBuilder().setEvmAddress(ByteString.copyFrom(CommonUtils.unhex(contract))));
         } else {
             opBuilder.setContractID(TxnUtils.asContractId(contract, spec));
         }
@@ -208,8 +252,7 @@ public class HapiContractCallLocal extends HapiQueryOp<HapiContractCallLocal> {
 
     @Override
     protected long costOnlyNodePayment(HapiSpec spec) throws Throwable {
-        return spec.fees()
-                .forOp(HederaFunctionality.ContractCallLocal, FeeBuilder.getCostForQueryByIDOnly());
+        return spec.fees().forOp(HederaFunctionality.ContractCallLocal, FeeBuilder.getCostForQueryByIDOnly());
     }
 
     @Override
@@ -220,10 +263,7 @@ public class HapiContractCallLocal extends HapiQueryOp<HapiContractCallLocal> {
     @Override
     protected MoreObjects.ToStringHelper toStringHelper() {
         MoreObjects.ToStringHelper helper =
-                super.toStringHelper()
-                        .add("contract", contract)
-                        .add("abi", abi)
-                        .add("params", Arrays.toString(params));
+                super.toStringHelper().add("contract", contract).add("abi", abi).add("params", Arrays.toString(params));
         gas.ifPresent(a -> helper.add("gas", a));
         maxResultSize.ifPresent(s -> helper.add("maxResultSize", s));
         return helper;

@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.file;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -24,6 +25,8 @@ import static com.hedera.services.bdd.spec.utilops.UtilVerbs.newKeyListNamed;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.newKeyNamed;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.validateChargedUsdWithin;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.suites.HapiSuite;
 import java.util.List;
@@ -31,6 +34,7 @@ import java.util.UUID;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+@HapiTestSuite
 public class FileAppendSuite extends HapiSuite {
     private static final Logger log = LogManager.getLogger(FileAppendSuite.class);
 
@@ -48,6 +52,7 @@ public class FileAppendSuite extends HapiSuite {
         return true;
     }
 
+    @HapiTest
     public HapiSpec baseOpsHaveExpectedPrices() {
         final var civilian = "NonExemptPayer";
 
@@ -71,17 +76,17 @@ public class FileAppendSuite extends HapiSuite {
                                 .key(magicWacl)
                                 .lifetime(THREE_MONTHS_IN_SECONDS)
                                 .contents("Nothing much!"))
-                .when(
-                        fileAppend(targetFile)
-                                .signedBy(magicKey)
-                                .blankMemo()
-                                .content(contentBuilder.toString())
-                                .payingWith(civilian)
-                                .via(baseAppend))
+                .when(fileAppend(targetFile)
+                        .signedBy(magicKey)
+                        .blankMemo()
+                        .content(contentBuilder.toString())
+                        .payingWith(civilian)
+                        .via(baseAppend))
                 .then(validateChargedUsdWithin(baseAppend, expectedAppendFeesPriceUsd, 0.01));
     }
 
-    private HapiSpec vanillaAppendSucceeds() {
+    @HapiTest
+    final HapiSpec vanillaAppendSucceeds() {
         final byte[] first4K = randomUtf8Bytes(BYTES_4K);
         final byte[] next4k = randomUtf8Bytes(BYTES_4K);
         final byte[] all8k = new byte[2 * BYTES_4K];

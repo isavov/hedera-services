@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.yahcli.suites;
 
 import static com.hedera.services.bdd.spec.HapiSpec.customHapiSpec;
@@ -27,9 +28,9 @@ import com.hedera.services.bdd.spec.transactions.crypto.HapiCryptoUpdate;
 import com.hedera.services.bdd.suites.HapiSuite;
 import com.hedera.services.yahcli.config.ConfigManager;
 import com.hedera.services.yahcli.config.ConfigUtils;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.List;
 import java.util.Map;
-import javax.annotation.Nullable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -76,9 +77,7 @@ public class StakeSuite extends HapiSuite {
         } else {
             return keyFromFile(
                             STAKER_KEY_IF_NEEDED,
-                            uncheckedKeyFileFor(
-                                            configManager.keysLoc(),
-                                            "account" + numberOf(stakingAccount))
+                            uncheckedKeyFileFor(configManager.keysLoc(), "account" + numberOf(stakingAccount))
                                     .getAbsolutePath())
                     .yahcliLogged();
         }

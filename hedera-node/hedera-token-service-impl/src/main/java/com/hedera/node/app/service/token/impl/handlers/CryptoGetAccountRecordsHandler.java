@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Hedera Hashgraph, LLC
+ * Copyright (C) 2022-2023 Hedera Hashgraph, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,70 +13,116 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.token.impl.handlers;
 
+import static com.hedera.hapi.node.base.ResponseCodeEnum.ACCOUNT_DELETED;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.INVALID_ACCOUNT_ID;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.INVALID_TRANSACTION_BODY;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.OK;
+import static com.hedera.hapi.node.base.ResponseType.COST_ANSWER;
+import static com.hedera.node.app.spi.workflows.PreCheckException.validateFalsePreCheck;
+import static com.hedera.node.app.spi.workflows.PreCheckException.validateTruePreCheck;
 import static java.util.Objects.requireNonNull;
 
+import com.hedera.hapi.node.base.AccountID;
+import com.hedera.hapi.node.base.HederaFunctionality;
+import com.hedera.hapi.node.base.QueryHeader;
+import com.hedera.hapi.node.base.ResponseHeader;
+import com.hedera.hapi.node.token.CryptoGetAccountRecordsResponse;
+import com.hedera.hapi.node.transaction.Query;
+import com.hedera.hapi.node.transaction.Response;
+import com.hedera.node.app.hapi.utils.fee.CryptoFeeBuilder;
+import com.hedera.node.app.service.mono.fees.calculation.crypto.queries.GetAccountRecordsResourceUsage;
+import com.hedera.node.app.service.token.ReadableAccountStore;
+import com.hedera.node.app.spi.fees.Fees;
+import com.hedera.node.app.spi.records.RecordCache;
 import com.hedera.node.app.spi.workflows.PaidQueryHandler;
 import com.hedera.node.app.spi.workflows.PreCheckException;
-import com.hederahashgraph.api.proto.java.CryptoGetAccountRecordsResponse;
-import com.hederahashgraph.api.proto.java.Query;
-import com.hederahashgraph.api.proto.java.QueryHeader;
-import com.hederahashgraph.api.proto.java.Response;
-import com.hederahashgraph.api.proto.java.ResponseHeader;
+import com.hedera.node.app.spi.workflows.QueryContext;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
 /**
  * This class contains all workflow-related functionality regarding {@link
- * com.hederahashgraph.api.proto.java.HederaFunctionality#CryptoGetAccountRecords}.
+ * HederaFunctionality#CRYPTO_GET_ACCOUNT_RECORDS}.
  */
 @Singleton
 public class CryptoGetAccountRecordsHandler extends PaidQueryHandler {
+    private final RecordCache recordCache;
+
     @Inject
-    public CryptoGetAccountRecordsHandler() {}
+    public CryptoGetAccountRecordsHandler(@NonNull final RecordCache recordCache) {
+        // Exists for injection
+        this.recordCache = requireNonNull(recordCache);
+    }
 
     @Override
     public QueryHeader extractHeader(@NonNull final Query query) {
         requireNonNull(query);
-        return query.getCryptoGetAccountRecords().getHeader();
+        return query.cryptoGetAccountRecordsOrThrow().header();
     }
 
     @Override
     public Response createEmptyResponse(@NonNull final ResponseHeader header) {
-        final var response = CryptoGetAccountRecordsResponse.newBuilder().setHeader(header);
-        return Response.newBuilder().setCryptoGetAccountRecords(response).build();
+        requireNonNull(header);
+        final var response = CryptoGetAccountRecordsResponse.newBuilder().header(header);
+        return Response.newBuilder().cryptoGetAccountRecords(response).build();
     }
 
-    /**
-     * This method is called during the query workflow. It validates the query, but does not
-     * determine the response yet.
-     *
-     * <p>Please note: the method signature is just a placeholder which is most likely going to
-     * change.
-     *
-     * @param query the {@link Query} that should be validated
-     * @throws NullPointerException if one of the arguments is {@code null}
-     * @throws PreCheckException if validation fails
-     */
-    public void validate(@NonNull final Query query) throws PreCheckException {
-        throw new UnsupportedOperationException("Not implemented");
+    @Override
+    public void validate(@NonNull final QueryContext context) throws PreCheckException {
+        requireNonNull(context);
+        final var accountStore = context.createStore(ReadableAccountStore.class);
+        final var query = context.query();
+        final var op = query.cryptoGetAccountRecords();
+        validateTruePreCheck(op != null, INVALID_TRANSACTION_BODY);
+
+        final var account = accountStore.getAccountById(op.accountIDOrElse(AccountID.DEFAULT));
+        validateTruePreCheck(account != null, INVALID_ACCOUNT_ID);
+
+        validateFalsePreCheck(account.deleted(), ACCOUNT_DELETED);
+
+        validateFalsePreCheck(account.smartContract(), INVALID_ACCOUNT_ID);
     }
 
-    /**
-     * This method is called during the query workflow. It determines the requested value(s) and
-     * returns the appropriate response.
-     *
-     * <p>Please note: the method signature is just a placeholder which is most likely going to
-     * change.
-     *
-     * @param query the {@link Query} with the request
-     * @param header the {@link ResponseHeader} that should be used, if the request was successful
-     * @return a {@link Response} with the requested values
-     * @throws NullPointerException if one of the arguments is {@code null}
-     */
-    public Response findResponse(@NonNull final Query query, @NonNull final ResponseHeader header) {
-        throw new UnsupportedOperationException("Not implemented");
+    @Override
+    public Response findResponse(@NonNull final QueryContext context, @NonNull final ResponseHeader header) {
+        requireNonNull(context);
+        requireNonNull(header);
+
+        final var op = context.query().cryptoGetAccountRecordsOrThrow();
+        final var responseType = op.headerOrElse(QueryHeader.DEFAULT).responseType();
+        final var accountId = op.accountIDOrElse(AccountID.DEFAULT);
+
+        // Initialize the response (with the given header)
+        final var response = CryptoGetAccountRecordsResponse.newBuilder().header(header);
+
+        if (header.nodeTransactionPrecheckCode() == OK) {
+            response.accountID(accountId);
+
+            if (responseType != COST_ANSWER) {
+                final var acctRecords = recordCache.getRecords(accountId);
+                response.records(acctRecords);
+            }
+        }
+
+        return Response.newBuilder().cryptoGetAccountRecords(response).build();
+    }
+
+    @NonNull
+    @Override
+    public Fees computeFees(@NonNull final QueryContext queryContext) {
+        final var query = queryContext.query();
+        final var accountStore = queryContext.createStore(ReadableAccountStore.class);
+        final var op = query.cryptoGetAccountRecordsOrThrow();
+        final var accountId = op.accountIDOrThrow();
+        final var account = accountStore.getAccountById(accountId);
+
+        final var records = recordCache.getRecords(accountId);
+        return queryContext.feeCalculator().legacyCalculate(sigValueObj -> new GetAccountRecordsResourceUsage(
+                        null, new CryptoFeeBuilder())
+                .usageGivenFor(account, records));
     }
 }

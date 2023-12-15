@@ -13,15 +13,30 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.misc;
 
 import static com.hedera.services.bdd.spec.HapiSpec.customFailingHapiSpec;
 import static com.hedera.services.bdd.spec.HapiSpec.customHapiSpec;
 import static com.hedera.services.bdd.spec.assertions.ContractFnResultAsserts.isLiteralResult;
 import static com.hedera.services.bdd.spec.assertions.ContractFnResultAsserts.resultWith;
-import static com.hedera.services.bdd.spec.keys.KeyShape.*;
-import static com.hedera.services.bdd.spec.queries.QueryVerbs.*;
-import static com.hedera.services.bdd.spec.transactions.TxnVerbs.*;
+import static com.hedera.services.bdd.spec.keys.KeyShape.OFF;
+import static com.hedera.services.bdd.spec.keys.KeyShape.ON;
+import static com.hedera.services.bdd.spec.keys.KeyShape.PREDEFINED_SHAPE;
+import static com.hedera.services.bdd.spec.keys.KeyShape.SIMPLE;
+import static com.hedera.services.bdd.spec.keys.KeyShape.listOf;
+import static com.hedera.services.bdd.spec.keys.KeyShape.sigs;
+import static com.hedera.services.bdd.spec.keys.KeyShape.threshOf;
+import static com.hedera.services.bdd.spec.queries.QueryVerbs.contractCallLocal;
+import static com.hedera.services.bdd.spec.queries.QueryVerbs.getAccountBalance;
+import static com.hedera.services.bdd.spec.queries.QueryVerbs.getAccountInfo;
+import static com.hedera.services.bdd.spec.transactions.TxnVerbs.contractCreate;
+import static com.hedera.services.bdd.spec.transactions.TxnVerbs.cryptoCreate;
+import static com.hedera.services.bdd.spec.transactions.TxnVerbs.cryptoTransfer;
+import static com.hedera.services.bdd.spec.transactions.TxnVerbs.cryptoUpdate;
+import static com.hedera.services.bdd.spec.transactions.TxnVerbs.fileCreate;
+import static com.hedera.services.bdd.spec.transactions.TxnVerbs.fileDelete;
+import static com.hedera.services.bdd.spec.transactions.TxnVerbs.uploadInitCode;
 import static com.hedera.services.bdd.spec.transactions.crypto.HapiCryptoTransfer.tinyBarsFromTo;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.keyFromFile;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.newKeyNamed;
@@ -80,7 +95,7 @@ public class GuidedTourRemoteSuite extends HapiSuite {
      *
      * @return the example spec
      */
-    private HapiSpec rekeyAccountWith2Of3Choice() {
+    final HapiSpec rekeyAccountWith2Of3Choice() {
         // The account to re-key
         final var target = "0.0.1234";
         // The PEM files with the involved keys
@@ -95,27 +110,21 @@ public class GuidedTourRemoteSuite extends HapiSuite {
         final var newKey3 = "k3";
         final var replacementKey = "updated";
         final var newShape =
-                threshOf(
-                        1,
-                        PREDEFINED_SHAPE,
-                        threshOf(2, PREDEFINED_SHAPE, PREDEFINED_SHAPE, PREDEFINED_SHAPE));
+                threshOf(1, PREDEFINED_SHAPE, threshOf(2, PREDEFINED_SHAPE, PREDEFINED_SHAPE, PREDEFINED_SHAPE));
 
         return customHapiSpec("RekeyAccountWith2Of3Choice")
-                .withProperties(
-                        Map.of(
-                                "nodes", TODO,
-                                "default.payer", TODO,
-                                "default.payer.pemKeyLoc", TODO,
-                                "default.payer.pemKeyPassphrase", TODO))
+                .withProperties(Map.of(
+                        "nodes", TODO,
+                        "default.payer", TODO,
+                        "default.payer.pemKeyLoc", TODO,
+                        "default.payer.pemKeyPassphrase", TODO))
                 .given(
                         keyFromFile(extantKey, targetKeyLoc),
                         keyFromFile(newKey1, oneOfThreeKeysLoc),
                         keyFromFile(newKey2, twoOfThreeKeysLoc),
                         keyFromFile(newKey3, threeOfThreeKeysLoc),
                         newKeyNamed(replacementKey)
-                                .shape(
-                                        newShape.signedWith(
-                                                sigs(extantKey, sigs(newKey1, newKey2, newKey3)))),
+                                .shape(newShape.signedWith(sigs(extantKey, sigs(newKey1, newKey2, newKey3)))),
                         getAccountInfo(target).logged().loggingHexedKeys())
                 .when(cryptoUpdate(target).key(replacementKey).signedBy(DEFAULT_PAYER, extantKey))
                 .then(
@@ -124,7 +133,7 @@ public class GuidedTourRemoteSuite extends HapiSuite {
                                 .signedBy(DEFAULT_PAYER, extantKey));
     }
 
-    private HapiSpec balanceLookupContractWorks() {
+    final HapiSpec balanceLookupContractWorks() {
         final long ACTUAL_BALANCE = 1_234L;
         final var contract = "BalanceLookup";
 
@@ -138,27 +147,16 @@ public class GuidedTourRemoteSuite extends HapiSuite {
                 .then(
                         /* This contract (c.f. src/main/resource/contract/contracts/BalanceLookup/BalanceLookup.sol) assumes
                         a shard and realm of 0; accepts just the sequence number of an account. */
-                        contractCallLocal(
-                                        contract,
-                                        "lookup",
-                                        spec ->
-                                                new Object[] {
-                                                    spec.registry()
-                                                            .getAccountID(TARGET_ACCOUNT)
-                                                            .getAccountNum()
-                                                })
-                                .has(
-                                        resultWith()
-                                                .resultThruAbi(
-                                                        getABIFor(FUNCTION, "lookup", contract),
-                                                        isLiteralResult(
-                                                                new Object[] {
-                                                                    BigInteger.valueOf(
-                                                                            ACTUAL_BALANCE)
-                                                                }))));
+                        contractCallLocal(contract, "lookup", spec -> new Object[] {
+                                    spec.registry().getAccountID(TARGET_ACCOUNT).getAccountNum()
+                                })
+                                .has(resultWith()
+                                        .resultThruAbi(
+                                                getABIFor(FUNCTION, "lookup", contract),
+                                                isLiteralResult(new Object[] {BigInteger.valueOf(ACTUAL_BALANCE)}))));
     }
 
-    private HapiSpec topLevelHederaKeyMustBeActive() {
+    final HapiSpec topLevelHederaKeyMustBeActive() {
         KeyShape waclShape = listOf(SIMPLE, threshOf(2, 3));
         SigControl updateSigControl = waclShape.signedWith(sigs(ON, sigs(ON, OFF, OFF)));
 
@@ -166,11 +164,10 @@ public class GuidedTourRemoteSuite extends HapiSuite {
                 .withProperties(Map.of("host", HOST))
                 .given()
                 .when()
-                .then(
-                        fileCreate(TARGET)
-                                .waclShape(waclShape)
-                                .sigControl(ControlForKey.forKey(TARGET, updateSigControl))
-                                .hasKnownStatus(INVALID_SIGNATURE));
+                .then(fileCreate(TARGET)
+                        .waclShape(waclShape)
+                        .sigControl(ControlForKey.forKey(TARGET, updateSigControl))
+                        .hasKnownStatus(INVALID_SIGNATURE));
     }
 
     /* Feature is pending; top-level KeyList should allow deletion with an active
@@ -180,7 +177,7 @@ public class GuidedTourRemoteSuite extends HapiSuite {
       NOTE: KeyLists lower in the key hierarchy still require all child keys
       to have active signatures.
     */
-    private HapiSpec topLevelListBehavesAsRevocationService() {
+    final HapiSpec topLevelListBehavesAsRevocationService() {
         KeyShape waclShape = listOf(SIMPLE, threshOf(2, 3));
         SigControl deleteSigControl = waclShape.signedWith(sigs(OFF, sigs(ON, ON, OFF)));
 
@@ -188,12 +185,10 @@ public class GuidedTourRemoteSuite extends HapiSuite {
                 .withProperties(Map.of("host", HOST))
                 .given(fileCreate(TARGET).waclShape(waclShape))
                 .when()
-                .then(
-                        fileDelete(TARGET)
-                                .sigControl(ControlForKey.forKey(TARGET, deleteSigControl)));
+                .then(fileDelete(TARGET).sigControl(ControlForKey.forKey(TARGET, deleteSigControl)));
     }
 
-    private HapiSpec updateWithInvalidatedKeyFailsInHandle() {
+    final HapiSpec updateWithInvalidatedKeyFailsInHandle() {
         return customHapiSpec("UpdateWithInvalidatedKeyFailsIHandle")
                 .withProperties(Map.of("host", HOST))
                 .given(
@@ -201,29 +196,27 @@ public class GuidedTourRemoteSuite extends HapiSuite {
                         newKeyNamed("newKey"),
                         cryptoCreate(TARGET).key(OLD_KEY))
                 .when(cryptoUpdate(TARGET).key("newKey").deferStatusResolution())
-                .then(
-                        cryptoUpdate(TARGET)
-                                .signedBy(GENESIS, OLD_KEY)
-                                .receiverSigRequired(true)
-                                .hasPrecheck(OK)
-                                .hasKnownStatus(INVALID_SIGNATURE));
+                .then(cryptoUpdate(TARGET)
+                        .signedBy(GENESIS, OLD_KEY)
+                        .receiverSigRequired(true)
+                        .hasPrecheck(OK)
+                        .hasKnownStatus(INVALID_SIGNATURE));
     }
 
-    private HapiSpec updateWithInvalidKeyFailsInPrecheck() {
+    final HapiSpec updateWithInvalidKeyFailsInPrecheck() {
         KeyShape keyShape = listOf(3);
 
         return HapiSpec.customHapiSpec("UpdateWithInvalidKeyFailsInPrecheck")
                 .withProperties(Map.of("host", HOST))
                 .given(newKeyNamed("invalidPayerKey").shape(keyShape))
                 .when()
-                .then(
-                        cryptoUpdate(SYSTEM_ADMIN)
-                                .receiverSigRequired(true)
-                                .signedBy("invalidPayerKey")
-                                .hasPrecheck(INVALID_SIGNATURE));
+                .then(cryptoUpdate(SYSTEM_ADMIN)
+                        .receiverSigRequired(true)
+                        .signedBy("invalidPayerKey")
+                        .hasPrecheck(INVALID_SIGNATURE));
     }
 
-    private HapiSpec transferChangesBalance() {
+    final HapiSpec transferChangesBalance() {
         final long AMOUNT = 1_000L;
 
         return HapiSpec.customHapiSpec("TransferChangesBalance")

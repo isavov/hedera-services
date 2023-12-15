@@ -13,12 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.fees.calculation.contract.txns;
 
 import static com.hedera.node.app.service.mono.fees.calculation.FeeCalcUtils.lookupAccountExpiry;
 import static com.hedera.node.app.service.mono.utils.EntityNum.fromContractId;
 
-import com.hedera.node.app.hapi.utils.exception.InvalidTxBodyException;
 import com.hedera.node.app.hapi.utils.fee.SigValueObj;
 import com.hedera.node.app.hapi.utils.fee.SmartContractFeeBuilder;
 import com.hedera.node.app.service.mono.context.primitives.StateView;
@@ -48,17 +48,13 @@ public class ContractUpdateResourceUsage implements TxnResourceUsageEstimator {
     }
 
     @Override
-    public FeeData usageGiven(TransactionBody txn, SigValueObj sigUsage, StateView view)
-            throws InvalidTxBodyException {
+    public FeeData usageGiven(TransactionBody txn, SigValueObj sigUsage, StateView view) {
         try {
             final var id = fromContractId(txn.getContractUpdateInstance().getContractID());
             Timestamp expiry = lookupAccountExpiry(id, view.accounts());
             return usageEstimator.getContractUpdateTxFeeMatrices(txn, expiry, sigUsage);
         } catch (Exception e) {
-            log.debug(
-                    "Unable to deduce ContractUpdate usage for {}, using defaults",
-                    txn.getTransactionID(),
-                    e);
+            log.debug("Unable to deduce ContractUpdate usage for {}, using defaults", txn.getTransactionID(), e);
             return FeeData.getDefaultInstance();
         }
     }

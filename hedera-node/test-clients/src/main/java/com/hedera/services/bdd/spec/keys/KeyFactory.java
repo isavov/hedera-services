@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.spec.keys;
 
 import static com.hedera.services.bdd.spec.keys.DefaultKeyGen.DEFAULT_KEY_GEN;
@@ -41,6 +42,7 @@ import java.io.Serializable;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.security.GeneralSecurityException;
 import java.security.PrivateKey;
 import java.security.interfaces.ECPrivateKey;
 import java.util.AbstractMap;
@@ -76,8 +78,7 @@ public class KeyFactory implements Serializable {
     private final HapiSpecSetup setup;
     private final Map<String, PrivateKey> pkMap = new ConcurrentHashMap<>();
     private final Map<Key, SigControl> controlMap = new ConcurrentHashMap<>();
-    private final SigMapGenerator defaultSigMapGen =
-            TrieSigMapGenerator.withNature(UNIQUE_PREFIXES);
+    private final SigMapGenerator defaultSigMapGen = TrieSigMapGenerator.withNature(UNIQUE_PREFIXES);
 
     private final transient HapiSpecRegistry registry;
 
@@ -102,11 +103,11 @@ public class KeyFactory implements Serializable {
     }
 
     public void exportSimpleWacl(final String loc, final String name) {
-        exportSimpleKey(loc, name, key -> key.getKeyList().getKeys(0).getEd25519().toByteArray());
+        exportSimpleKey(
+                loc, name, key -> key.getKeyList().getKeys(0).getEd25519().toByteArray());
     }
 
-    public void exportSimpleKey(
-            final String loc, final String name, final Function<Key, byte[]> targetKeyExtractor) {
+    public void exportSimpleKey(final String loc, final String name, final Function<Key, byte[]> targetKeyExtractor) {
         exportSimpleKey(loc, name, targetKeyExtractor, PEM_PASSPHRASE);
     }
 
@@ -121,8 +122,7 @@ public class KeyFactory implements Serializable {
         Ed25519Utils.writeKeyTo(key, loc, passphrase);
     }
 
-    public void exportSimpleEcdsaKey(
-            final String name, final Function<Key, byte[]> targetKeyExtractor) {
+    public void exportSimpleEcdsaKey(final String name, final Function<Key, byte[]> targetKeyExtractor) {
         final var pubKeyBytes = targetKeyExtractor.apply(registry.getKey(name));
         final var hexedPubKey = com.swirlds.common.utility.CommonUtils.hex(pubKeyBytes);
         final var key = (ECPrivateKey) pkMap.get(hexedPubKey);
@@ -142,8 +142,7 @@ public class KeyFactory implements Serializable {
         incorporate(byName, key, ON);
     }
 
-    public void incorporate(
-            final String byName, final EdDSAPrivateKey key, final SigControl control) {
+    public void incorporate(final String byName, final EdDSAPrivateKey key, final SigControl control) {
         final var pubKeyHex = com.swirlds.common.utility.CommonUtils.hex(key.getAbyte());
         pkMap.put(pubKeyHex, key);
         controlMap.put(registry.getKey(byName), control);
@@ -155,10 +154,7 @@ public class KeyFactory implements Serializable {
     }
 
     public void incorporate(
-            final String byName,
-            final String pubKeyHex,
-            final PrivateKey privateKey,
-            final SigControl control) {
+            final String byName, final String pubKeyHex, final PrivateKey privateKey, final SigControl control) {
         pkMap.put(pubKeyHex, privateKey);
         controlMap.put(registry.getKey(byName), control);
     }
@@ -194,8 +190,7 @@ public class KeyFactory implements Serializable {
         return sign(spec, txn, sigMapGen, authorsFor(keys, overrides));
     }
 
-    public List<Entry<Key, SigControl>> authorsFor(
-            final List<Key> keys, final Map<Key, SigControl> overrides) {
+    public List<Entry<Key, SigControl>> authorsFor(final List<Key> keys, final Map<Key, SigControl> overrides) {
         return keys.stream().map(k -> asAuthor(k, overrides)).collect(toList());
     }
 
@@ -206,8 +201,7 @@ public class KeyFactory implements Serializable {
             throw new IllegalArgumentException("No sig control for key " + key);
         }
         if (!control.appliesTo(key)) {
-            throw new IllegalStateException(
-                    "Control " + control + " for key " + key + " doesn't apply");
+            throw new IllegalStateException("Control " + control + " for key " + key + " doesn't apply");
         }
 
         return Pair.of(key, control);
@@ -219,8 +213,7 @@ public class KeyFactory implements Serializable {
             final SigMapGenerator sigMapGen,
             final List<Entry<Key, SigControl>> authors)
             throws Throwable {
-        final var signing =
-                new PrimitiveSigning(CommonUtils.extractTransactionBodyBytes(txn), authors);
+        final var signing = new PrimitiveSigning(CommonUtils.extractTransactionBodyBytes(txn), authors);
 
         final var primitiveSigs = signing.completed();
         final var sigMap = sigMapGen.forPrimitiveSigs(spec, primitiveSigs);
@@ -230,21 +223,18 @@ public class KeyFactory implements Serializable {
         return txn.build();
     }
 
-    public Transaction signWithFullPrefixEd25519Keys(
-            final Transaction.Builder txn, final List<Key> keys) throws Throwable {
-        final List<Entry<Key, SigControl>> authors =
-                keys.stream()
-                        .<Entry<Key, SigControl>>map(k -> Pair.of(k, SigControl.ED25519_ON))
-                        .toList();
-        final var signing =
-                new PrimitiveSigning(CommonUtils.extractTransactionBodyBytes(txn), authors);
+    public Transaction signWithFullPrefixEd25519Keys(final Transaction.Builder txn, final List<Key> keys)
+            throws IOException, GeneralSecurityException {
+        final List<Entry<Key, SigControl>> authors = keys.stream()
+                .<Entry<Key, SigControl>>map(k -> Pair.of(k, SigControl.ED25519_ON))
+                .toList();
+        final var signing = new PrimitiveSigning(CommonUtils.extractTransactionBodyBytes(txn), authors);
         final var primitiveSigs = signing.completed();
         final var sigMap = SignatureMap.newBuilder();
         for (final var sig : primitiveSigs) {
-            sigMap.addSigPair(
-                    SignaturePair.newBuilder()
-                            .setPubKeyPrefix(ByteString.copyFrom(sig.getKey()))
-                            .setEd25519(ByteString.copyFrom(sig.getValue())));
+            sigMap.addSigPair(SignaturePair.newBuilder()
+                    .setPubKeyPrefix(ByteString.copyFrom(sig.getKey()))
+                    .setEd25519(ByteString.copyFrom(sig.getValue())));
         }
         txn.setSigMap(sigMap);
         return txn.build();
@@ -263,16 +253,18 @@ public class KeyFactory implements Serializable {
             this.authors = authors;
         }
 
-        public List<Entry<byte[], byte[]>> completed() throws Throwable {
+        public List<Entry<byte[], byte[]>> completed() throws GeneralSecurityException {
             for (final var author : authors) {
                 signRecursively(author.getKey(), author.getValue());
             }
             return keySigs;
         }
 
-        private void signRecursively(final Key key, final SigControl controller) throws Throwable {
+        private void signRecursively(final Key key, final SigControl controller) throws GeneralSecurityException {
             switch (controller.getNature()) {
                 case SIG_OFF:
+                    keySigs.add(new AbstractMap.SimpleEntry<>(extractPubKey(key), new byte[0]));
+                    break;
                 case CONTRACT_ID:
                 case DELEGATABLE_CONTRACT_ID:
                     break;
@@ -288,7 +280,7 @@ public class KeyFactory implements Serializable {
             }
         }
 
-        private void signIfNecessary(final Key key) throws Throwable {
+        private void signIfNecessary(final Key key) throws GeneralSecurityException {
             final var pk = extractPubKey(key);
             final var hexedPk = com.swirlds.common.utility.CommonUtils.hex(pk);
             if (!used.contains(hexedPk)) {
@@ -328,16 +320,14 @@ public class KeyFactory implements Serializable {
 
     public static EdDSAPrivateKey payerKey(final HapiSpecSetup setup) {
         if (StringUtils.isNotEmpty(setup.defaultPayerKey())) {
-            return Ed25519Utils.keyFrom(
-                    com.swirlds.common.utility.CommonUtils.unhex(setup.defaultPayerKey()));
+            return Ed25519Utils.keyFrom(com.swirlds.common.utility.CommonUtils.unhex(setup.defaultPayerKey()));
         } else if (StringUtils.isNotEmpty(setup.defaultPayerMnemonic())) {
             return mnemonicToEd25519Key(setup.defaultPayerMnemonic());
         } else if (StringUtils.isNotEmpty(setup.defaultPayerMnemonicFile())) {
             final var mnemonic = mnemonicFromFile(setup.defaultPayerMnemonicFile());
             return mnemonicToEd25519Key(mnemonic);
         } else {
-            return Ed25519Utils.readKeyFrom(
-                    setup.defaultPayerPemKeyLoc(), setup.defaultPayerPemKeyPassphrase());
+            return Ed25519Utils.readKeyFrom(setup.defaultPayerPemKeyLoc(), setup.defaultPayerPemKeyPassphrase());
         }
     }
 
@@ -358,17 +348,12 @@ public class KeyFactory implements Serializable {
     }
 
     public synchronized Key generateSubjectTo(
-            final HapiSpec spec,
-            final SigControl controller,
-            final KeyGenerator keyGen,
-            final KeyLabel labels) {
+            final HapiSpec spec, final SigControl controller, final KeyGenerator keyGen, final KeyLabel labels) {
         return new Generation(spec, controller, keyGen, labels).outcome();
     }
 
     private class Generation {
-        private final SigControl.KeyAlgo[] algoChoices = {
-            SigControl.KeyAlgo.ED25519, SigControl.KeyAlgo.SECP256K1
-        };
+        private final SigControl.KeyAlgo[] algoChoices = {SigControl.KeyAlgo.ED25519, SigControl.KeyAlgo.SECP256K1};
 
         private final KeyLabel labels;
         private final SigControl control;
@@ -378,16 +363,12 @@ public class KeyFactory implements Serializable {
 
         private int nextUnspecifiedAlgo = 0;
 
-        public Generation(
-                final HapiSpec spec, final SigControl control, final KeyGenerator keyGen) {
+        public Generation(final HapiSpec spec, final SigControl control, final KeyGenerator keyGen) {
             this(spec, control, keyGen, KeyLabel.uniquelyLabeling(control));
         }
 
         public Generation(
-                final HapiSpec spec,
-                final SigControl control,
-                final KeyGenerator keyGen,
-                final KeyLabel labels) {
+                final HapiSpec spec, final SigControl control, final KeyGenerator keyGen, final KeyLabel labels) {
             this.spec = spec;
             this.labels = labels;
             this.control = control;
@@ -414,21 +395,15 @@ public class KeyFactory implements Serializable {
                     generated = Key.newBuilder().setDelegatableContractId(dcid).build();
                     break;
                 case LIST:
-                    generated =
-                            Key.newBuilder()
-                                    .setKeyList(
-                                            composing(
-                                                    label.getConstituents(), sc.getChildControls()))
-                                    .build();
+                    generated = Key.newBuilder()
+                            .setKeyList(composing(label.getConstituents(), sc.getChildControls()))
+                            .build();
                     break;
                 case THRESHOLD:
-                    final var tKey =
-                            ThresholdKey.newBuilder()
-                                    .setThreshold(sc.getThreshold())
-                                    .setKeys(
-                                            composing(
-                                                    label.getConstituents(), sc.getChildControls()))
-                                    .build();
+                    final var tKey = ThresholdKey.newBuilder()
+                            .setThreshold(sc.getThreshold())
+                            .setKeys(composing(label.getConstituents(), sc.getChildControls()))
+                            .build();
                     generated = Key.newBuilder().setThresholdKey(tKey).build();
                     break;
                 default:
@@ -443,8 +418,7 @@ public class KeyFactory implements Serializable {
                             } else {
                                 /* A spec run with unspecified default algorithm alternates between Ed25519 and ECDSA */
                                 choice = algoChoices[nextUnspecifiedAlgo];
-                                nextUnspecifiedAlgo =
-                                        (nextUnspecifiedAlgo + 1) % algoChoices.length;
+                                nextUnspecifiedAlgo = (nextUnspecifiedAlgo + 1) % algoChoices.length;
                             }
                         } else {
                             choice = sc.keyAlgo();
@@ -474,10 +448,9 @@ public class KeyFactory implements Serializable {
             Assertions.assertEquals(ls.length, cs.length, "Incompatible ls and cs!");
             final int N = ls.length;
             return KeyList.newBuilder()
-                    .addAllKeys(
-                            IntStream.range(0, N)
-                                    .mapToObj(i -> generate(cs[i], ls[i], false))
-                                    .collect(toList()))
+                    .addAllKeys(IntStream.range(0, N)
+                            .mapToObj(i -> generate(cs[i], ls[i], false))
+                            .collect(toList()))
                     .build();
         }
     }
@@ -500,10 +473,9 @@ public class KeyFactory implements Serializable {
             case LIST:
                 return generateSubjectTo(
                         spec,
-                        KeyShape.listSigs(
-                                IntStream.range(0, setup.defaultListN())
-                                        .mapToObj(ignore -> SigControl.ON)
-                                        .toArray(SigControl[]::new)),
+                        KeyShape.listSigs(IntStream.range(0, setup.defaultListN())
+                                .mapToObj(ignore -> SigControl.ON)
+                                .toArray(SigControl[]::new)),
                         keyGen);
             default:
                 return generateSubjectTo(spec, ON, keyGen);

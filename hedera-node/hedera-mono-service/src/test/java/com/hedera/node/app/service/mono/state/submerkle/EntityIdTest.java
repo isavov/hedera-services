@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.submerkle;
 
 import static com.hedera.node.app.service.mono.state.submerkle.EntityId.MISSING_ENTITY_ID;
@@ -23,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.mock;
@@ -52,26 +54,36 @@ class EntityIdTest {
     private static final long realm = 2L;
     private static final long num = 3L;
 
-    private static final FileID fileId =
-            FileID.newBuilder().setShardNum(shard).setRealmNum(realm).setFileNum(num).build();
-    private static final AccountID accountId =
-            AccountID.newBuilder().setShardNum(shard).setRealmNum(realm).setAccountNum(num).build();
-    private static final ContractID contractId =
-            ContractID.newBuilder()
-                    .setShardNum(shard)
-                    .setRealmNum(realm)
-                    .setContractNum(num)
-                    .build();
-    private static final TopicID topicId =
-            TopicID.newBuilder().setShardNum(shard).setRealmNum(realm).setTopicNum(num).build();
-    private static final TokenID tokenId =
-            TokenID.newBuilder().setShardNum(shard).setRealmNum(realm).setTokenNum(num).build();
-    private static final ScheduleID scheduleId =
-            ScheduleID.newBuilder()
-                    .setShardNum(shard)
-                    .setRealmNum(realm)
-                    .setScheduleNum(num)
-                    .build();
+    private static final FileID fileId = FileID.newBuilder()
+            .setShardNum(shard)
+            .setRealmNum(realm)
+            .setFileNum(num)
+            .build();
+    private static final AccountID accountId = AccountID.newBuilder()
+            .setShardNum(shard)
+            .setRealmNum(realm)
+            .setAccountNum(num)
+            .build();
+    private static final ContractID contractId = ContractID.newBuilder()
+            .setShardNum(shard)
+            .setRealmNum(realm)
+            .setContractNum(num)
+            .build();
+    private static final TopicID topicId = TopicID.newBuilder()
+            .setShardNum(shard)
+            .setRealmNum(realm)
+            .setTopicNum(num)
+            .build();
+    private static final TokenID tokenId = TokenID.newBuilder()
+            .setShardNum(shard)
+            .setRealmNum(realm)
+            .setTokenNum(num)
+            .build();
+    private static final ScheduleID scheduleId = ScheduleID.newBuilder()
+            .setShardNum(shard)
+            .setRealmNum(realm)
+            .setScheduleNum(num)
+            .build();
 
     private EntityId subject;
 
@@ -99,6 +111,13 @@ class EntityIdTest {
     }
 
     @Test
+    void throwsIfConvertedAddressNotLongZero() {
+        final byte[] mockAddr = unhex("102030400000000000000000000000000cdefbbb");
+        final var typedAddress = Address.wrap(Bytes.wrap(mockAddr));
+        assertThrows(IllegalArgumentException.class, () -> EntityId.fromAddress(typedAddress));
+    }
+
+    @Test
     void toAddressWorks() {
         final byte[] in = unhex("000000000000000000000000000000000cdefbbb");
         final var inter = new EntityId(0, 0, Longs.fromByteArray(Arrays.copyOfRange(in, 12, 20)));
@@ -123,9 +142,7 @@ class EntityIdTest {
 
     @Test
     void toStringWorks() {
-        assertEquals(
-                "EntityId{shard=" + shard + ", realm=" + realm + ", num=" + num + "}",
-                subject.toString());
+        assertEquals("EntityId{shard=" + shard + ", realm=" + realm + ", num=" + num + "}", subject.toString());
     }
 
     @Test

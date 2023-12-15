@@ -13,12 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.legacy.core.jproto;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
+import com.hedera.node.app.service.mono.txns.contract.ContractCreateTransitionLogic;
 import com.hederahashgraph.api.proto.java.ContractID;
+import com.hederahashgraph.api.proto.java.Key;
+import java.security.InvalidKeyException;
 import org.junit.jupiter.api.Test;
 
 class JContractIDKeyTest {
@@ -31,16 +34,29 @@ class JContractIDKeyTest {
 
     @Test
     void nonZeroContractIDKeyTest() {
-        JContractIDKey key = new JContractIDKey(ContractID.newBuilder().setContractNum(1L).build());
+        JContractIDKey key =
+                new JContractIDKey(ContractID.newBuilder().setContractNum(1L).build());
         assertFalse(key.isEmpty());
         assertTrue(key.isValid());
     }
 
     @Test
     void scheduleOpsAsExpected() {
-        var subject = new JContractIDKey(ContractID.newBuilder().setContractNum(1L).build());
+        var subject =
+                new JContractIDKey(ContractID.newBuilder().setContractNum(1L).build());
         assertFalse(subject.isForScheduledTxn());
         subject.setForScheduledTxn(true);
         assertTrue(subject.isForScheduledTxn());
+    }
+
+    @Test
+    void standinContractKeyConvertsPerUsual() throws InvalidKeyException {
+        final var expectedProtoKey = Key.newBuilder()
+                .setContractID(ContractID.newBuilder().setContractNum(0).build())
+                .build();
+
+        final var actualProtoKey = JKey.mapJKey(ContractCreateTransitionLogic.STANDIN_CONTRACT_ID_KEY);
+
+        assertEquals(expectedProtoKey, actualProtoKey);
     }
 }

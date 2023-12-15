@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.txns.contract.helpers;
 
 import static com.hedera.test.utils.TxnUtils.assertFailsWith;
@@ -23,6 +24,7 @@ import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.CONTRACT_DELET
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.OBTAINER_DOES_NOT_EXIST;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.OBTAINER_REQUIRED;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.OBTAINER_SAME_CONTRACT_ID;
+import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.PERMANENT_REMOVAL_REQUIRES_SYSTEM_INITIATION;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.TRANSACTION_REQUIRES_ZERO_TOKEN_BALANCES;
 import static com.swirlds.common.utility.CommonUtils.unhex;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -58,19 +60,26 @@ class DeletionLogicTest {
     private static final ContractID mirrorId = id.toGrpcContractID();
     private static final AccountID target = id.toGrpcAccountId();
 
-    @Mock private HederaLedger ledger;
-    @Mock private AliasManager aliasManager;
-    @Mock private OptionValidator validator;
-    @Mock private SigImpactHistorian sigImpactHistorian;
-    @Mock private AccountStorageAdapter contracts;
+    @Mock
+    private HederaLedger ledger;
+
+    @Mock
+    private AliasManager aliasManager;
+
+    @Mock
+    private OptionValidator validator;
+
+    @Mock
+    private SigImpactHistorian sigImpactHistorian;
+
+    @Mock
+    private AccountStorageAdapter contracts;
 
     private DeletionLogic subject;
 
     @BeforeEach
     void setUp() {
-        subject =
-                new DeletionLogic(
-                        ledger, aliasManager, validator, sigImpactHistorian, () -> contracts);
+        subject = new DeletionLogic(ledger, aliasManager, validator, sigImpactHistorian, () -> contracts);
     }
 
     @Test
@@ -78,6 +87,14 @@ class DeletionLogicTest {
         final var op = opWithAccountObtainer(mirrorId, obtainer);
         given(validator.queryableContractStatus(id, contracts)).willReturn(CONTRACT_DELETED);
         assertEquals(CONTRACT_DELETED, subject.precheckValidity(op));
+    }
+
+    @Test
+    void rejectsPermanentDeletion() {
+        final var op = opWithAccountObtainer(aliasId, obtainer).toBuilder()
+                .setPermanentRemoval(true)
+                .build();
+        assertEquals(PERMANENT_REMOVAL_REQUIRES_SYSTEM_INITIATION, subject.precheckValidity(op));
     }
 
     @Test
@@ -200,13 +217,11 @@ class DeletionLogicTest {
         return baseOp(target).build();
     }
 
-    private ContractDeleteTransactionBody opWithContractObtainer(
-            final ContractID target, final ContractID obtainer) {
+    private ContractDeleteTransactionBody opWithContractObtainer(final ContractID target, final ContractID obtainer) {
         return baseOp(target).setTransferContractID(obtainer).build();
     }
 
-    private ContractDeleteTransactionBody opWithAccountObtainer(
-            final ContractID target, final AccountID obtainer) {
+    private ContractDeleteTransactionBody opWithAccountObtainer(final ContractID target, final AccountID obtainer) {
         return baseOp(target).setTransferAccountID(obtainer).build();
     }
 

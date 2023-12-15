@@ -13,9 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.legacy.core.jproto;
 
 import com.hederahashgraph.api.proto.java.ContractID;
+import com.hederahashgraph.api.proto.java.Key;
 
 /**
  * Maps to proto Key of type contractID.
@@ -91,5 +93,10 @@ public class JContractIDKey extends JKey {
     @Override
     public boolean isValid() {
         return !isEmpty();
+    }
+
+    @Override
+    protected Key convertJKeyEmpty() {
+        return Key.newBuilder().setContractID(getContractID()).build();
     }
 }

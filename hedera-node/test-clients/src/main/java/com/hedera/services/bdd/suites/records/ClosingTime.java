@@ -13,12 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.records;
 
 import static com.hedera.services.bdd.spec.HapiSpec.customHapiSpec;
 import static com.hedera.services.bdd.spec.transactions.TxnVerbs.cryptoTransfer;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.sleepFor;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.suites.HapiSuite;
 import java.util.List;
@@ -26,6 +29,7 @@ import java.util.Map;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+@HapiTestSuite
 public class ClosingTime extends HapiSuite {
     private static final Logger log = LogManager.getLogger(ClosingTime.class);
 
@@ -43,18 +47,15 @@ public class ClosingTime extends HapiSuite {
         return List.of(closeLastStreamFileWithNoBalanceImpact());
     }
 
-    private HapiSpec closeLastStreamFileWithNoBalanceImpact() {
+    @HapiTest
+    final HapiSpec closeLastStreamFileWithNoBalanceImpact() {
         return customHapiSpec("CloseLastStreamFileWithNoBalanceImpact")
-                .withProperties(
-                        Map.of(
-                                "fees.useFixedOffer", "true",
-                                "fees.fixedOffer", "100000000"))
+                .withProperties(Map.of(
+                        "fees.useFixedOffer", "true",
+                        "fees.fixedOffer", "100000000"))
                 .given()
                 .when()
-                .then(
-                        sleepFor(2500),
-                        cryptoTransfer((spec, b) -> {}).payingWith(GENESIS),
-                        sleepFor(500));
+                .then(sleepFor(2500), cryptoTransfer((spec, b) -> {}).payingWith(GENESIS), sleepFor(500));
     }
 
     @Override

@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.evm.contracts.operations;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -26,7 +27,7 @@ import java.util.function.Supplier;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
-import org.hyperledger.besu.evm.internal.FixedStack;
+import org.hyperledger.besu.evm.internal.UnderflowException;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,9 +36,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class HederaEvmOperationsUtilTest {
-    @Mock private MessageFrame messageFrame;
-    @Mock private LongSupplier gasSupplier;
-    @Mock private Supplier<Operation.OperationResult> executionSupplier;
+    @Mock
+    private MessageFrame messageFrame;
+
+    @Mock
+    private LongSupplier gasSupplier;
+
+    @Mock
+    private Supplier<Operation.OperationResult> executionSupplier;
 
     private final long expectedHaltGas = 10L;
     private final long expectedSuccessfulGas = 100L;
@@ -45,18 +51,17 @@ class HederaEvmOperationsUtilTest {
     @Test
     void throwsUnderflowExceptionWhenGettingAddress() {
         // given:
-        given(messageFrame.getStackItem(0)).willThrow(new FixedStack.UnderflowException());
+        given(messageFrame.getStackItem(0)).willThrow(new UnderflowException());
         given(gasSupplier.getAsLong()).willReturn(expectedHaltGas);
 
         // when:
         final var result =
-                com.hedera.node.app.service.evm.contracts.operations.HederaEvmOperationsUtil
-                        .addressCheckExecution(
-                                messageFrame,
-                                () -> messageFrame.getStackItem(0),
-                                gasSupplier,
-                                executionSupplier,
-                                (a, b) -> true);
+                com.hedera.node.app.service.evm.contracts.operations.HederaEvmOperationsUtil.addressCheckExecution(
+                        messageFrame,
+                        () -> messageFrame.getStackItem(0),
+                        gasSupplier,
+                        executionSupplier,
+                        (a, b) -> true);
 
         // then:
         assertEquals(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS, result.getHaltReason());
@@ -76,13 +81,12 @@ class HederaEvmOperationsUtilTest {
 
         // when:
         final var result =
-                com.hedera.node.app.service.evm.contracts.operations.HederaEvmOperationsUtil
-                        .addressCheckExecution(
-                                messageFrame,
-                                () -> messageFrame.getStackItem(0),
-                                gasSupplier,
-                                executionSupplier,
-                                (a, b) -> false);
+                com.hedera.node.app.service.evm.contracts.operations.HederaEvmOperationsUtil.addressCheckExecution(
+                        messageFrame,
+                        () -> messageFrame.getStackItem(0),
+                        gasSupplier,
+                        executionSupplier,
+                        (a, b) -> false);
 
         // then:
         assertEquals(HederaExceptionalHaltReason.INVALID_SOLIDITY_ADDRESS, result.getHaltReason());
@@ -97,18 +101,16 @@ class HederaEvmOperationsUtilTest {
     void successfulWhenAddressCheckExecution() {
         // given:
         given(messageFrame.getStackItem(0)).willReturn(Address.ZERO);
-        given(executionSupplier.get())
-                .willReturn(new Operation.OperationResult(expectedSuccessfulGas, null));
+        given(executionSupplier.get()).willReturn(new Operation.OperationResult(expectedSuccessfulGas, null));
 
         // when:
         final var result =
-                com.hedera.node.app.service.evm.contracts.operations.HederaEvmOperationsUtil
-                        .addressCheckExecution(
-                                messageFrame,
-                                () -> messageFrame.getStackItem(0),
-                                gasSupplier,
-                                executionSupplier,
-                                (a, b) -> true);
+                com.hedera.node.app.service.evm.contracts.operations.HederaEvmOperationsUtil.addressCheckExecution(
+                        messageFrame,
+                        () -> messageFrame.getStackItem(0),
+                        gasSupplier,
+                        executionSupplier,
+                        (a, b) -> true);
 
         // when:
         assertNull(result.getHaltReason());

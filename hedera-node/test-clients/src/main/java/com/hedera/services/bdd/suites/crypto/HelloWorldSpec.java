@@ -13,8 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.crypto;
 
+import static com.hedera.services.bdd.junit.TestTags.CRYPTO;
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
 import static com.hedera.services.bdd.spec.assertions.AccountInfoAsserts.changeFromSnapshot;
 import static com.hedera.services.bdd.spec.queries.QueryVerbs.getAccountBalance;
@@ -23,12 +25,17 @@ import static com.hedera.services.bdd.spec.transactions.TxnVerbs.cryptoTransfer;
 import static com.hedera.services.bdd.spec.transactions.crypto.HapiCryptoTransfer.tinyBarsFromTo;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.balanceSnapshot;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.suites.HapiSuite;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.Tag;
 
+@HapiTestSuite
+@Tag(CRYPTO)
 public class HelloWorldSpec extends HapiSuite {
     private static final Logger log = LogManager.getLogger(HelloWorldSpec.class);
 
@@ -38,28 +45,25 @@ public class HelloWorldSpec extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return List.of(
-                new HapiSpec[] {
-                    balancesChangeOnTransfer(),
-                });
+        return List.of(new HapiSpec[] {
+            balancesChangeOnTransfer(),
+        });
     }
 
-    private HapiSpec balancesChangeOnTransfer() {
+    @HapiTest
+    final HapiSpec balancesChangeOnTransfer() {
         return defaultHapiSpec("BalancesChangeOnTransfer")
                 .given(
                         cryptoCreate("sponsor"),
                         cryptoCreate("beneficiary"),
                         balanceSnapshot("sponsorBefore", "sponsor"),
                         balanceSnapshot("beneficiaryBefore", "beneficiary"))
-                .when(
-                        cryptoTransfer(tinyBarsFromTo("sponsor", "beneficiary", 1L))
-                                .payingWith(GENESIS)
-                                .memo("Hello World!"))
+                .when(cryptoTransfer(tinyBarsFromTo("sponsor", "beneficiary", 1L))
+                        .payingWith(GENESIS)
+                        .memo("Hello World!"))
                 .then(
-                        getAccountBalance("sponsor")
-                                .hasTinyBars(changeFromSnapshot("sponsorBefore", -1L)),
-                        getAccountBalance("beneficiary")
-                                .hasTinyBars(changeFromSnapshot("beneficiaryBefore", +1L)));
+                        getAccountBalance("sponsor").hasTinyBars(changeFromSnapshot("sponsorBefore", -1L)),
+                        getAccountBalance("beneficiary").hasTinyBars(changeFromSnapshot("beneficiaryBefore", +1L)));
     }
 
     @Override

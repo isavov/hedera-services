@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2023 Hedera Hashgraph, LLC
+ * Copyright (C) 2023 Hedera Hashgraph, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,26 +13,34 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.contract.impl.test;
 
-import com.hedera.node.app.service.contract.ContractService;
-import com.hedera.node.app.service.contract.impl.ContractServiceImpl;
-import org.junit.jupiter.api.Assertions;
+import static com.hedera.node.app.service.contract.impl.ContractServiceImpl.CONTRACT_SERVICE;
+import static com.hedera.node.app.spi.Service.RELEASE_045_VERSION;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+
+import com.hedera.node.app.service.contract.impl.state.ContractSchema;
+import com.hedera.node.app.spi.state.Schema;
+import com.hedera.node.app.spi.state.SchemaRegistry;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 class ContractServiceImplTest {
+    @Test
+    void handlersAreAvailable() {
+        assertNotNull(CONTRACT_SERVICE.handlers());
+    }
 
     @Test
-    void testSpi() {
-        // when
-        final ContractService service = ContractService.getInstance();
-
-        // then
-        Assertions.assertNotNull(service, "We must always receive an instance");
-        Assertions.assertEquals(
-                ContractServiceImpl.class,
-                service.getClass(),
-                "We must always receive an instance of type "
-                        + ContractServiceImpl.class.getName());
+    void registersContractSchema() {
+        final var captor = ArgumentCaptor.forClass(Schema.class);
+        final var mockRegistry = mock(SchemaRegistry.class);
+        CONTRACT_SERVICE.registerSchemas(mockRegistry, RELEASE_045_VERSION);
+        verify(mockRegistry).register(captor.capture());
+        assertInstanceOf(ContractSchema.class, captor.getValue());
     }
 }

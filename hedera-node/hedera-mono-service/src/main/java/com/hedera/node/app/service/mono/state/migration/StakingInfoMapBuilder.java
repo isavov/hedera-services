@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.migration;
 
 import static com.hedera.node.app.service.mono.context.properties.PropertyNames.LEDGER_TOTAL_TINY_BAR_FLOAT;
@@ -20,10 +21,11 @@ import static com.hedera.node.app.service.mono.context.properties.PropertyNames.
 import com.hedera.node.app.service.mono.context.properties.BootstrapProperties;
 import com.hedera.node.app.service.mono.state.merkle.MerkleStakingInfo;
 import com.hedera.node.app.service.mono.utils.EntityNum;
-import com.swirlds.common.system.address.AddressBook;
 import com.swirlds.merkle.map.MerkleMap;
+import com.swirlds.platform.system.address.AddressBook;
 
 public final class StakingInfoMapBuilder {
+
     private StakingInfoMapBuilder() {
         throw new UnsupportedOperationException("Utility class");
     }
@@ -33,11 +35,11 @@ public final class StakingInfoMapBuilder {
         final MerkleMap<EntityNum, MerkleStakingInfo> stakingInfos = new MerkleMap<>();
 
         final var numberOfNodes = addressBook.getSize();
-        long maxStakePerNode =
-                bootstrapProperties.getLongProperty(LEDGER_TOTAL_TINY_BAR_FLOAT) / numberOfNodes;
-        long minStakePerNode = maxStakePerNode / 2;
+        final long maxStakePerNode = bootstrapProperties.getLongProperty(LEDGER_TOTAL_TINY_BAR_FLOAT) / numberOfNodes;
+        final long minStakePerNode = maxStakePerNode / 2;
         for (int i = 0; i < numberOfNodes; i++) {
-            final var nodeNum = EntityNum.fromLong(addressBook.getAddress(i).getId());
+            final var nodeId = addressBook.getNodeId(i);
+            final var nodeNum = EntityNum.fromLong(nodeId.id());
             final var info = new MerkleStakingInfo(bootstrapProperties);
             info.setMinStake(minStakePerNode);
             info.setMaxStake(maxStakePerNode);

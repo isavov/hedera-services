@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.test.factories.scenarios;
 
 import static com.hedera.node.app.service.evm.store.tokens.TokenType.NON_FUNGIBLE_UNIQUE;
@@ -39,13 +40,18 @@ import static com.hedera.test.utils.IdUtils.asSchedule;
 import static com.hedera.test.utils.IdUtils.asToken;
 import static com.hedera.test.utils.IdUtils.asTopic;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.withSettings;
+import static org.mockito.quality.Strictness.LENIENT;
 
 import com.google.protobuf.BoolValue;
 import com.google.protobuf.ByteString;
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.hedera.node.app.service.mono.files.HFileMeta;
 import com.hedera.node.app.service.mono.files.HederaFs;
 import com.hedera.node.app.service.mono.legacy.core.jproto.JKey;
+import com.hedera.node.app.service.mono.pbj.PbjConverter;
 import com.hedera.node.app.service.mono.state.merkle.MerkleAccount;
 import com.hedera.node.app.service.mono.state.merkle.MerkleToken;
 import com.hedera.node.app.service.mono.state.merkle.MerkleTopic;
@@ -78,14 +84,26 @@ import com.hederahashgraph.api.proto.java.TokenAllowance;
 import com.hederahashgraph.api.proto.java.TokenID;
 import com.hederahashgraph.api.proto.java.TopicID;
 import com.swirlds.merkle.map.MerkleMap;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+import java.security.SignatureException;
 import java.time.Instant;
 import java.util.List;
 import java.util.TreeMap;
 import java.util.TreeSet;
-import org.apache.commons.codec.DecoderException;
 
 public interface TxnHandlingScenario {
-    PlatformTxnAccessor platformTxn() throws Throwable;
+    PlatformTxnAccessor platformTxn() throws Exception;
+
+    default com.hedera.hapi.node.transaction.TransactionBody pbjTxnBody() {
+        try {
+            return PbjConverter.protoToPbj(
+                    platformTxn().getTxn(), com.hedera.hapi.node.transaction.TransactionBody.class);
+        } catch (final Throwable e) {
+            // Should be impossible, so just propagate the exception
+            throw new RuntimeException("Could not convert body to PBJ", e);
+        }
+    }
 
     KeyFactory overlapFactory = new KeyFactory(OverlappingKeyGenerator.withDefaultOverlaps());
 
@@ -98,16 +116,25 @@ public interface TxnHandlingScenario {
             return newAccounts()
                     .withAccount(
                             FIRST_TOKEN_SENDER_ID,
-                            newAccount().balance(10_000L).accountKeys(FIRST_TOKEN_SENDER_KT).get())
+                            newAccount()
+                                    .balance(10_000L)
+                                    .accountKeys(FIRST_TOKEN_SENDER_KT)
+                                    .get())
                     .withAccount(
                             SECOND_TOKEN_SENDER_ID,
-                            newAccount().balance(10_000L).accountKeys(SECOND_TOKEN_SENDER_KT).get())
+                            newAccount()
+                                    .balance(10_000L)
+                                    .accountKeys(SECOND_TOKEN_SENDER_KT)
+                                    .get())
                     .withAccount(
                             TOKEN_RECEIVER_ID,
                             newAccount().accountKeys(TOKEN_WIPE_KT).balance(0L).get())
                     .withAccount(
                             DEFAULT_NODE_ID,
-                            newAccount().balance(0L).accountKeys(DEFAULT_PAYER_KT).get())
+                            newAccount()
+                                    .balance(0L)
+                                    .accountKeys(DEFAULT_PAYER_KT)
+                                    .get())
                     .withAccount(
                             DEFAULT_PAYER_ID,
                             newAccount()
@@ -115,7 +142,8 @@ public interface TxnHandlingScenario {
                                     .accountKeys(DEFAULT_PAYER_KT)
                                     .get())
                     .withAccount(
-                            STAKING_FUND_ID, newAccount().balance(0).accountKeys(EMPTY_KEY).get())
+                            STAKING_FUND_ID,
+                            newAccount().balance(0).accountKeys(EMPTY_KEY).get())
                     .withAccount(
                             MASTER_PAYER_ID,
                             newAccount()
@@ -144,7 +172,10 @@ public interface TxnHandlingScenario {
                                     .get())
                     .withAccount(
                             SYS_ACCOUNT_ID,
-                            newAccount().balance(DEFAULT_BALANCE).accountKeys(SYS_ACCOUNT_KT).get())
+                            newAccount()
+                                    .balance(DEFAULT_BALANCE)
+                                    .accountKeys(SYS_ACCOUNT_KT)
+                                    .get())
                     .withAccount(
                             MISC_ACCOUNT_ID,
                             newAccount()
@@ -208,17 +239,21 @@ public interface TxnHandlingScenario {
                                     .accountKeys(DILIGENT_SIGNING_PAYER_KT)
                                     .get())
                     .withContract(
-                            IMMUTABLE_CONTRACT_ID, newContract().balance(DEFAULT_BALANCE).get())
+                            IMMUTABLE_CONTRACT_ID,
+                            newContract().balance(DEFAULT_BALANCE).get())
                     .withContract(
                             MISC_CONTRACT_ID,
-                            newContract().balance(DEFAULT_BALANCE).accountKeys(MISC_ADMIN_KT).get())
+                            newContract()
+                                    .balance(DEFAULT_BALANCE)
+                                    .accountKeys(MISC_ADMIN_KT)
+                                    .get())
                     .get();
         } catch (final Exception e) {
             throw new RuntimeException(e);
         }
     }
 
-    default HederaFs hfs() throws Exception {
+    default HederaFs hfs() throws InvalidKeyException {
         HederaFs hfs = mock(HederaFs.class);
         given(hfs.exists(MISC_FILE)).willReturn(true);
         given(hfs.exists(SYS_FILE)).willReturn(true);
@@ -235,8 +270,7 @@ public interface TxnHandlingScenario {
         return topics;
     }
 
-    private static HFileMeta convert(final FileGetInfoResponse.FileInfo fi)
-            throws DecoderException {
+    private static HFileMeta convert(final FileGetInfoResponse.FileInfo fi) throws InvalidKeyException {
         return new HFileMeta(
                 fi.getDeleted(),
                 JKey.mapKey(Key.newBuilder().setKeyList(fi.getKeys()).build()),
@@ -244,7 +278,7 @@ public interface TxnHandlingScenario {
     }
 
     default TokenStore tokenStore() {
-        var tokenStore = mock(TokenStore.class);
+        var tokenStore = mock(TokenStore.class, withSettings().strictness(LENIENT));
 
         var adminKey = TOKEN_ADMIN_KT.asJKeyUnchecked();
         var optionalKycKey = TOKEN_KYC_KT.asJKeyUnchecked();
@@ -254,151 +288,111 @@ public interface TxnHandlingScenario {
         var optionalFeeScheduleKey = TOKEN_FEE_SCHEDULE_KT.asJKeyUnchecked();
         var optionalPauseKey = TOKEN_PAUSE_KT.asJKeyUnchecked();
 
-        var immutableToken =
-                new MerkleToken(
-                        Long.MAX_VALUE,
-                        100,
-                        1,
-                        "ImmutableToken",
-                        "ImmutableTokenName",
-                        false,
-                        false,
-                        new EntityId(1, 2, 3));
-        given(tokenStore.resolve(KNOWN_TOKEN_IMMUTABLE)).willReturn(KNOWN_TOKEN_IMMUTABLE);
-        given(tokenStore.get(KNOWN_TOKEN_IMMUTABLE)).willReturn(immutableToken);
+        var immutableToken = new MerkleToken(
+                Long.MAX_VALUE,
+                100,
+                1,
+                "ImmutableToken",
+                "ImmutableTokenName",
+                false,
+                false,
+                new EntityId(1, 2, 3),
+                (int) KNOWN_TOKEN_IMMUTABLE.getTokenNum());
+        lenient().when(tokenStore.resolve(KNOWN_TOKEN_IMMUTABLE)).thenReturn(KNOWN_TOKEN_IMMUTABLE);
+        lenient().when(tokenStore.get(KNOWN_TOKEN_IMMUTABLE)).thenReturn(immutableToken);
 
-        var vanillaToken =
-                new MerkleToken(
-                        Long.MAX_VALUE,
-                        100,
-                        1,
-                        "VanillaToken",
-                        "TOKENNAME",
-                        false,
-                        false,
-                        new EntityId(1, 2, 3));
+        var vanillaToken = new MerkleToken(
+                Long.MAX_VALUE, 100, 1, "VanillaToken", "TOKENNAME", false, false, new EntityId(1, 2, 3), (int)
+                        KNOWN_TOKEN_NO_SPECIAL_KEYS.getTokenNum());
         vanillaToken.setAdminKey(adminKey);
-        given(tokenStore.resolve(KNOWN_TOKEN_NO_SPECIAL_KEYS))
-                .willReturn(KNOWN_TOKEN_NO_SPECIAL_KEYS);
-        given(tokenStore.get(KNOWN_TOKEN_NO_SPECIAL_KEYS)).willReturn(vanillaToken);
+        lenient().when(tokenStore.resolve(KNOWN_TOKEN_NO_SPECIAL_KEYS)).thenReturn(KNOWN_TOKEN_NO_SPECIAL_KEYS);
+        lenient().when(tokenStore.get(KNOWN_TOKEN_NO_SPECIAL_KEYS)).thenReturn(vanillaToken);
 
-        var pausedToken =
-                new MerkleToken(
-                        Long.MAX_VALUE,
-                        100,
-                        1,
-                        "PausedToken",
-                        "PAUSEDTOKEN",
-                        false,
-                        false,
-                        new EntityId(1, 2, 4));
+        var pausedToken = new MerkleToken(
+                Long.MAX_VALUE, 100, 1, "PausedToken", "PAUSEDTOKEN", false, false, new EntityId(1, 2, 4), (int)
+                        KNOWN_TOKEN_WITH_PAUSE.getTokenNum());
         pausedToken.setAdminKey(adminKey);
         pausedToken.setPauseKey(optionalPauseKey);
-        given(tokenStore.resolve(KNOWN_TOKEN_WITH_PAUSE)).willReturn(KNOWN_TOKEN_WITH_PAUSE);
-        given(tokenStore.get(KNOWN_TOKEN_WITH_PAUSE)).willReturn(pausedToken);
+        pausedToken.setPaused(true);
+        lenient().when(tokenStore.resolve(KNOWN_TOKEN_WITH_PAUSE)).thenReturn(KNOWN_TOKEN_WITH_PAUSE);
+        lenient().when(tokenStore.get(KNOWN_TOKEN_WITH_PAUSE)).thenReturn(pausedToken);
 
-        var frozenToken =
-                new MerkleToken(
-                        Long.MAX_VALUE,
-                        100,
-                        1,
-                        "FrozenToken",
-                        "FRZNTKN",
-                        true,
-                        false,
-                        new EntityId(1, 2, 4));
+        var frozenToken = new MerkleToken(
+                Long.MAX_VALUE, 100, 1, "FrozenToken", "FRZNTKN", true, false, new EntityId(1, 2, 4), (int)
+                        KNOWN_TOKEN_WITH_FREEZE.getTokenNum());
         frozenToken.setAdminKey(adminKey);
         frozenToken.setFreezeKey(optionalFreezeKey);
-        given(tokenStore.resolve(KNOWN_TOKEN_WITH_FREEZE)).willReturn(KNOWN_TOKEN_WITH_FREEZE);
-        given(tokenStore.get(KNOWN_TOKEN_WITH_FREEZE)).willReturn(frozenToken);
+        lenient().when(tokenStore.resolve(KNOWN_TOKEN_WITH_FREEZE)).thenReturn(KNOWN_TOKEN_WITH_FREEZE);
+        lenient().when(tokenStore.get(KNOWN_TOKEN_WITH_FREEZE)).thenReturn(frozenToken);
 
-        var kycToken =
-                new MerkleToken(
-                        Long.MAX_VALUE,
-                        100,
-                        1,
-                        "KycToken",
-                        "KYCTOKENNAME",
-                        false,
-                        true,
-                        new EntityId(1, 2, 4));
+        var kycToken = new MerkleToken(
+                Long.MAX_VALUE, 100, 1, "KycToken", "KYCTOKENNAME", false, true, new EntityId(1, 2, 4), (int)
+                        KNOWN_TOKEN_WITH_KYC.getTokenNum());
         kycToken.setAdminKey(adminKey);
         kycToken.setKycKey(optionalKycKey);
-        given(tokenStore.resolve(KNOWN_TOKEN_WITH_KYC)).willReturn(KNOWN_TOKEN_WITH_KYC);
-        given(tokenStore.get(KNOWN_TOKEN_WITH_KYC)).willReturn(kycToken);
+        lenient().when(tokenStore.resolve(KNOWN_TOKEN_WITH_KYC)).thenReturn(KNOWN_TOKEN_WITH_KYC);
+        lenient().when(tokenStore.get(KNOWN_TOKEN_WITH_KYC)).thenReturn(kycToken);
 
-        var feeScheduleToken =
-                new MerkleToken(
-                        Long.MAX_VALUE,
-                        100,
-                        1,
-                        "FsToken",
-                        "FEE_SCHEDULETOKENNAME",
-                        false,
-                        true,
-                        new EntityId(1, 2, 4));
+        var feeScheduleToken = new MerkleToken(
+                Long.MAX_VALUE, 100, 1, "FsToken", "FEE_SCHEDULETOKENNAME", false, true, new EntityId(1, 2, 4), (int)
+                        KNOWN_TOKEN_WITH_FEE_SCHEDULE_KEY.getTokenNum());
         feeScheduleToken.setFeeScheduleKey(optionalFeeScheduleKey);
-        given(tokenStore.resolve(KNOWN_TOKEN_WITH_FEE_SCHEDULE_KEY))
-                .willReturn(KNOWN_TOKEN_WITH_FEE_SCHEDULE_KEY);
-        given(tokenStore.get(KNOWN_TOKEN_WITH_FEE_SCHEDULE_KEY)).willReturn(feeScheduleToken);
+        lenient()
+                .when(tokenStore.resolve(KNOWN_TOKEN_WITH_FEE_SCHEDULE_KEY))
+                .thenReturn(KNOWN_TOKEN_WITH_FEE_SCHEDULE_KEY);
+        lenient().when(tokenStore.get(KNOWN_TOKEN_WITH_FEE_SCHEDULE_KEY)).thenReturn(feeScheduleToken);
 
-        var royaltyFeeWithFallbackToken =
-                new MerkleToken(
-                        Long.MAX_VALUE,
-                        100,
-                        1,
-                        "ZPHYR",
-                        "West Wind Art",
-                        false,
-                        true,
-                        EntityId.fromGrpcAccountId(MISC_ACCOUNT));
+        var royaltyFeeWithFallbackToken = new MerkleToken(
+                Long.MAX_VALUE,
+                100,
+                1,
+                "ZPHYR",
+                "West Wind Art",
+                false,
+                true,
+                EntityId.fromGrpcAccountId(MISC_ACCOUNT),
+                (int) KNOWN_TOKEN_WITH_ROYALTY_FEE_AND_FALLBACK.getTokenNum());
         royaltyFeeWithFallbackToken.setFeeScheduleKey(optionalFeeScheduleKey);
         royaltyFeeWithFallbackToken.setTokenType(NON_FUNGIBLE_UNIQUE);
         royaltyFeeWithFallbackToken.setFeeSchedule(
-                List.of(
-                        FcCustomFee.royaltyFee(
-                                1, 2, new FixedFeeSpec(1, null), new EntityId(1, 2, 5), false)));
-        given(tokenStore.resolve(KNOWN_TOKEN_WITH_ROYALTY_FEE_AND_FALLBACK))
-                .willReturn(KNOWN_TOKEN_WITH_ROYALTY_FEE_AND_FALLBACK);
-        given(tokenStore.get(KNOWN_TOKEN_WITH_ROYALTY_FEE_AND_FALLBACK))
-                .willReturn(royaltyFeeWithFallbackToken);
+                List.of(FcCustomFee.royaltyFee(1, 2, new FixedFeeSpec(1, null), new EntityId(1, 2, 5), false)));
+        lenient()
+                .when(tokenStore.resolve(KNOWN_TOKEN_WITH_ROYALTY_FEE_AND_FALLBACK))
+                .thenReturn(KNOWN_TOKEN_WITH_ROYALTY_FEE_AND_FALLBACK);
+        lenient()
+                .when(tokenStore.get(KNOWN_TOKEN_WITH_ROYALTY_FEE_AND_FALLBACK))
+                .thenReturn(royaltyFeeWithFallbackToken);
 
-        var supplyToken =
-                new MerkleToken(
-                        Long.MAX_VALUE,
-                        100,
-                        1,
-                        "SupplyToken",
-                        "SUPPLYTOKENNAME",
-                        false,
-                        false,
-                        new EntityId(1, 2, 4));
+        var supplyToken = new MerkleToken(
+                Long.MAX_VALUE, 100, 1, "SupplyToken", "SUPPLYTOKENNAME", false, false, new EntityId(1, 2, 4), (int)
+                        KNOWN_TOKEN_WITH_SUPPLY.getTokenNum());
         supplyToken.setAdminKey(adminKey);
         supplyToken.setSupplyKey(optionalSupplyKey);
-        given(tokenStore.resolve(KNOWN_TOKEN_WITH_SUPPLY)).willReturn(KNOWN_TOKEN_WITH_SUPPLY);
-        given(tokenStore.get(KNOWN_TOKEN_WITH_SUPPLY)).willReturn(supplyToken);
+        lenient().when(tokenStore.resolve(KNOWN_TOKEN_WITH_SUPPLY)).thenReturn(KNOWN_TOKEN_WITH_SUPPLY);
+        lenient().when(tokenStore.get(KNOWN_TOKEN_WITH_SUPPLY)).thenReturn(supplyToken);
 
-        var wipeToken =
-                new MerkleToken(
-                        Long.MAX_VALUE,
-                        100,
-                        1,
-                        "WipeToken",
-                        "WIPETOKENNAME",
-                        false,
-                        false,
-                        new EntityId(1, 2, 4));
+        var wipeToken = new MerkleToken(
+                Long.MAX_VALUE, 100, 1, "WipeToken", "WIPETOKENNAME", false, false, new EntityId(1, 2, 4), (int)
+                        KNOWN_TOKEN_WITH_WIPE.getTokenNum());
         wipeToken.setAdminKey(adminKey);
         wipeToken.setWipeKey(optionalWipeKey);
-        given(tokenStore.resolve(KNOWN_TOKEN_WITH_WIPE)).willReturn(KNOWN_TOKEN_WITH_WIPE);
-        given(tokenStore.get(KNOWN_TOKEN_WITH_WIPE)).willReturn(wipeToken);
+        lenient().when(tokenStore.resolve(KNOWN_TOKEN_WITH_WIPE)).thenReturn(KNOWN_TOKEN_WITH_WIPE);
+        lenient().when(tokenStore.get(KNOWN_TOKEN_WITH_WIPE)).thenReturn(wipeToken);
 
-        given(tokenStore.resolve(MISSING_TOKEN)).willReturn(TokenStore.MISSING_TOKEN);
+        var deletedToken = new MerkleToken(
+                Long.MAX_VALUE, 100, 1, "DeletedToken", "DELETEDTOKENNAME", false, false, new EntityId(1, 2, 4), (int)
+                        DELETED_TOKEN.getTokenNum());
+        deletedToken.setDeleted(true);
+        lenient().when(tokenStore.resolve(DELETED_TOKEN)).thenReturn(DELETED_TOKEN);
+        lenient().when(tokenStore.get(DELETED_TOKEN)).thenReturn(deletedToken);
+
+        lenient().when(tokenStore.resolve(MISSING_TOKEN)).thenReturn(TokenStore.MISSING_TOKEN);
 
         return tokenStore;
     }
 
-    default byte[] extantSchedulingBodyBytes() throws Throwable {
+    default byte[] extantSchedulingBodyBytes()
+            throws InvalidProtocolBufferException, SignatureException, NoSuchAlgorithmException, InvalidKeyException {
         return scheduleCreateTxnWith(
                         Key.getDefaultInstance(),
                         "",
@@ -412,60 +406,43 @@ public interface TxnHandlingScenario {
         var scheduleStore = mock(ScheduleStore.class);
 
         given(scheduleStore.resolve(KNOWN_SCHEDULE_IMMUTABLE)).willReturn(KNOWN_SCHEDULE_IMMUTABLE);
-        given(scheduleStore.get(KNOWN_SCHEDULE_IMMUTABLE))
-                .willAnswer(
-                        inv -> {
-                            var entity =
-                                    ScheduleVirtualValue.from(extantSchedulingBodyBytes(), 1801L);
-                            entity.setPayer(null);
-                            return entity;
-                        });
+        given(scheduleStore.get(KNOWN_SCHEDULE_IMMUTABLE)).willAnswer(inv -> {
+            var entity = ScheduleVirtualValue.from(extantSchedulingBodyBytes(), 1801L);
+            entity.setPayer(null);
+            return entity;
+        });
 
-        given(scheduleStore.resolve(KNOWN_SCHEDULE_WITH_ADMIN))
-                .willReturn(KNOWN_SCHEDULE_WITH_ADMIN);
-        given(scheduleStore.get(KNOWN_SCHEDULE_WITH_ADMIN))
-                .willAnswer(
-                        inv -> {
-                            var adminKey = SCHEDULE_ADMIN_KT.asJKeyUnchecked();
-                            var entity =
-                                    ScheduleVirtualValue.from(extantSchedulingBodyBytes(), 1801L);
-                            entity.setPayer(null);
-                            entity.setAdminKey(adminKey);
-                            return entity;
-                        });
+        given(scheduleStore.resolve(KNOWN_SCHEDULE_WITH_ADMIN)).willReturn(KNOWN_SCHEDULE_WITH_ADMIN);
+        given(scheduleStore.get(KNOWN_SCHEDULE_WITH_ADMIN)).willAnswer(inv -> {
+            var adminKey = SCHEDULE_ADMIN_KT.asJKeyUnchecked();
+            var entity = ScheduleVirtualValue.from(extantSchedulingBodyBytes(), 1801L);
+            entity.setPayer(null);
+            entity.setAdminKey(adminKey);
+            return entity;
+        });
 
-        given(scheduleStore.resolve(KNOWN_SCHEDULE_WITH_EXPLICIT_PAYER))
-                .willReturn(KNOWN_SCHEDULE_WITH_EXPLICIT_PAYER);
-        given(scheduleStore.get(KNOWN_SCHEDULE_WITH_EXPLICIT_PAYER))
-                .willAnswer(
-                        inv -> {
-                            var entity =
-                                    ScheduleVirtualValue.from(extantSchedulingBodyBytes(), 1801L);
-                            entity.setPayer(EntityId.fromGrpcAccountId(DILIGENT_SIGNING_PAYER));
-                            return entity;
-                        });
+        given(scheduleStore.resolve(KNOWN_SCHEDULE_WITH_EXPLICIT_PAYER)).willReturn(KNOWN_SCHEDULE_WITH_EXPLICIT_PAYER);
+        given(scheduleStore.get(KNOWN_SCHEDULE_WITH_EXPLICIT_PAYER)).willAnswer(inv -> {
+            var entity = ScheduleVirtualValue.from(extantSchedulingBodyBytes(), 1801L);
+            entity.setPayer(EntityId.fromGrpcAccountId(DILIGENT_SIGNING_PAYER));
+            return entity;
+        });
 
         given(scheduleStore.resolve(KNOWN_SCHEDULE_WITH_EXPLICIT_PAYER_SELF))
                 .willReturn(KNOWN_SCHEDULE_WITH_EXPLICIT_PAYER_SELF);
-        given(scheduleStore.get(KNOWN_SCHEDULE_WITH_EXPLICIT_PAYER_SELF))
-                .willAnswer(
-                        inv -> {
-                            var entity =
-                                    ScheduleVirtualValue.from(extantSchedulingBodyBytes(), 1801L);
-                            entity.setPayer(EntityId.fromGrpcAccountId(DEFAULT_PAYER));
-                            return entity;
-                        });
+        given(scheduleStore.get(KNOWN_SCHEDULE_WITH_EXPLICIT_PAYER_SELF)).willAnswer(inv -> {
+            var entity = ScheduleVirtualValue.from(extantSchedulingBodyBytes(), 1801L);
+            entity.setPayer(EntityId.fromGrpcAccountId(DEFAULT_PAYER));
+            return entity;
+        });
 
         given(scheduleStore.resolve(KNOWN_SCHEDULE_WITH_NOW_INVALID_PAYER))
                 .willReturn(KNOWN_SCHEDULE_WITH_NOW_INVALID_PAYER);
-        given(scheduleStore.get(KNOWN_SCHEDULE_WITH_NOW_INVALID_PAYER))
-                .willAnswer(
-                        inv -> {
-                            var entity =
-                                    ScheduleVirtualValue.from(extantSchedulingBodyBytes(), 1801L);
-                            entity.setPayer(EntityId.fromGrpcAccountId(MISSING_ACCOUNT));
-                            return entity;
-                        });
+        given(scheduleStore.get(KNOWN_SCHEDULE_WITH_NOW_INVALID_PAYER)).willAnswer(inv -> {
+            var entity = ScheduleVirtualValue.from(extantSchedulingBodyBytes(), 1801L);
+            entity.setPayer(EntityId.fromGrpcAccountId(MISSING_ACCOUNT));
+            return entity;
+        });
 
         given(scheduleStore.resolve(UNKNOWN_SCHEDULE)).willReturn(ScheduleStore.MISSING_SCHEDULE);
 
@@ -504,30 +481,27 @@ public interface TxnHandlingScenario {
     KeyTree DELEGATING_SPENDER_KT = withRoot(ed25519());
 
     String SYS_ACCOUNT_ID = "0.0.666";
+    AccountID SYS_ACCOUNT = asAccount(SYS_ACCOUNT_ID);
 
     String DILIGENT_SIGNING_PAYER_ID = "0.0.1340";
     AccountID DILIGENT_SIGNING_PAYER = asAccount(DILIGENT_SIGNING_PAYER_ID);
-    KeyTree DILIGENT_SIGNING_PAYER_KT =
-            withRoot(threshold(2, ed25519(true), ed25519(true), ed25519(false)));
+    KeyTree DILIGENT_SIGNING_PAYER_KT = withRoot(threshold(2, ed25519(true), ed25519(true), ed25519(false)));
 
     String TOKEN_TREASURY_ID = "0.0.1341";
     AccountID TOKEN_TREASURY = asAccount(TOKEN_TREASURY_ID);
-    KeyTree TOKEN_TREASURY_KT =
-            withRoot(threshold(2, ed25519(false), ed25519(true), ed25519(false)));
+    KeyTree TOKEN_TREASURY_KT = withRoot(threshold(2, ed25519(false), ed25519(true), ed25519(false)));
 
     String COMPLEX_KEY_ACCOUNT_ID = "0.0.1342";
     AccountID COMPLEX_KEY_ACCOUNT = asAccount(COMPLEX_KEY_ACCOUNT_ID);
-    KeyTree COMPLEX_KEY_ACCOUNT_KT =
-            withRoot(
-                    list(
-                            ed25519(),
-                            threshold(1, list(list(ed25519(), ed25519()), ed25519()), ed25519()),
-                            ed25519(),
-                            list(threshold(2, ed25519(), ed25519(), ed25519()))));
+    KeyTree COMPLEX_KEY_ACCOUNT_KT = withRoot(list(
+            ed25519(),
+            threshold(1, list(list(ed25519(), ed25519()), ed25519()), ed25519()),
+            ed25519(),
+            list(threshold(2, ed25519(), ed25519(), ed25519()))));
 
     String FROM_OVERLAP_PAYER_ID = "0.0.1343";
-    KeyTree FROM_OVERLAP_PAYER_KT =
-            withRoot(threshold(2, ed25519(true), ed25519(true), ed25519(false)));
+    AccountID FROM_OVERLAP_PAYER = asAccount(FROM_OVERLAP_PAYER_ID);
+    KeyTree FROM_OVERLAP_PAYER_KT = withRoot(threshold(2, ed25519(true), ed25519(true), ed25519(false)));
 
     KeyTree NEW_ACCOUNT_KT = withRoot(list(ed25519(), threshold(1, ed25519(), ed25519())));
     KeyTree SYS_ACCOUNT_KT = withRoot(list(ed25519(), threshold(1, ed25519(), ed25519())));
@@ -538,20 +512,18 @@ public interface TxnHandlingScenario {
     String SYS_FILE_ID = "0.0.111";
     FileID SYS_FILE = asFile(SYS_FILE_ID);
     KeyTree SYS_FILE_WACL_KT = withRoot(list(ed25519()));
-    FileGetInfoResponse.FileInfo SYS_FILE_INFO =
-            FileGetInfoResponse.FileInfo.newBuilder()
-                    .setKeys(SYS_FILE_WACL_KT.asKey().getKeyList())
-                    .setFileID(SYS_FILE)
-                    .build();
+    FileGetInfoResponse.FileInfo SYS_FILE_INFO = FileGetInfoResponse.FileInfo.newBuilder()
+            .setKeys(SYS_FILE_WACL_KT.asKey().getKeyList())
+            .setFileID(SYS_FILE)
+            .build();
 
     String MISC_FILE_ID = "0.0.2337";
     FileID MISC_FILE = asFile(MISC_FILE_ID);
     KeyTree MISC_FILE_WACL_KT = withRoot(list(ed25519()));
-    FileGetInfoResponse.FileInfo MISC_FILE_INFO =
-            FileGetInfoResponse.FileInfo.newBuilder()
-                    .setKeys(MISC_FILE_WACL_KT.asKey().getKeyList())
-                    .setFileID(MISC_FILE)
-                    .build();
+    FileGetInfoResponse.FileInfo MISC_FILE_INFO = FileGetInfoResponse.FileInfo.newBuilder()
+            .setKeys(MISC_FILE_WACL_KT.asKey().getKeyList())
+            .setFileID(MISC_FILE)
+            .build();
 
     String IMMUTABLE_FILE_ID = "0.0.2338";
     FileID IMMUTABLE_FILE = asFile(IMMUTABLE_FILE_ID);
@@ -567,8 +539,10 @@ public interface TxnHandlingScenario {
     ContractID MISC_RECIEVER_SIG_CONTRACT = asContract(MISC_RECIEVER_SIG_CONTRACT_ID);
 
     String IMMUTABLE_CONTRACT_ID = "0.0.9339";
+    ContractID IMMUTABLE_CONTRACT = asContract(IMMUTABLE_CONTRACT_ID);
 
     String MISC_CONTRACT_ID = "0.0.3337";
+    ContractID MISC_CONTRACT = asContract(MISC_CONTRACT_ID);
     KeyTree MISC_ADMIN_KT = withRoot(ed25519());
 
     KeyTree SIMPLE_NEW_ADMIN_KT = withRoot(ed25519());
@@ -578,10 +552,9 @@ public interface TxnHandlingScenario {
 
     String DEFAULT_MEMO = "This is something else.";
     Duration DEFAULT_PERIOD = Duration.newBuilder().setSeconds(1_000L).build();
-    Timestamp DEFAULT_EXPIRY =
-            Timestamp.newBuilder()
-                    .setSeconds(System.currentTimeMillis() / 1_000L + 86_400L)
-                    .build();
+    Timestamp DEFAULT_EXPIRY = Timestamp.newBuilder()
+            .setSeconds(System.currentTimeMillis() / 1_000L + 86_400L)
+            .build();
 
     String EXISTING_TOPIC_ID = "0.0.7890";
     TopicID EXISTING_TOPIC = asTopic(EXISTING_TOPIC_ID);
@@ -607,6 +580,8 @@ public interface TxnHandlingScenario {
     TokenID KNOWN_TOKEN_WITH_ROYALTY_FEE_AND_FALLBACK = asToken(KNOWN_TOKEN_WITH_ROYALTY_FEE_ID);
     String KNOWN_TOKEN_WITH_PAUSE_ID = "0.0.780";
     TokenID KNOWN_TOKEN_WITH_PAUSE = asToken(KNOWN_TOKEN_WITH_PAUSE_ID);
+    String DELETED_TOKEN_ID = "0.0.781";
+    TokenID DELETED_TOKEN = asToken(DELETED_TOKEN_ID);
 
     String FIRST_TOKEN_SENDER_ID = "0.0.888";
     AccountID FIRST_TOKEN_SENDER = asAccount(FIRST_TOKEN_SENDER_ID);
@@ -618,13 +593,14 @@ public interface TxnHandlingScenario {
     String TOKEN_RECEIVER_ID = "0.0.1111";
     AccountID TOKEN_RECEIVER = asAccount(TOKEN_RECEIVER_ID);
 
-    NftID KNOWN_TOKEN_NFT =
-            NftID.newBuilder().setTokenID(KNOWN_TOKEN_WITH_WIPE).setSerialNumber(1L).build();
-    NftID ROYALTY_TOKEN_NFT =
-            NftID.newBuilder()
-                    .setTokenID(KNOWN_TOKEN_WITH_ROYALTY_FEE_AND_FALLBACK)
-                    .setSerialNumber(1L)
-                    .build();
+    NftID KNOWN_TOKEN_NFT = NftID.newBuilder()
+            .setTokenID(KNOWN_TOKEN_WITH_WIPE)
+            .setSerialNumber(1L)
+            .build();
+    NftID ROYALTY_TOKEN_NFT = NftID.newBuilder()
+            .setTokenID(KNOWN_TOKEN_WITH_ROYALTY_FEE_AND_FALLBACK)
+            .setSerialNumber(1L)
+            .build();
 
     String UNKNOWN_TOKEN_ID = "0.0.666";
     TokenID MISSING_TOKEN = asToken(UNKNOWN_TOKEN_ID);
@@ -655,169 +631,135 @@ public interface TxnHandlingScenario {
     ScheduleID KNOWN_SCHEDULE_WITH_EXPLICIT_PAYER = asSchedule(KNOWN_SCHEDULE_WITH_PAYER_ID);
 
     String KNOWN_SCHEDULE_WITH_PAYER_SELF_ID = "0.0.416125";
-    ScheduleID KNOWN_SCHEDULE_WITH_EXPLICIT_PAYER_SELF =
-            asSchedule(KNOWN_SCHEDULE_WITH_PAYER_SELF_ID);
+    ScheduleID KNOWN_SCHEDULE_WITH_EXPLICIT_PAYER_SELF = asSchedule(KNOWN_SCHEDULE_WITH_PAYER_SELF_ID);
 
     String KNOWN_SCHEDULE_WITH_NOW_INVALID_PAYER_ID = "0.0.654654";
-    ScheduleID KNOWN_SCHEDULE_WITH_NOW_INVALID_PAYER =
-            asSchedule(KNOWN_SCHEDULE_WITH_NOW_INVALID_PAYER_ID);
+    ScheduleID KNOWN_SCHEDULE_WITH_NOW_INVALID_PAYER = asSchedule(KNOWN_SCHEDULE_WITH_NOW_INVALID_PAYER_ID);
 
     String UNKNOWN_SCHEDULE_ID = "0.0.123";
     ScheduleID UNKNOWN_SCHEDULE = asSchedule(UNKNOWN_SCHEDULE_ID);
 
     KeyTree SCHEDULE_ADMIN_KT = withRoot(ed25519());
 
-    TreeMap<EntityNum, Long> cryptoAllowances =
-            new TreeMap<>() {
-                {
-                    put(EntityNum.fromAccountId(DEFAULT_PAYER), 500L);
-                }
-            };
+    TreeMap<EntityNum, Long> cryptoAllowances = new TreeMap<>() {
+        {
+            put(EntityNum.fromAccountId(DEFAULT_PAYER), 500L);
+        }
+    };
 
-    List<CryptoAllowance> cryptoAllowanceList =
-            List.of(
-                    CryptoAllowance.newBuilder()
-                            .setOwner(OWNER_ACCOUNT)
-                            .setSpender(DEFAULT_PAYER)
-                            .setAmount(500L)
-                            .build());
+    List<CryptoAllowance> cryptoAllowanceList = List.of(CryptoAllowance.newBuilder()
+            .setOwner(OWNER_ACCOUNT)
+            .setSpender(DEFAULT_PAYER)
+            .setAmount(500L)
+            .build());
 
-    List<CryptoAllowance> cryptoSelfOwnerAllowanceList =
-            List.of(
-                    CryptoAllowance.newBuilder()
-                            .setOwner(DEFAULT_PAYER)
-                            .setSpender(OWNER_ACCOUNT)
-                            .setAmount(500L)
-                            .build());
+    List<CryptoAllowance> cryptoSelfOwnerAllowanceList = List.of(CryptoAllowance.newBuilder()
+            .setOwner(DEFAULT_PAYER)
+            .setSpender(OWNER_ACCOUNT)
+            .setAmount(500L)
+            .build());
 
-    List<CryptoAllowance> cryptoAllowanceMissingOwnerList =
-            List.of(
-                    CryptoAllowance.newBuilder()
-                            .setOwner(MISSING_ACCOUNT)
-                            .setSpender(DEFAULT_PAYER)
-                            .setAmount(500L)
-                            .build());
+    List<CryptoAllowance> cryptoAllowanceMissingOwnerList = List.of(CryptoAllowance.newBuilder()
+            .setOwner(MISSING_ACCOUNT)
+            .setSpender(DEFAULT_PAYER)
+            .setAmount(500L)
+            .build());
 
-    List<CryptoAllowance> cryptoAllowanceNoOwnerList =
-            List.of(CryptoAllowance.newBuilder().setSpender(DEFAULT_PAYER).setAmount(500L).build());
+    List<CryptoAllowance> cryptoAllowanceNoOwnerList = List.of(CryptoAllowance.newBuilder()
+            .setSpender(DEFAULT_PAYER)
+            .setAmount(500L)
+            .build());
 
-    TreeMap<FcTokenAllowanceId, Long> fungibleTokenAllowances =
-            new TreeMap<>() {
-                {
-                    put(
-                            FcTokenAllowanceId.from(
-                                    EntityNum.fromTokenId(KNOWN_TOKEN_NO_SPECIAL_KEYS),
-                                    EntityNum.fromAccountId(DEFAULT_PAYER)),
-                            10_000L);
-                }
-            };
+    TreeMap<FcTokenAllowanceId, Long> fungibleTokenAllowances = new TreeMap<>() {
+        {
+            put(
+                    FcTokenAllowanceId.from(
+                            EntityNum.fromTokenId(KNOWN_TOKEN_NO_SPECIAL_KEYS), EntityNum.fromAccountId(DEFAULT_PAYER)),
+                    10_000L);
+        }
+    };
 
-    List<TokenAllowance> tokenAllowanceList =
-            List.of(
-                    TokenAllowance.newBuilder()
-                            .setTokenId(KNOWN_TOKEN_NO_SPECIAL_KEYS)
-                            .setOwner(OWNER_ACCOUNT)
-                            .setSpender(DEFAULT_PAYER)
-                            .setAmount(10_000L)
-                            .build());
+    List<TokenAllowance> tokenAllowanceList = List.of(TokenAllowance.newBuilder()
+            .setTokenId(KNOWN_TOKEN_NO_SPECIAL_KEYS)
+            .setOwner(OWNER_ACCOUNT)
+            .setSpender(DEFAULT_PAYER)
+            .setAmount(10_000L)
+            .build());
 
-    List<TokenAllowance> tokenSelfOwnerAllowanceList =
-            List.of(
-                    TokenAllowance.newBuilder()
-                            .setTokenId(KNOWN_TOKEN_NO_SPECIAL_KEYS)
-                            .setOwner(DEFAULT_PAYER)
-                            .setSpender(OWNER_ACCOUNT)
-                            .setAmount(10_000L)
-                            .build());
+    List<TokenAllowance> tokenSelfOwnerAllowanceList = List.of(TokenAllowance.newBuilder()
+            .setTokenId(KNOWN_TOKEN_NO_SPECIAL_KEYS)
+            .setOwner(DEFAULT_PAYER)
+            .setSpender(OWNER_ACCOUNT)
+            .setAmount(10_000L)
+            .build());
 
-    List<TokenAllowance> tokenAllowanceMissingOwnerList =
-            List.of(
-                    TokenAllowance.newBuilder()
-                            .setTokenId(KNOWN_TOKEN_NO_SPECIAL_KEYS)
-                            .setOwner(MISSING_ACCOUNT)
-                            .setSpender(DEFAULT_PAYER)
-                            .setAmount(10_000L)
-                            .build());
+    List<TokenAllowance> tokenAllowanceMissingOwnerList = List.of(TokenAllowance.newBuilder()
+            .setTokenId(KNOWN_TOKEN_NO_SPECIAL_KEYS)
+            .setOwner(MISSING_ACCOUNT)
+            .setSpender(DEFAULT_PAYER)
+            .setAmount(10_000L)
+            .build());
 
-    TreeSet<FcTokenAllowanceId> nftTokenAllowances =
-            new TreeSet<>() {
-                {
-                    add(
-                            FcTokenAllowanceId.from(
-                                    EntityNum.fromTokenId(KNOWN_TOKEN_WITH_WIPE),
-                                    EntityNum.fromAccountId(DEFAULT_PAYER)));
-                }
-            };
+    TreeSet<FcTokenAllowanceId> nftTokenAllowances = new TreeSet<>() {
+        {
+            add(FcTokenAllowanceId.from(
+                    EntityNum.fromTokenId(KNOWN_TOKEN_WITH_WIPE), EntityNum.fromAccountId(DEFAULT_PAYER)));
+        }
+    };
 
-    List<NftAllowance> nftAllowanceList =
-            List.of(
-                    NftAllowance.newBuilder()
-                            .setOwner(OWNER_ACCOUNT)
-                            .setTokenId(KNOWN_TOKEN_WITH_WIPE)
-                            .setSpender(DEFAULT_PAYER)
-                            .setApprovedForAll(BoolValue.of(true))
-                            .build());
+    List<NftAllowance> nftAllowanceList = List.of(NftAllowance.newBuilder()
+            .setOwner(OWNER_ACCOUNT)
+            .setTokenId(KNOWN_TOKEN_WITH_WIPE)
+            .setSpender(DEFAULT_PAYER)
+            .setApprovedForAll(BoolValue.of(true))
+            .build());
 
-    List<NftAllowance> nftSelfOwnerAllowanceList =
-            List.of(
-                    NftAllowance.newBuilder()
-                            .setOwner(DEFAULT_PAYER)
-                            .setTokenId(KNOWN_TOKEN_WITH_WIPE)
-                            .setSpender(OWNER_ACCOUNT)
-                            .setApprovedForAll(BoolValue.of(true))
-                            .build());
+    List<NftAllowance> nftSelfOwnerAllowanceList = List.of(NftAllowance.newBuilder()
+            .setOwner(DEFAULT_PAYER)
+            .setTokenId(KNOWN_TOKEN_WITH_WIPE)
+            .setSpender(OWNER_ACCOUNT)
+            .setApprovedForAll(BoolValue.of(true))
+            .build());
 
-    List<NftAllowance> nftAllowanceMissingOwnerList =
-            List.of(
-                    NftAllowance.newBuilder()
-                            .setOwner(MISSING_ACCOUNT)
-                            .setTokenId(KNOWN_TOKEN_WITH_WIPE)
-                            .setSpender(DEFAULT_PAYER)
-                            .setApprovedForAll(BoolValue.of(true))
-                            .build());
+    List<NftAllowance> nftAllowanceMissingOwnerList = List.of(NftAllowance.newBuilder()
+            .setOwner(MISSING_ACCOUNT)
+            .setTokenId(KNOWN_TOKEN_WITH_WIPE)
+            .setSpender(DEFAULT_PAYER)
+            .setApprovedForAll(BoolValue.of(true))
+            .build());
 
-    List<NftRemoveAllowance> nftDeleteAllowanceList =
-            List.of(
-                    NftRemoveAllowance.newBuilder()
-                            .setOwner(OWNER_ACCOUNT)
-                            .setTokenId(KNOWN_TOKEN_WITH_WIPE)
-                            .addAllSerialNumbers(List.of(1L))
-                            .build());
+    List<NftRemoveAllowance> nftDeleteAllowanceList = List.of(NftRemoveAllowance.newBuilder()
+            .setOwner(OWNER_ACCOUNT)
+            .setTokenId(KNOWN_TOKEN_WITH_WIPE)
+            .addAllSerialNumbers(List.of(1L))
+            .build());
 
-    List<NftRemoveAllowance> nftDeleteAllowanceListSelf =
-            List.of(
-                    NftRemoveAllowance.newBuilder()
-                            .setOwner(DEFAULT_PAYER)
-                            .setTokenId(KNOWN_TOKEN_WITH_WIPE)
-                            .addAllSerialNumbers(List.of(1L))
-                            .build());
+    List<NftRemoveAllowance> nftDeleteAllowanceListSelf = List.of(NftRemoveAllowance.newBuilder()
+            .setOwner(DEFAULT_PAYER)
+            .setTokenId(KNOWN_TOKEN_WITH_WIPE)
+            .addAllSerialNumbers(List.of(1L))
+            .build());
 
-    List<NftRemoveAllowance> nftDeleteAllowanceMissingOwnerList =
-            List.of(
-                    NftRemoveAllowance.newBuilder()
-                            .setOwner(MISSING_ACCOUNT)
-                            .setTokenId(KNOWN_TOKEN_WITH_WIPE)
-                            .build());
+    List<NftRemoveAllowance> nftDeleteAllowanceMissingOwnerList = List.of(NftRemoveAllowance.newBuilder()
+            .setOwner(MISSING_ACCOUNT)
+            .setTokenId(KNOWN_TOKEN_WITH_WIPE)
+            .build());
 
-    List<NftAllowance> delegatingNftAllowanceList =
-            List.of(
-                    NftAllowance.newBuilder()
-                            .setOwner(OWNER_ACCOUNT)
-                            .setTokenId(KNOWN_TOKEN_WITH_WIPE)
-                            .setSpender(DEFAULT_PAYER)
-                            .setDelegatingSpender(DELEGATING_SPENDER)
-                            .setApprovedForAll(BoolValue.of(false))
-                            .addAllSerialNumbers(List.of(1L))
-                            .build());
+    List<NftAllowance> delegatingNftAllowanceList = List.of(NftAllowance.newBuilder()
+            .setOwner(OWNER_ACCOUNT)
+            .setTokenId(KNOWN_TOKEN_WITH_WIPE)
+            .setSpender(DEFAULT_PAYER)
+            .setDelegatingSpender(DELEGATING_SPENDER)
+            .setApprovedForAll(BoolValue.of(false))
+            .addAllSerialNumbers(List.of(1L))
+            .build());
 
-    List<NftAllowance> delegatingNftAllowanceMissingOwnerList =
-            List.of(
-                    NftAllowance.newBuilder()
-                            .setOwner(OWNER_ACCOUNT)
-                            .setTokenId(KNOWN_TOKEN_WITH_WIPE)
-                            .setSpender(DEFAULT_PAYER)
-                            .setDelegatingSpender(MISSING_ACCOUNT)
-                            .setApprovedForAll(BoolValue.of(false))
-                            .addAllSerialNumbers(List.of(1L))
-                            .build());
+    List<NftAllowance> delegatingNftAllowanceMissingOwnerList = List.of(NftAllowance.newBuilder()
+            .setOwner(OWNER_ACCOUNT)
+            .setTokenId(KNOWN_TOKEN_WITH_WIPE)
+            .setSpender(DEFAULT_PAYER)
+            .setDelegatingSpender(MISSING_ACCOUNT)
+            .setApprovedForAll(BoolValue.of(false))
+            .addAllSerialNumbers(List.of(1L))
+            .build());
 }

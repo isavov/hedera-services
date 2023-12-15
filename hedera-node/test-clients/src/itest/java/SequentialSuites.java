@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 import com.hedera.services.bdd.suites.HapiSuite;
 import com.hedera.services.bdd.suites.contract.opcodes.Create2OperationSuite;
 import com.hedera.services.bdd.suites.contract.traceability.TraceabilitySuite;
@@ -20,23 +21,32 @@ import com.hedera.services.bdd.suites.fees.SpecialAccountsAreExempted;
 import com.hedera.services.bdd.suites.leaky.FeatureFlagSuite;
 import com.hedera.services.bdd.suites.leaky.LeakyContractTestsSuite;
 import com.hedera.services.bdd.suites.leaky.LeakyCryptoTestsSuite;
+import com.hedera.services.bdd.suites.leaky.LeakySecurityModelV1Suite;
 import com.hedera.services.bdd.suites.regression.TargetNetworkPrep;
 import com.hedera.services.bdd.suites.throttling.PrivilegedOpsSuite;
 import java.util.function.Supplier;
+import org.apache.commons.lang3.ArrayUtils;
 
 public class SequentialSuites {
-    @SuppressWarnings("unchecked")
     static Supplier<HapiSuite>[] all() {
-        return (Supplier<HapiSuite>[])
-                new Supplier[] {
-                    TargetNetworkPrep::new,
-                    FeatureFlagSuite::new,
-                    SpecialAccountsAreExempted::new,
-                    PrivilegedOpsSuite::new,
-                    TraceabilitySuite::new,
-                    LeakyContractTestsSuite::new,
-                    LeakyCryptoTestsSuite::new,
-                    Create2OperationSuite::new,
-                };
+        return ArrayUtils.addAll(globalPrerequisiteSuites(), sequentialSuites());
+    }
+
+    @SuppressWarnings("unchecked")
+    static Supplier<HapiSuite>[] globalPrerequisiteSuites() {
+        return (Supplier<HapiSuite>[]) new Supplier[] {TargetNetworkPrep::new, FeatureFlagSuite::new};
+    }
+
+    @SuppressWarnings("unchecked")
+    static Supplier<HapiSuite>[] sequentialSuites() {
+        return (Supplier<HapiSuite>[]) new Supplier[] {
+            SpecialAccountsAreExempted::new,
+            PrivilegedOpsSuite::new,
+            TraceabilitySuite::new,
+            LeakyContractTestsSuite::new,
+            LeakyCryptoTestsSuite::new,
+            LeakySecurityModelV1Suite::new,
+            Create2OperationSuite::new,
+        };
     }
 }

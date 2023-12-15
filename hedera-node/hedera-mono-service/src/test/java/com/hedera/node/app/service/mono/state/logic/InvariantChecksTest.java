@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.logic;
 
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -22,7 +23,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.BDDMockito.given;
 
 import com.google.protobuf.InvalidProtocolBufferException;
-import com.hedera.node.app.service.mono.context.NodeInfo;
 import com.hedera.node.app.service.mono.state.merkle.MerkleNetworkContext;
 import com.hedera.node.app.service.mono.utils.accessors.PlatformTxnAccessor;
 import com.hedera.test.extensions.LogCaptor;
@@ -46,29 +46,27 @@ class InvariantChecksTest {
     private final long now = 1_234_567L;
     private final long submittingMember = 1L;
     private final Instant lastConsensusTime = Instant.ofEpochSecond(now);
-    private final Transaction mockTxn =
-            Transaction.newBuilder()
-                    .setBodyBytes(
-                            TransactionBody.newBuilder()
-                                    .setTransactionID(
-                                            TransactionID.newBuilder()
-                                                    .setAccountID(IdUtils.asAccount("0.0.2")))
-                                    .build()
-                                    .toByteString())
-                    .build();
+    private final Transaction mockTxn = Transaction.newBuilder()
+            .setBodyBytes(TransactionBody.newBuilder()
+                    .setTransactionID(TransactionID.newBuilder().setAccountID(IdUtils.asAccount("0.0.2")))
+                    .build()
+                    .toByteString())
+            .build();
     private PlatformTxnAccessor accessor;
 
-    @Mock private NodeInfo nodeInfo;
-    @Mock private MerkleNetworkContext networkCtx;
+    @Mock
+    private MerkleNetworkContext networkCtx;
 
-    @LoggingTarget private LogCaptor logCaptor;
+    @LoggingTarget
+    private LogCaptor logCaptor;
 
-    @LoggingSubject private InvariantChecks subject;
+    @LoggingSubject
+    private InvariantChecks subject;
 
     @BeforeEach
     void setUp() throws InvalidProtocolBufferException {
         accessor = PlatformTxnAccessor.from(mockTxn.toByteArray());
-        subject = new InvariantChecks(nodeInfo, () -> networkCtx);
+        subject = new InvariantChecks(() -> networkCtx);
     }
 
     @Test
@@ -76,8 +74,7 @@ class InvariantChecksTest {
         given(networkCtx.consensusTimeOfLastHandledTxn()).willReturn(lastConsensusTime);
 
         // when:
-        final var result =
-                subject.holdFor(accessor, lastConsensusTime.minusNanos(1L), submittingMember);
+        final var result = subject.holdFor(accessor, lastConsensusTime.minusNanos(1L), submittingMember);
 
         // then:
         assertFalse(result);
@@ -89,8 +86,7 @@ class InvariantChecksTest {
         given(networkCtx.consensusTimeOfLastHandledTxn()).willReturn(null);
 
         // when:
-        final var result =
-                subject.holdFor(accessor, lastConsensusTime.minusNanos(1L), submittingMember);
+        final var result = subject.holdFor(accessor, lastConsensusTime.minusNanos(1L), submittingMember);
 
         // then:
         assertTrue(result);
@@ -101,23 +97,9 @@ class InvariantChecksTest {
         given(networkCtx.consensusTimeOfLastHandledTxn()).willReturn(lastConsensusTime);
 
         // when:
-        final var result =
-                subject.holdFor(accessor, lastConsensusTime.plusNanos(1_000L), submittingMember);
+        final var result = subject.holdFor(accessor, lastConsensusTime.plusNanos(1_000L), submittingMember);
 
         // then:
         assertTrue(result);
-    }
-
-    @Test
-    void rejectsZeroStake() {
-        given(nodeInfo.isZeroStake(submittingMember)).willReturn(true);
-
-        // when:
-        final var result =
-                subject.holdFor(accessor, lastConsensusTime.plusNanos(1_000L), submittingMember);
-
-        // then:
-        assertFalse(result);
-        assertThat(logCaptor.warnLogs(), contains(Matchers.startsWith("Invariant failure!")));
     }
 }

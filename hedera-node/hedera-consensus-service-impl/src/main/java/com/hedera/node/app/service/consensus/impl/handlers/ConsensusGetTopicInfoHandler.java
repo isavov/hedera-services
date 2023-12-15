@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Hedera Hashgraph, LLC
+ * Copyright (C) 2022-2023 Hedera Hashgraph, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,70 +13,160 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.consensus.impl.handlers;
 
+import static com.hedera.hapi.node.base.ResponseCodeEnum.INVALID_TOPIC_ID;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.OK;
+import static com.hedera.hapi.node.base.ResponseType.ANSWER_ONLY;
+import static com.hedera.hapi.node.base.ResponseType.ANSWER_STATE_PROOF;
+import static com.hedera.hapi.node.base.ResponseType.COST_ANSWER;
+import static com.hedera.node.app.service.consensus.impl.codecs.ConsensusServiceStateTranslator.pbjToState;
+import static com.hedera.node.app.service.mono.pbj.PbjConverter.fromPbjResponseType;
+import static com.hedera.node.app.spi.key.KeyUtils.isEmpty;
+import static com.hedera.node.app.spi.validation.Validations.mustExist;
 import static java.util.Objects.requireNonNull;
 
+import com.hedera.hapi.node.base.Duration;
+import com.hedera.hapi.node.base.HederaFunctionality;
+import com.hedera.hapi.node.base.QueryHeader;
+import com.hedera.hapi.node.base.ResponseHeader;
+import com.hedera.hapi.node.base.ResponseType;
+import com.hedera.hapi.node.base.Timestamp;
+import com.hedera.hapi.node.base.TopicID;
+import com.hedera.hapi.node.consensus.ConsensusGetTopicInfoQuery;
+import com.hedera.hapi.node.consensus.ConsensusGetTopicInfoResponse;
+import com.hedera.hapi.node.consensus.ConsensusTopicInfo;
+import com.hedera.hapi.node.transaction.Query;
+import com.hedera.hapi.node.transaction.Response;
+import com.hedera.node.app.service.consensus.ReadableTopicStore;
+import com.hedera.node.app.service.mono.fees.calculation.consensus.queries.GetTopicInfoResourceUsage;
+import com.hedera.node.app.spi.fees.Fees;
 import com.hedera.node.app.spi.workflows.PaidQueryHandler;
 import com.hedera.node.app.spi.workflows.PreCheckException;
-import com.hederahashgraph.api.proto.java.ConsensusGetTopicInfoResponse;
-import com.hederahashgraph.api.proto.java.Query;
-import com.hederahashgraph.api.proto.java.QueryHeader;
-import com.hederahashgraph.api.proto.java.Response;
-import com.hederahashgraph.api.proto.java.ResponseHeader;
+import com.hedera.node.app.spi.workflows.QueryContext;
+import com.hedera.node.config.data.LedgerConfig;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.Optional;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
 /**
- * This class contains all workflow-related functionality regarding {@link
- * com.hederahashgraph.api.proto.java.HederaFunctionality#ConsensusGetTopicInfo}.
+ * This class contains all workflow-related functionality regarding {@link HederaFunctionality#CONSENSUS_GET_TOPIC_INFO}.
  */
 @Singleton
 public class ConsensusGetTopicInfoHandler extends PaidQueryHandler {
+
     @Inject
-    public ConsensusGetTopicInfoHandler() {}
+    public ConsensusGetTopicInfoHandler() {
+        // Dagger 2
+    }
 
     @Override
     public QueryHeader extractHeader(@NonNull final Query query) {
         requireNonNull(query);
-        return query.getConsensusGetTopicInfo().getHeader();
+        return query.consensusGetTopicInfoOrThrow().header();
     }
 
     @Override
     public Response createEmptyResponse(@NonNull final ResponseHeader header) {
-        final var response = ConsensusGetTopicInfoResponse.newBuilder().setHeader(header);
-        return Response.newBuilder().setConsensusGetTopicInfo(response).build();
+        requireNonNull(header);
+        final var response = ConsensusGetTopicInfoResponse.newBuilder().header(header);
+        return Response.newBuilder().consensusGetTopicInfo(response).build();
+    }
+
+    @Override
+    public boolean requiresNodePayment(@NonNull ResponseType responseType) {
+        return responseType == ANSWER_ONLY || responseType == ANSWER_STATE_PROOF;
+    }
+
+    @Override
+    public boolean needsAnswerOnlyCost(@NonNull ResponseType responseType) {
+        return COST_ANSWER == responseType;
+    }
+
+    @Override
+    public void validate(@NonNull final QueryContext context) throws PreCheckException {
+        requireNonNull(context);
+        final var query = context.query();
+        final var topicStore = context.createStore(ReadableTopicStore.class);
+        final ConsensusGetTopicInfoQuery op = query.consensusGetTopicInfoOrThrow();
+        if (op.hasTopicID()) {
+            // The topic must exist
+            final var topic = topicStore.getTopic(op.topicIDOrElse(TopicID.DEFAULT));
+            mustExist(topic, INVALID_TOPIC_ID);
+            if (topic.deleted()) {
+                throw new PreCheckException(INVALID_TOPIC_ID);
+            }
+        } else {
+            throw new PreCheckException(INVALID_TOPIC_ID);
+        }
+    }
+
+    @Override
+    public Response findResponse(@NonNull final QueryContext context, @NonNull final ResponseHeader header) {
+        requireNonNull(context);
+        requireNonNull(header);
+        final var query = context.query();
+        final var config = context.configuration().getConfigData(LedgerConfig.class);
+        final var topicStore = context.createStore(ReadableTopicStore.class);
+        final var op = query.consensusGetTopicInfoOrThrow();
+        final var response = ConsensusGetTopicInfoResponse.newBuilder();
+        final var topic = op.topicIDOrElse(TopicID.DEFAULT);
+        response.topicID(topic);
+
+        final var responseType = op.headerOrElse(QueryHeader.DEFAULT).responseType();
+        response.header(header);
+        if (header.nodeTransactionPrecheckCode() == OK && responseType != COST_ANSWER) {
+            final var optionalInfo = infoForTopic(topic, topicStore, config);
+            optionalInfo.ifPresent(response::topicInfo);
+        }
+
+        return Response.newBuilder().consensusGetTopicInfo(response).build();
     }
 
     /**
-     * This method is called during the query workflow. It validates the query, but does not
-     * determine the response yet.
-     *
-     * <p>Please note: the method signature is just a placeholder which is most likely going to
-     * change.
-     *
-     * @param query the {@link Query} that should be validated
-     * @throws NullPointerException if one of the arguments is {@code null}
-     * @throws PreCheckException if validation fails
+     * Provides information about a topic.
+     * @param topicID the topic to get information about
+     * @param topicStore the topic store
+     * @param config the LedgerConfig
+     * @return the information about the topic
      */
-    public void validate(@NonNull final Query query) throws PreCheckException {
-        throw new UnsupportedOperationException("Not implemented");
+    private Optional<ConsensusTopicInfo> infoForTopic(
+            @NonNull final TopicID topicID,
+            @NonNull final ReadableTopicStore topicStore,
+            @NonNull final LedgerConfig config) {
+        final var meta = topicStore.getTopic(topicID);
+        if (meta == null) {
+            return Optional.empty();
+        } else {
+            final var info = ConsensusTopicInfo.newBuilder();
+            info.memo(meta.memo());
+            info.runningHash(meta.runningHash());
+            info.sequenceNumber(meta.sequenceNumber());
+            info.expirationTime(
+                    Timestamp.newBuilder().seconds(meta.expirationSecond()).build());
+            if (!isEmpty(meta.adminKey())) info.adminKey(meta.adminKey());
+            if (!isEmpty(meta.submitKey())) info.submitKey(meta.submitKey());
+            info.autoRenewPeriod(Duration.newBuilder().seconds(meta.autoRenewPeriod()));
+            if (meta.hasAutoRenewAccountId()) info.autoRenewAccount(meta.autoRenewAccountId());
+
+            info.ledgerId(config.id());
+            return Optional.of(info.build());
+        }
     }
 
-    /**
-     * This method is called during the query workflow. It determines the requested value(s) and
-     * returns the appropriate response.
-     *
-     * <p>Please note: the method signature is just a placeholder which is most likely going to
-     * change.
-     *
-     * @param query the {@link Query} with the request
-     * @param header the {@link ResponseHeader} that should be used, if the request was successful
-     * @return a {@link Response} with the requested values
-     * @throws NullPointerException if one of the arguments is {@code null}
-     */
-    public Response findResponse(@NonNull final Query query, @NonNull final ResponseHeader header) {
-        throw new UnsupportedOperationException("Not implemented");
+    @NonNull
+    @Override
+    public Fees computeFees(@NonNull QueryContext queryContext) {
+        final var query = queryContext.query();
+        final var topicStore = queryContext.createStore(ReadableTopicStore.class);
+        final var op = query.consensusGetTopicInfoOrThrow();
+        final var topicId = op.topicIDOrElse(TopicID.DEFAULT);
+        final var responseType = op.headerOrElse(QueryHeader.DEFAULT).responseType();
+        final var topic = topicStore.getTopic(topicId);
+
+        return queryContext.feeCalculator().legacyCalculate(sigValueObj -> new GetTopicInfoResourceUsage()
+                .usageGivenTypeAndTopic(topic != null ? pbjToState(topic) : null, fromPbjResponseType(responseType)));
     }
 }

@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.reconnect;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -45,7 +46,7 @@ public class UpdatePermissionsDuringReconnect extends HapiSuite {
         return List.of(updateApiPermissionsDuringReconnect());
     }
 
-    private HapiSpec updateApiPermissionsDuringReconnect() {
+    final HapiSpec updateApiPermissionsDuringReconnect() {
         final String fileInfoRegistry = "apiPermissionsReconnect";
         return defaultHapiSpec("updateApiPermissionsDuringReconnect")
                 .given(

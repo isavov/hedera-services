@@ -13,22 +13,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.file.negative;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
 import static com.hedera.services.bdd.spec.transactions.TxnVerbs.fileCreate;
-import static com.hedera.services.bdd.spec.utilops.UtilVerbs.withOpContext;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.suites.HapiSuite;
-import com.hederahashgraph.api.proto.java.Key;
-import com.hederahashgraph.api.proto.java.KeyList;
 import com.hederahashgraph.api.proto.java.ResponseCodeEnum;
 import java.time.Instant;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+@HapiTestSuite
 public class CreateFailuresSpec extends HapiSuite {
     private static final Logger log = LogManager.getLogger(CreateFailuresSpec.class);
 
@@ -38,46 +39,23 @@ public class CreateFailuresSpec extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return List.of(
-                new HapiSpec[] {
-                    //						handleRejectsMissingWacl(),
-                    precheckRejectsBadEffectiveAutoRenewPeriod(),
-                });
+        return List.of(new HapiSpec[] {
+            //						handleRejectsMissingWacl(),
+            precheckRejectsBadEffectiveAutoRenewPeriod(),
+        });
     }
 
-    private HapiSpec handleRejectsMissingWacl() {
-        return defaultHapiSpec("handleRejectsMissingWacl")
-                .given(
-                        withOpContext(
-                                (spec, opLog) -> {
-                                    spec.registry()
-                                            .saveKey(
-                                                    "emptyKey",
-                                                    Key.newBuilder()
-                                                            .setKeyList(
-                                                                    KeyList.getDefaultInstance())
-                                                            .build());
-                                }))
-                .when()
-                .then(
-                        fileCreate("notHere")
-                                .contents("Not meant to be!")
-                                .key("emptyKey")
-                                .signedBy(GENESIS)
-                                .hasKnownStatus(ResponseCodeEnum.NO_WACL_KEY));
-    }
-
-    private HapiSpec precheckRejectsBadEffectiveAutoRenewPeriod() {
+    @HapiTest
+    final HapiSpec precheckRejectsBadEffectiveAutoRenewPeriod() {
         var now = Instant.now();
         System.out.println(now.getEpochSecond());
 
         return defaultHapiSpec("precheckRejectsBadEffectiveAutoRenewPeriod")
                 .given()
                 .when()
-                .then(
-                        fileCreate("notHere")
-                                .lifetime(-60L)
-                                .hasPrecheck(ResponseCodeEnum.AUTORENEW_DURATION_NOT_IN_RANGE));
+                .then(fileCreate("notHere")
+                        .lifetime(-60L)
+                        .hasPrecheck(ResponseCodeEnum.AUTORENEW_DURATION_NOT_IN_RANGE));
     }
 
     @Override

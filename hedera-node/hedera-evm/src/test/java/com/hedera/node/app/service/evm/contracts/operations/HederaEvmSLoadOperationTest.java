@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.evm.contracts.operations;
 
 import static org.hyperledger.besu.evm.frame.ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS;
@@ -27,11 +28,12 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.EVM;
-import org.hyperledger.besu.evm.account.EvmAccount;
+import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.internal.FixedStack;
+import org.hyperledger.besu.evm.internal.OverflowException;
+import org.hyperledger.besu.evm.internal.UnderflowException;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,15 +47,20 @@ class HederaEvmSLoadOperationTest {
 
     HederaEvmSLoadOperation subject;
 
-    @Mock GasCalculator gasCalculator;
+    @Mock
+    GasCalculator gasCalculator;
 
-    @Mock MessageFrame messageFrame;
+    @Mock
+    MessageFrame messageFrame;
 
-    @Mock EVM evm;
+    @Mock
+    EVM evm;
 
-    @Mock AbstractLedgerEvmWorldUpdater worldUpdater;
+    @Mock
+    AbstractLedgerEvmWorldUpdater<?, ?> worldUpdater;
 
-    @Mock EvmAccount evmAccount;
+    @Mock
+    MutableAccount evmAccount;
 
     final Bytes keyBytesMock = Bytes.of(1, 2, 3, 4);
     final Bytes valueBytesMock = Bytes.of(4, 3, 2, 1);
@@ -105,8 +112,7 @@ class HederaEvmSLoadOperationTest {
         given(messageFrame.getRemainingGas()).willReturn(300L);
         given(messageFrame.getRemainingGas()).willReturn(0L);
 
-        final var expectedHaltResult =
-                new Operation.OperationResult(30L, ExceptionalHaltReason.INSUFFICIENT_GAS);
+        final var expectedHaltResult = new Operation.OperationResult(30L, ExceptionalHaltReason.INSUFFICIENT_GAS);
 
         final var haltResult = subject.execute(messageFrame, evm);
 
@@ -118,7 +124,7 @@ class HederaEvmSLoadOperationTest {
     @Test
     void executeWithUnderFlowException() {
         givenAdditionalContext(keyBytesMock, valueBytesMock);
-        given(messageFrame.popStackItem()).willThrow(new FixedStack.UnderflowException());
+        given(messageFrame.popStackItem()).willThrow(new UnderflowException());
         final var result = subject.execute(messageFrame, evm);
         assertEquals(INSUFFICIENT_STACK_ITEMS, result.getHaltReason());
     }
@@ -129,7 +135,7 @@ class HederaEvmSLoadOperationTest {
         given(messageFrame.warmUpStorage(any(), any())).willReturn(true);
         given(messageFrame.getRemainingGas()).willReturn(300L);
 
-        doThrow(new FixedStack.OverflowException()).when(messageFrame).pushStackItem(any());
+        doThrow(new OverflowException()).when(messageFrame).pushStackItem(any());
 
         final var result = subject.execute(messageFrame, evm);
         assertEquals(TOO_MANY_STACK_ITEMS, result.getHaltReason());

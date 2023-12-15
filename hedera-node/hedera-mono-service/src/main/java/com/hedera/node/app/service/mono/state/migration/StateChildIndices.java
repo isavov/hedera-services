@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.migration;
 
 /** Gives the Services index order of Merkle node children. */
@@ -30,7 +31,7 @@ public final class StateChildIndices {
     public static final int LEGACY_ADDRESS_BOOK = 10;
     public static final int CONTRACT_STORAGE = 11;
     public static final int STAKING_INFO = 12;
-    public static final int PAYER_RECORDS = 13;
+    public static final int PAYER_RECORDS_OR_CONSOLIDATED_FCQ = 13;
 
     public static final int NUM_025X_CHILDREN = 12;
     public static final int NUM_032X_CHILDREN = 14;

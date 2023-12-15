@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.freeze;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -41,7 +42,7 @@ public final class FreezeAbort extends HapiSuite {
         return List.of(new HapiSpec[] {freezeAbort()});
     }
 
-    private HapiSpec freezeAbort() {
+    final HapiSpec freezeAbort() {
         return defaultHapiSpec("FreezeAbort")
                 .given()
                 .when(UtilVerbs.freezeAbort().payingWith(GENESIS))

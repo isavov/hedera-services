@@ -13,8 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.crypto;
 
+import static com.hedera.services.bdd.junit.TestTags.CRYPTO;
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
 import static com.hedera.services.bdd.spec.assertions.AccountInfoAsserts.accountWith;
 import static com.hedera.services.bdd.spec.assertions.AccountInfoAsserts.approxChangeFromSnapshot;
@@ -34,6 +36,8 @@ import static com.hedera.services.bdd.spec.transactions.crypto.HapiCryptoTransfe
 import static com.hedera.services.bdd.spec.transactions.token.TokenMovement.moving;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.balanceSnapshot;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.newKeyNamed;
+import static com.hedera.services.bdd.spec.utilops.records.SnapshotMatchMode.FULLY_NONDETERMINISTIC;
+import static com.hedera.services.bdd.spec.utilops.records.SnapshotMatchMode.NONDETERMINISTIC_TRANSACTION_FEES;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.ACCOUNT_DELETED;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.ACCOUNT_IS_TREASURY;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.PAYER_ACCOUNT_DELETED;
@@ -41,16 +45,24 @@ import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.SUCCESS;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.TRANSACTION_REQUIRES_ZERO_TOKEN_BALANCES;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.TRANSFER_ACCOUNT_SAME_AS_DELETE_ACCOUNT;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.HapiSpecSetup;
 import com.hedera.services.bdd.suites.HapiSuite;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.Tag;
 
+@HapiTestSuite
+@Tag(CRYPTO)
 public class CryptoDeleteSuite extends HapiSuite {
     static final Logger log = LogManager.getLogger(CryptoDeleteSuite.class);
     private static final long TOKEN_INITIAL_SUPPLY = 500;
+    private static final String TRANSFER_ACCOUNT = "transferAccount";
+    private static final String TREASURY = "treasury";
+    private static final String ACCOUNT_TO_BE_DELETED = "toBeDeleted";
 
     public static void main(String... args) {
         new CryptoDeleteSuite().runSuiteSync();
@@ -64,37 +76,36 @@ public class CryptoDeleteSuite extends HapiSuite {
     @Override
     public List<HapiSpec> getSpecsInSuite() {
         return List.of(
-                new HapiSpec[] {
-                    fundsTransferOnDelete(),
-                    cannotDeleteAccountsWithNonzeroTokenBalances(),
-                    cannotDeleteAlreadyDeletedAccount(),
-                    cannotDeleteAccountWithSameBeneficiary(),
-                    cannotDeleteTreasuryAccount(),
-                    deletedAccountCannotBePayer()
-                });
+                fundsTransferOnDelete(),
+                cannotDeleteAccountsWithNonzeroTokenBalances(),
+                cannotDeleteAlreadyDeletedAccount(),
+                cannotDeleteAccountWithSameBeneficiary(),
+                cannotDeleteTreasuryAccount(),
+                deletedAccountCannotBePayer(),
+                canQueryForRecordsWithDeletedPayers());
     }
 
-    private HapiSpec deletedAccountCannotBePayer() {
+    @HapiTest
+    // In this transactionFee is not set in mono-service record, because it fails in node due diligence.
+    // But it feels right to set it. So setting this HIGHLY_NONDETERMINISTIC_TRANSACTION_FEES
+    final HapiSpec deletedAccountCannotBePayer() {
         // Account Names
         String SUBMITTING_NODE_ACCOUNT = "0.0.3";
-        String ACCOUNT_TO_BE_DELETED = "toBeDeleted";
         String BENEFICIARY_ACCOUNT = "beneficiaryAccountForDeletedAccount";
 
         // Snapshot Names
         String SUBMITTING_NODE_PRE_TRANSFER = "submittingNodePreTransfer";
         String SUBMITTING_NODE_AFTER_BALANCE_LOAD = "submittingNodeAfterBalanceLoad";
 
-        return defaultHapiSpec("DeletedAccountCannotBePayer")
+        return defaultHapiSpec("DeletedAccountCannotBePayer", FULLY_NONDETERMINISTIC)
                 .given(
                         cryptoCreate(ACCOUNT_TO_BE_DELETED),
                         cryptoCreate(BENEFICIARY_ACCOUNT).balance(0L))
                 .when()
                 .then(
                         balanceSnapshot(SUBMITTING_NODE_PRE_TRANSFER, SUBMITTING_NODE_ACCOUNT),
-                        cryptoTransfer(
-                                tinyBarsFromTo(GENESIS, SUBMITTING_NODE_ACCOUNT, 1000000000)),
-                        balanceSnapshot(
-                                SUBMITTING_NODE_AFTER_BALANCE_LOAD, SUBMITTING_NODE_ACCOUNT),
+                        cryptoTransfer(tinyBarsFromTo(GENESIS, SUBMITTING_NODE_ACCOUNT, 1000000000)),
+                        balanceSnapshot(SUBMITTING_NODE_AFTER_BALANCE_LOAD, SUBMITTING_NODE_ACCOUNT),
                         cryptoDelete(ACCOUNT_TO_BE_DELETED)
                                 .transfer(BENEFICIARY_ACCOUNT)
                                 .deferStatusResolution(),
@@ -103,104 +114,109 @@ public class CryptoDeleteSuite extends HapiSuite {
                                 .hasKnownStatus(PAYER_ACCOUNT_DELETED),
                         getAccountBalance(SUBMITTING_NODE_ACCOUNT)
                                 .hasTinyBars(
-                                        approxChangeFromSnapshot(
-                                                SUBMITTING_NODE_AFTER_BALANCE_LOAD, -100000, 50000))
+                                        approxChangeFromSnapshot(SUBMITTING_NODE_AFTER_BALANCE_LOAD, -100000, 50000))
                                 .logged());
     }
 
-    private HapiSpec fundsTransferOnDelete() {
+    @HapiTest
+    final HapiSpec canQueryForRecordsWithDeletedPayers() {
+        final var stillQueryableTxn = "stillQueryableTxn";
+        return defaultHapiSpec("CanQueryForRecordsWithDeletedPayers")
+                .given(cryptoCreate(ACCOUNT_TO_BE_DELETED))
+                .when(
+                        cryptoTransfer(tinyBarsFromTo(ACCOUNT_TO_BE_DELETED, FUNDING, 1))
+                                .payingWith(ACCOUNT_TO_BE_DELETED)
+                                .via(stillQueryableTxn),
+                        cryptoDelete(ACCOUNT_TO_BE_DELETED))
+                .then(getTxnRecord(stillQueryableTxn).hasPriority(recordWith().payer(ACCOUNT_TO_BE_DELETED)));
+    }
+
+    @HapiTest
+    final HapiSpec fundsTransferOnDelete() {
         long B = HapiSpecSetup.getDefaultInstance().defaultBalance();
 
         return defaultHapiSpec("FundsTransferOnDelete")
-                .given(cryptoCreate("toBeDeleted"), cryptoCreate("transferAccount").balance(0L))
-                .when(cryptoDelete("toBeDeleted").transfer("transferAccount").via("deleteTxn"))
+                .given(
+                        cryptoCreate(ACCOUNT_TO_BE_DELETED),
+                        cryptoCreate(TRANSFER_ACCOUNT).balance(0L))
+                .when(cryptoDelete(ACCOUNT_TO_BE_DELETED)
+                        .transfer(TRANSFER_ACCOUNT)
+                        .via("deleteTxn"))
                 .then(
-                        getAccountInfo("transferAccount").has(accountWith().balance(B)),
+                        getAccountInfo(TRANSFER_ACCOUNT).has(accountWith().balance(B)),
                         getTxnRecord("deleteTxn")
-                                .hasPriority(
-                                        recordWith()
-                                                .transfers(
-                                                        including(
-                                                                tinyBarsFromTo(
-                                                                        "toBeDeleted",
-                                                                        "transferAccount",
-                                                                        B)))));
+                                .hasPriority(recordWith()
+                                        .transfers(including(
+                                                tinyBarsFromTo(ACCOUNT_TO_BE_DELETED, TRANSFER_ACCOUNT, B)))));
     }
 
-    private HapiSpec cannotDeleteAccountsWithNonzeroTokenBalances() {
+    @HapiTest
+    final HapiSpec cannotDeleteAccountsWithNonzeroTokenBalances() {
         return defaultHapiSpec("CannotDeleteAccountsWithNonzeroTokenBalances")
                 .given(
                         newKeyNamed("admin"),
-                        cryptoCreate("toBeDeleted").maxAutomaticTokenAssociations(1),
-                        cryptoCreate("transferAccount"),
+                        cryptoCreate(ACCOUNT_TO_BE_DELETED).maxAutomaticTokenAssociations(1),
+                        cryptoCreate(TRANSFER_ACCOUNT),
                         cryptoCreate(TOKEN_TREASURY))
                 .when(
                         tokenCreate("misc")
                                 .adminKey("admin")
                                 .initialSupply(TOKEN_INITIAL_SUPPLY)
                                 .treasury(TOKEN_TREASURY),
-                        tokenAssociate("toBeDeleted", "misc"),
+                        tokenAssociate(ACCOUNT_TO_BE_DELETED, "misc"),
                         cryptoTransfer(
-                                moving(TOKEN_INITIAL_SUPPLY, "misc")
-                                        .between(TOKEN_TREASURY, "toBeDeleted")),
-                        cryptoDelete("toBeDeleted")
-                                .transfer("transferAccount")
+                                moving(TOKEN_INITIAL_SUPPLY, "misc").between(TOKEN_TREASURY, ACCOUNT_TO_BE_DELETED)),
+                        cryptoDelete(ACCOUNT_TO_BE_DELETED)
+                                .transfer(TRANSFER_ACCOUNT)
                                 .hasKnownStatus(TRANSACTION_REQUIRES_ZERO_TOKEN_BALANCES),
                         cryptoTransfer(
-                                moving(TOKEN_INITIAL_SUPPLY, "misc")
-                                        .between("toBeDeleted", TOKEN_TREASURY)),
-                        tokenDissociate("toBeDeleted", "misc"),
+                                moving(TOKEN_INITIAL_SUPPLY, "misc").between(ACCOUNT_TO_BE_DELETED, TOKEN_TREASURY)),
+                        tokenDissociate(ACCOUNT_TO_BE_DELETED, "misc"),
                         cryptoTransfer(
-                                moving(TOKEN_INITIAL_SUPPLY, "misc")
-                                        .between(TOKEN_TREASURY, "toBeDeleted")),
-                        cryptoDelete("toBeDeleted")
-                                .transfer("transferAccount")
+                                moving(TOKEN_INITIAL_SUPPLY, "misc").between(TOKEN_TREASURY, ACCOUNT_TO_BE_DELETED)),
+                        cryptoDelete(ACCOUNT_TO_BE_DELETED)
+                                .transfer(TRANSFER_ACCOUNT)
                                 .hasKnownStatus(TRANSACTION_REQUIRES_ZERO_TOKEN_BALANCES))
                 .then(
                         cryptoDelete(TOKEN_TREASURY).hasKnownStatus(ACCOUNT_IS_TREASURY),
                         cryptoTransfer(
-                                moving(TOKEN_INITIAL_SUPPLY, "misc")
-                                        .between("toBeDeleted", TOKEN_TREASURY)),
-                        cryptoDelete("toBeDeleted"),
-                        cryptoDelete("toBeDeleted").hasKnownStatus(ACCOUNT_DELETED),
+                                moving(TOKEN_INITIAL_SUPPLY, "misc").between(ACCOUNT_TO_BE_DELETED, TOKEN_TREASURY)),
+                        cryptoDelete(ACCOUNT_TO_BE_DELETED),
+                        cryptoDelete(ACCOUNT_TO_BE_DELETED).hasKnownStatus(ACCOUNT_DELETED),
                         tokenDelete("misc"),
                         tokenDissociate(TOKEN_TREASURY, "misc"),
                         cryptoDelete(TOKEN_TREASURY));
     }
 
-    private HapiSpec cannotDeleteAlreadyDeletedAccount() {
-        return defaultHapiSpec("CannotDeleteAlreadyDeletedAccount")
-                .given(cryptoCreate("toBeDeleted"), cryptoCreate("transferAccount"))
-                .when(
-                        cryptoDelete("toBeDeleted")
-                                .transfer("transferAccount")
-                                .hasKnownStatus(SUCCESS))
-                .then(
-                        cryptoDelete("toBeDeleted")
-                                .transfer("transferAccount")
-                                .hasKnownStatus(ACCOUNT_DELETED));
+    @HapiTest
+    final HapiSpec cannotDeleteAlreadyDeletedAccount() {
+        return defaultHapiSpec("CannotDeleteAlreadyDeletedAccount", NONDETERMINISTIC_TRANSACTION_FEES)
+                .given(cryptoCreate(ACCOUNT_TO_BE_DELETED), cryptoCreate(TRANSFER_ACCOUNT))
+                .when(cryptoDelete(ACCOUNT_TO_BE_DELETED)
+                        .transfer(TRANSFER_ACCOUNT)
+                        .hasKnownStatus(SUCCESS))
+                .then(cryptoDelete(ACCOUNT_TO_BE_DELETED)
+                        .transfer(TRANSFER_ACCOUNT)
+                        .hasKnownStatus(ACCOUNT_DELETED));
     }
 
-    private HapiSpec cannotDeleteAccountWithSameBeneficiary() {
+    @HapiTest
+    final HapiSpec cannotDeleteAccountWithSameBeneficiary() {
         return defaultHapiSpec("CannotDeleteAccountWithSameBeneficiary")
-                .given(cryptoCreate("toBeDeleted"))
+                .given(cryptoCreate(ACCOUNT_TO_BE_DELETED))
                 .when()
-                .then(
-                        cryptoDelete("toBeDeleted")
-                                .transfer("toBeDeleted")
-                                .hasPrecheck(TRANSFER_ACCOUNT_SAME_AS_DELETE_ACCOUNT));
+                .then(cryptoDelete(ACCOUNT_TO_BE_DELETED)
+                        .transfer(ACCOUNT_TO_BE_DELETED)
+                        .hasPrecheck(TRANSFER_ACCOUNT_SAME_AS_DELETE_ACCOUNT));
     }
 
-    private HapiSpec cannotDeleteTreasuryAccount() {
-        return defaultHapiSpec("CannotDeleteTreasuryAccount")
-                .given(cryptoCreate("treasury"), cryptoCreate("transferAccount"))
-                .when(
-                        tokenCreate("toBeTransferred")
-                                .initialSupply(TOKEN_INITIAL_SUPPLY)
-                                .treasury("treasury"))
-                .then(
-                        cryptoDelete("treasury")
-                                .transfer("transferAccount")
-                                .hasKnownStatus(ACCOUNT_IS_TREASURY));
+    @HapiTest
+    final HapiSpec cannotDeleteTreasuryAccount() {
+        return defaultHapiSpec("CannotDeleteTreasuryAccount", NONDETERMINISTIC_TRANSACTION_FEES)
+                .given(cryptoCreate(TREASURY), cryptoCreate(TRANSFER_ACCOUNT))
+                .when(tokenCreate("toBeTransferred")
+                        .initialSupply(TOKEN_INITIAL_SUPPLY)
+                        .treasury(TREASURY))
+                .then(cryptoDelete(TREASURY).transfer(TRANSFER_ACCOUNT).hasKnownStatus(ACCOUNT_IS_TREASURY));
     }
 }

@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.store.contracts;
 
 import static com.hedera.node.app.service.mono.store.contracts.StaticEntityAccess.explicitCodeFetch;
@@ -27,17 +28,16 @@ import com.google.protobuf.ByteString;
 import com.hedera.node.app.service.mono.context.TransactionContext;
 import com.hedera.node.app.service.mono.ledger.HederaLedger;
 import com.hedera.node.app.service.mono.ledger.TransactionalLedger;
-import com.hedera.node.app.service.mono.ledger.accounts.AliasManager;
 import com.hedera.node.app.service.mono.ledger.accounts.HederaAccountCustomizer;
 import com.hedera.node.app.service.mono.ledger.properties.AccountProperty;
 import com.hedera.node.app.service.mono.ledger.properties.TokenProperty;
+import com.hedera.node.app.service.mono.state.adapters.VirtualMapLike;
 import com.hedera.node.app.service.mono.state.merkle.MerkleToken;
 import com.hedera.node.app.service.mono.state.migration.HederaAccount;
 import com.hedera.node.app.service.mono.state.virtual.VirtualBlobKey;
 import com.hedera.node.app.service.mono.state.virtual.VirtualBlobValue;
 import com.hederahashgraph.api.proto.java.AccountID;
 import com.hederahashgraph.api.proto.java.TokenID;
-import com.swirlds.virtualmap.VirtualMap;
 import java.util.function.Supplier;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -51,30 +51,23 @@ public class MutableEntityAccess implements EntityAccess {
     private final WorldLedgers worldLedgers;
     private final TransactionContext txnCtx;
     private final SizeLimitedStorage sizeLimitedStorage;
-    private final Supplier<VirtualMap<VirtualBlobKey, VirtualBlobValue>> bytecode;
+    private final Supplier<VirtualMapLike<VirtualBlobKey, VirtualBlobValue>> bytecode;
     private final TransactionalLedger<TokenID, TokenProperty, MerkleToken> tokensLedger;
 
     @Inject
     public MutableEntityAccess(
             final HederaLedger ledger,
-            final AliasManager aliasManager,
+            final WorldLedgers worldLedgers,
             final TransactionContext txnCtx,
             final SizeLimitedStorage sizeLimitedStorage,
             final TransactionalLedger<TokenID, TokenProperty, MerkleToken> tokensLedger,
-            final Supplier<VirtualMap<VirtualBlobKey, VirtualBlobValue>> bytecode) {
+            final Supplier<VirtualMapLike<VirtualBlobKey, VirtualBlobValue>> bytecode) {
         this.txnCtx = txnCtx;
         this.ledger = ledger;
         this.bytecode = bytecode;
+        this.worldLedgers = worldLedgers;
         this.tokensLedger = tokensLedger;
         this.sizeLimitedStorage = sizeLimitedStorage;
-
-        this.worldLedgers =
-                new WorldLedgers(
-                        aliasManager,
-                        ledger.getTokenRelsLedger(),
-                        ledger.getAccountsLedger(),
-                        ledger.getNftsLedger(),
-                        tokensLedger);
 
         ledger.setMutableEntityAccess(this);
     }
@@ -107,6 +100,11 @@ public class MutableEntityAccess implements EntityAccess {
     }
 
     @Override
+    public long getNonce(final Address address) {
+        return ledger.getNonce(accountIdFromEvmAddress(address));
+    }
+
+    @Override
     public boolean isExtant(final Address address) {
         return ledger.exists(accountIdFromEvmAddress(address));
     }
@@ -133,20 +131,17 @@ public class MutableEntityAccess implements EntityAccess {
 
     @Override
     public UInt256 getStorage(final Address address, final Bytes key) {
-        return sizeLimitedStorage.getStorage(
-                accountIdFromEvmAddress(address), UInt256.fromBytes(key));
+        return sizeLimitedStorage.getStorage(accountIdFromEvmAddress(address), UInt256.fromBytes(key));
     }
 
     @Override
-    public void flushStorage(
-            final TransactionalLedger<AccountID, AccountProperty, HederaAccount> accountsLedger) {
+    public void flushStorage(final TransactionalLedger<AccountID, AccountProperty, HederaAccount> accountsLedger) {
         sizeLimitedStorage.validateAndCommit(accountsLedger);
     }
 
     @Override
     public void storeCode(final AccountID id, final Bytes code) {
-        final var key =
-                new VirtualBlobKey(VirtualBlobKey.Type.CONTRACT_BYTECODE, (int) id.getAccountNum());
+        final var key = new VirtualBlobKey(VirtualBlobKey.Type.CONTRACT_BYTECODE, (int) id.getAccountNum());
         final var value = new VirtualBlobValue(code.toArray());
         bytecode.get().put(key, value);
     }
@@ -164,8 +159,6 @@ public class MutableEntityAccess implements EntityAccess {
 
     private boolean isActiveContractOp() {
         final var function = txnCtx.accessor().getFunction();
-        return function == ContractCreate
-                || function == ContractCall
-                || function == EthereumTransaction;
+        return function == ContractCreate || function == ContractCall || function == EthereumTransaction;
     }
 }

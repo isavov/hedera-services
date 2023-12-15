@@ -13,9 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.fees.calculation.consensus.txns;
 
-import com.hedera.node.app.hapi.utils.exception.InvalidTxBodyException;
 import com.hedera.node.app.hapi.utils.fee.ConsensusServiceFeeBuilder;
 import com.hedera.node.app.hapi.utils.fee.SigValueObj;
 import com.hedera.node.app.service.mono.context.primitives.StateView;
@@ -38,9 +38,7 @@ public final class DeleteTopicResourceUsage implements TxnResourceUsageEstimator
     }
 
     @Override
-    public FeeData usageGiven(
-            final TransactionBody txn, final SigValueObj sigUsage, final StateView view)
-            throws InvalidTxBodyException {
+    public FeeData usageGiven(final TransactionBody txn, final SigValueObj sigUsage, final StateView view) {
         return ConsensusServiceFeeBuilder.getConsensusDeleteTopicFee(txn, sigUsage);
     }
 }

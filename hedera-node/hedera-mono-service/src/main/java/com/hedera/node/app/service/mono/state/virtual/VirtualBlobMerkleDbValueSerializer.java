@@ -13,9 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.virtual;
 
-import com.swirlds.common.io.streams.SerializableDataOutputStream;
 import com.swirlds.merkledb.serialize.ValueSerializer;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -55,11 +55,15 @@ public class VirtualBlobMerkleDbValueSerializer implements ValueSerializer<Virtu
         return VARIABLE_DATA_SIZE;
     }
 
+    // FUTURE WORK: mark it as @Override after migration to platform 0.39
+    public int getTypicalSerializedSize() {
+        return VirtualBlobValue.getTypicalSerializedSize();
+    }
+
     // Value serialization
 
     @Override
-    public int serialize(final VirtualBlobValue value, final SerializableDataOutputStream out)
-            throws IOException {
+    public int serialize(final VirtualBlobValue value, final ByteBuffer out) throws IOException {
         value.serialize(out);
         return Integer.BYTES + value.getData().length; // data size (int) + data
     }
@@ -67,8 +71,7 @@ public class VirtualBlobMerkleDbValueSerializer implements ValueSerializer<Virtu
     // Value deserialization
 
     @Override
-    public VirtualBlobValue deserialize(final ByteBuffer buffer, final long version)
-            throws IOException {
+    public VirtualBlobValue deserialize(final ByteBuffer buffer, final long version) throws IOException {
         final VirtualBlobValue value = new VirtualBlobValue();
         value.deserialize(buffer, (int) version);
         return value;

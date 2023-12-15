@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.throttling;
 
 import com.hedera.node.app.hapi.utils.sysfiles.domain.throttling.ThrottleDefinitions;
@@ -53,6 +54,19 @@ public interface FunctionalityThrottling {
 
     List<DeterministicThrottle> allActiveThrottles();
 
+    /**
+     * Returns a list of snapshots of the current usage of all active throttles.
+     * @return the active snapshots
+     */
+    List<DeterministicThrottle.UsageSnapshot> getUsageSnapshots();
+
+    /**
+     * Resets the current usage of all active throttles to the given snapshots.
+     *
+     * @param snapshots the snapshots to reset to
+     */
+    void resetUsageThrottlesTo(List<DeterministicThrottle.UsageSnapshot> snapshots);
+
     GasLimitDeterministicThrottle gasLimitThrottle();
 
     void resetUsage();
@@ -66,4 +80,13 @@ public interface FunctionalityThrottling {
      * @throws UnsupportedOperationException if this throttle cannot provide a meaningful answer
      */
     boolean wasLastTxnGasThrottled();
+
+    /**
+     * Leaks the capacity for the given number of the given function. (We don't need to pass
+     * a time because the amount leaked is going to be constant.)
+     *
+     * @param n - the number of the given function
+     * @param function - the function
+     */
+    void leakCapacityForNOfUnscaled(int n, HederaFunctionality function);
 }

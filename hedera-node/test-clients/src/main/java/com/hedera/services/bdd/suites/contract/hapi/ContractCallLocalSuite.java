@@ -13,8 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.contract.hapi;
 
+import static com.hedera.node.app.service.evm.utils.EthSigsUtils.recoverAddressFromPubKey;
+import static com.hedera.services.bdd.junit.TestTags.SMART_CONTRACT;
+import static com.hedera.services.bdd.spec.HapiPropertySource.asSolidityAddress;
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
 import static com.hedera.services.bdd.spec.assertions.ContractFnResultAsserts.isLiteralResult;
 import static com.hedera.services.bdd.spec.assertions.ContractFnResultAsserts.resultWith;
@@ -26,29 +30,60 @@ import static com.hedera.services.bdd.spec.transactions.TxnVerbs.contractCall;
 import static com.hedera.services.bdd.spec.transactions.TxnVerbs.contractCreate;
 import static com.hedera.services.bdd.spec.transactions.TxnVerbs.contractDelete;
 import static com.hedera.services.bdd.spec.transactions.TxnVerbs.cryptoCreate;
+import static com.hedera.services.bdd.spec.transactions.TxnVerbs.cryptoTransfer;
+import static com.hedera.services.bdd.spec.transactions.TxnVerbs.mintToken;
 import static com.hedera.services.bdd.spec.transactions.TxnVerbs.tokenCreate;
 import static com.hedera.services.bdd.spec.transactions.TxnVerbs.uploadInitCode;
+import static com.hedera.services.bdd.spec.utilops.CustomSpecAssert.allRunFor;
+import static com.hedera.services.bdd.spec.utilops.UtilVerbs.logIt;
+import static com.hedera.services.bdd.spec.utilops.UtilVerbs.newKeyNamed;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.sleepFor;
+import static com.hedera.services.bdd.spec.utilops.UtilVerbs.withOpContext;
 import static com.hedera.services.bdd.suites.contract.Utils.FunctionType.FUNCTION;
+import static com.hedera.services.bdd.suites.contract.Utils.asAddress;
 import static com.hedera.services.bdd.suites.contract.Utils.getABIFor;
+import static com.hedera.services.bdd.suites.crypto.AutoCreateUtils.updateSpecFor;
+import static com.hedera.services.bdd.suites.utils.MiscEETUtils.metadata;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.CONTRACT_DELETED;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INSUFFICIENT_PAYER_BALANCE;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INSUFFICIENT_TX_FEE;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INVALID_CONTRACT_ID;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.google.protobuf.ByteString;
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.HapiSpecSetup;
+import com.hedera.services.bdd.spec.transactions.contract.HapiParserUtil;
+import com.hedera.services.bdd.spec.transactions.token.TokenMovement;
 import com.hedera.services.bdd.suites.HapiSuite;
+import com.hederahashgraph.api.proto.java.AccountID;
 import com.hederahashgraph.api.proto.java.ResponseCodeEnum;
+import com.hederahashgraph.api.proto.java.TokenType;
 import java.math.BigInteger;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.tuweni.bytes.Bytes;
+import org.hyperledger.besu.datatypes.Address;
+import org.junit.jupiter.api.Tag;
 
+@HapiTestSuite
+@Tag(SMART_CONTRACT)
 public class ContractCallLocalSuite extends HapiSuite {
+
     private static final Logger log = LogManager.getLogger(ContractCallLocalSuite.class);
     private static final String CONTRACT = "CreateTrivial";
+    private static final String OWNERSHIP_CHECK_CONTRACT = "OwnershipCheck";
+    private static final String OWNERSHIP_CHECK_CONTRACT_IS_OWNER_FUNCTION = "isOwner";
     private static final String TOKEN = "TestToken";
+    private static final String NFT_TOKEN = "NftToken";
+    private static final String SUPPLY_KEY = "SupplyKey";
+    private static final String FIRST_MEMO = "firstMemo";
+    private static final String SECOND_MEMO = "secondMemo";
     private static final String SYMBOL = "ħT";
     private static final int DECIMALS = 13;
 
@@ -64,58 +99,129 @@ public class ContractCallLocalSuite extends HapiSuite {
     @Override
     public List<HapiSpec> getSpecsInSuite() {
         return List.of(
-                new HapiSpec[] {
-                    deletedContract(),
-                    invalidContractID(),
-                    impureCallFails(),
-                    insufficientFeeFails(),
-                    lowBalanceFails(),
-                    erc20Query(),
-                    vanillaSuccess()
-                });
+                invalidDeletedContract(),
+                invalidContractID(),
+                impureCallFails(),
+                insufficientFeeFails(),
+                lowBalanceFails(),
+                erc20Query(),
+                vanillaSuccess(),
+                callLocalDoesNotCheckSignaturesNorPayer(),
+                htsOwnershipCheckWorksWithAliasAddress());
     }
 
-    private HapiSpec vanillaSuccess() {
-        return defaultHapiSpec("VanillaSuccess")
+    @HapiTest
+    final HapiSpec htsOwnershipCheckWorksWithAliasAddress() {
+        final AtomicReference<AccountID> ecdsaAccountId = new AtomicReference<>();
+        final AtomicReference<ByteString> ecdsaAccountIdLongZeroAddress = new AtomicReference<>();
+        final AtomicReference<ByteString> ecdsaAccountIdAlias = new AtomicReference<>();
+        final AtomicReference<com.esaulpaugh.headlong.abi.Address> nftOwnerAddress = new AtomicReference<>();
+        final AtomicReference<com.esaulpaugh.headlong.abi.Address> senderAddress = new AtomicReference<>();
+
+        return defaultHapiSpec("htsOwnershipCheckWorksWithAliasAddress")
+                .given(
+                        cryptoCreate(TOKEN_TREASURY),
+                        newKeyNamed(SUPPLY_KEY),
+                        // Create an NFT
+                        tokenCreate(NFT_TOKEN)
+                                .tokenType(TokenType.NON_FUNGIBLE_UNIQUE)
+                                .treasury(TOKEN_TREASURY)
+                                .initialSupply(0L)
+                                .supplyKey(SUPPLY_KEY),
+                        mintToken(NFT_TOKEN, List.of(metadata(FIRST_MEMO), metadata(SECOND_MEMO)), "nftMint"),
+                        // Create an account with alias
+                        newKeyNamed(SECP_256K1_SOURCE_KEY).shape(SECP_256K1_SHAPE),
+                        cryptoTransfer(TokenMovement.movingUnique(NFT_TOKEN, 1L)
+                                .between(TOKEN_TREASURY, SECP_256K1_SOURCE_KEY)),
+                        // Send some HBAR to the aliased account, it will need it to pay for the query
+                        cryptoTransfer(
+                                TokenMovement.movingHbar(ONE_HUNDRED_HBARS).between(GENESIS, SECP_256K1_SOURCE_KEY)),
+                        // Calculate and log the aliased account addresses
+                        withOpContext((spec, opLog) -> {
+                            updateSpecFor(spec, SECP_256K1_SOURCE_KEY);
+                            final var registry = spec.registry();
+                            final var ecdsaKey = registry.getKey(SECP_256K1_SOURCE_KEY);
+                            final var tmp = ecdsaKey.getECDSASecp256K1().toByteArray();
+                            final var addressBytes = recoverAddressFromPubKey(tmp);
+                            final var evmAddressBytes = ByteString.copyFrom(addressBytes);
+                            ecdsaAccountId.set(registry.getAccountID(SECP_256K1_SOURCE_KEY));
+                            ecdsaAccountIdLongZeroAddress.set(
+                                    ByteString.copyFrom(asSolidityAddress(ecdsaAccountId.get())));
+                            ecdsaAccountIdAlias.set(evmAddressBytes);
+                            var logIt = logIt("\nAccount ID: " + ecdsaAccountId.get() + "\n" + " Long-zero address: "
+                                    + Address.wrap(Bytes.of(
+                                            ecdsaAccountIdLongZeroAddress.get().toByteArray())) + "\n"
+                                    + " Alias Recovered: "
+                                    + Address.wrap(
+                                            Bytes.of(ecdsaAccountIdAlias.get().toByteArray())));
+                            allRunFor(spec, logIt);
+                        }),
+                        // Deploy the OwnershipCheck contract
+                        uploadInitCode(OWNERSHIP_CHECK_CONTRACT),
+                        contractCreate(OWNERSHIP_CHECK_CONTRACT))
+                .when(withOpContext((spec, opLog) -> {
+                    // Make the contract query with the Aliased account
+                    var callLocal = contractCallLocal(
+                                    OWNERSHIP_CHECK_CONTRACT,
+                                    OWNERSHIP_CHECK_CONTRACT_IS_OWNER_FUNCTION,
+                                    HapiParserUtil.asHeadlongAddress(
+                                            asAddress(spec.registry().getTokenID(NFT_TOKEN))),
+                                    1L)
+                            .payingWith(SECP_256K1_SOURCE_KEY)
+                            .nodePayment(10 * ONE_HBAR)
+                            .exposingTypedResultsTo(results -> {
+                                nftOwnerAddress.set((com.esaulpaugh.headlong.abi.Address) results[0]);
+                                senderAddress.set((com.esaulpaugh.headlong.abi.Address) results[1]);
+                            });
+                    allRunFor(spec, callLocal);
+                }))
+                .then(
+                        // Assert that the address of the query sender and the address of the nft owner returned by the
+                        // HTS precompiled contract are the same
+                        withOpContext((spec, opLog) -> assertEquals(
+                                senderAddress.get(),
+                                nftOwnerAddress.get(),
+                                "Sender address should match the owner address.")));
+    }
+
+    @HapiTest
+    final HapiSpec vanillaSuccess() {
+        return defaultHapiSpec("vanillaSuccess")
                 .given(uploadInitCode(CONTRACT), contractCreate(CONTRACT).adminKey(THRESHOLD))
                 .when(contractCall(CONTRACT, "create").gas(785_000))
                 .then(
                         sleepFor(3_000L),
                         contractCallLocal(CONTRACT, "getIndirect")
-                                .has(
-                                        resultWith()
-                                                .resultViaFunctionName(
-                                                        "getIndirect",
-                                                        CONTRACT,
-                                                        isLiteralResult(
-                                                                new Object[] {
-                                                                    BigInteger.valueOf(7L)
-                                                                }))));
+                                .has(resultWith()
+                                        .resultViaFunctionName("getIndirect", CONTRACT, isLiteralResult(new Object[] {
+                                            BigInteger.valueOf(7L)
+                                        }))));
     }
 
-    private HapiSpec impureCallFails() {
-        return defaultHapiSpec("ImpureCallFails")
+    @HapiTest
+    final HapiSpec impureCallFails() {
+        return defaultHapiSpec("impureCallFails")
                 .given(uploadInitCode(CONTRACT), contractCreate(CONTRACT).adminKey(THRESHOLD))
                 .when()
                 .then(
                         sleepFor(3_000L),
                         contractCallLocal(CONTRACT, "create")
                                 .nodePayment(1_234_567)
-                                .hasAnswerOnlyPrecheck(
-                                        ResponseCodeEnum.LOCAL_CALL_MODIFICATION_EXCEPTION));
+                                .hasAnswerOnlyPrecheck(ResponseCodeEnum.LOCAL_CALL_MODIFICATION_EXCEPTION));
     }
 
-    private HapiSpec deletedContract() {
-        return defaultHapiSpec("InvalidDeletedContract")
+    @HapiTest
+    final HapiSpec invalidDeletedContract() {
+        return defaultHapiSpec("invalidDeletedContract")
                 .given(uploadInitCode(CONTRACT), contractCreate(CONTRACT))
                 .when(contractDelete(CONTRACT))
-                .then(
-                        contractCallLocal(CONTRACT, "create")
-                                .nodePayment(1_234_567)
-                                .hasAnswerOnlyPrecheck(CONTRACT_DELETED));
+                .then(contractCallLocal(CONTRACT, "create")
+                        .nodePayment(1_234_567)
+                        .hasAnswerOnlyPrecheck(CONTRACT_DELETED));
     }
 
-    private HapiSpec invalidContractID() {
+    @HapiTest
+    final HapiSpec invalidContractID() {
         final var invalidContract = HapiSpecSetup.getDefaultInstance().invalidContractName();
         final var functionAbi = getABIFor(FUNCTION, "getIndirect", "CreateTrivial");
         return defaultHapiSpec("InvalidContractID")
@@ -130,10 +236,11 @@ public class ContractCallLocalSuite extends HapiSuite {
                                 .hasAnswerOnlyPrecheck(INVALID_CONTRACT_ID));
     }
 
-    private HapiSpec insufficientFeeFails() {
+    @HapiTest
+    final HapiSpec insufficientFeeFails() {
         final long adequateQueryPayment = 500_000L;
 
-        return defaultHapiSpec("InsufficientFee")
+        return defaultHapiSpec("insufficientFeeFails")
                 .given(cryptoCreate("payer"), uploadInitCode(CONTRACT), contractCreate(CONTRACT))
                 .when(contractCall(CONTRACT, "create").gas(785_000))
                 .then(
@@ -145,10 +252,11 @@ public class ContractCallLocalSuite extends HapiSuite {
                                 .hasAnswerOnlyPrecheck(INSUFFICIENT_TX_FEE));
     }
 
-    private HapiSpec lowBalanceFails() {
+    @HapiTest
+    final HapiSpec lowBalanceFails() {
         final long adequateQueryPayment = 500_000_000L;
 
-        return defaultHapiSpec("LowBalanceFails")
+        return defaultHapiSpec("lowBalanceFails")
                 .given(
                         cryptoCreate("payer"),
                         cryptoCreate("payer").balance(adequateQueryPayment),
@@ -167,22 +275,30 @@ public class ContractCallLocalSuite extends HapiSuite {
                         getAccountBalance("payer").logged());
     }
 
-    private HapiSpec erc20Query() {
-        final var decimalsABI =
-                "{\"constant\": true,\"inputs\": [],\"name\": \"decimals\","
-                        + "\"outputs\": [{\"name\": \"\",\"type\": \"uint8\"}],\"payable\": false,"
-                        + "\"type\": \"function\"}";
+    @HapiTest
+    final HapiSpec erc20Query() {
+        final var decimalsABI = "{\"constant\": true,\"inputs\": [],\"name\": \"decimals\","
+                + "\"outputs\": [{\"name\": \"\",\"type\": \"uint8\"}],\"payable\": false,"
+                + "\"type\": \"function\"}";
 
-        return defaultHapiSpec("erc20Queries")
+        return defaultHapiSpec("erc20Query")
                 .given(tokenCreate(TOKEN).decimals(DECIMALS).symbol(SYMBOL).asCallableContract())
                 .when()
-                .then(
-                        contractCallLocalWithFunctionAbi(TOKEN, decimalsABI)
-                                .has(
-                                        resultWith()
-                                                .resultThruAbi(
-                                                        decimalsABI,
-                                                        isLiteralResult(new Object[] {DECIMALS}))));
+                .then(contractCallLocalWithFunctionAbi(TOKEN, decimalsABI)
+                        .has(resultWith().resultThruAbi(decimalsABI, isLiteralResult(new Object[] {DECIMALS}))));
+    }
+
+    // https://github.com/hashgraph/hedera-services/pull/5485
+    @HapiTest
+    final HapiSpec callLocalDoesNotCheckSignaturesNorPayer() {
+        return defaultHapiSpec("callLocalDoesNotCheckSignaturesNorPayer")
+                .given(uploadInitCode(CONTRACT), contractCreate(CONTRACT).adminKey(THRESHOLD))
+                .when(contractCall(CONTRACT, "create").gas(785_000))
+                .then(withOpContext((spec, opLog) -> IntStream.range(0, 2000).forEach(i -> {
+                    final var create = cryptoCreate("account #" + i).deferStatusResolution();
+                    final var callLocal = contractCallLocal(CONTRACT, "getIndirect");
+                    allRunFor(spec, create, callLocal);
+                })));
     }
 
     @Override

@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.migration;
 
 /** Gives the versions of the current and previous world states. */
@@ -40,11 +41,12 @@ public final class StateVersions {
     //   - Release 0.28.x was state version 21
     //   - Release 0.29.x was state version 22
     //   - Release 0.30.x was state version 23
-    public static final int RELEASE_030X_VERSION = 23;
+    //   - Release 0.31.x was state version 24
     public static final int RELEASE_0310_VERSION = 24;
+    public static final int RELEASE_0390_VERSION = 25;
 
-    public static final int MINIMUM_SUPPORTED_VERSION = RELEASE_030X_VERSION;
-    public static final int CURRENT_VERSION = RELEASE_0310_VERSION;
+    public static final int MINIMUM_SUPPORTED_VERSION = RELEASE_0310_VERSION;
+    public static final int CURRENT_VERSION = RELEASE_0390_VERSION;
 
     private StateVersions() {
         throw new UnsupportedOperationException("Utility Class");

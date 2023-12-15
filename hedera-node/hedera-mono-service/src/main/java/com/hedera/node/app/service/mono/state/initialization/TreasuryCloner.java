@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.initialization;
 
 import static com.hedera.node.app.service.mono.config.HederaNumbers.FIRST_POST_SYSTEM_FILE_ENTITY;
@@ -24,6 +25,7 @@ import static com.hedera.node.app.service.mono.context.properties.StaticProperti
 import com.hedera.node.app.service.mono.ledger.accounts.HederaAccountCustomizer;
 import com.hedera.node.app.service.mono.ledger.backing.BackingStore;
 import com.hedera.node.app.service.mono.state.migration.HederaAccount;
+import com.hedera.node.app.service.mono.utils.EntityNum;
 import com.hedera.node.app.spi.numbers.HederaAccountNumbers;
 import com.hederahashgraph.api.proto.java.AccountID;
 import java.util.ArrayList;
@@ -55,31 +57,35 @@ public class TreasuryCloner {
         this.accounts = accounts;
     }
 
-    public void ensureTreasuryClonesExist() {
+    public void ensureTreasuryClonesExist(boolean shouldSkipExtantAndCreateMissing) {
         final var treasuryId = STATIC_PROPERTIES.scopedAccountWith(accountNums.treasury());
         final var treasury = accounts.getImmutableRef(treasuryId);
         for (final var num : nonContractSystemNums()) {
             final var nextCloneId = STATIC_PROPERTIES.scopedAccountWith(num);
-            if (accounts.contains(nextCloneId)) {
+            if (shouldSkipExtantAndCreateMissing && accounts.contains(nextCloneId)) {
                 // In ^0.28.6, all accounts will either exist (restart) or not exist (genesis)
                 continue;
             }
-            final var nextClone =
-                    new HederaAccountCustomizer()
-                            .isReceiverSigRequired(treasury.isReceiverSigRequired())
-                            .isDeclinedReward(treasury.isDeclinedReward())
-                            .isDeleted(false)
-                            .expiry(treasury.getExpiry())
-                            .memo(treasury.getMemo())
-                            .isSmartContract(false)
-                            .key(treasury.getAccountKey())
-                            .autoRenewPeriod(treasury.getAutoRenewSecs())
-                            .customizing(accountSupplier.get());
-            accounts.put(nextCloneId, nextClone);
+            final var nextClone = new HederaAccountCustomizer()
+                    .isReceiverSigRequired(treasury.isReceiverSigRequired())
+                    .isDeclinedReward(treasury.isDeclinedReward())
+                    .isDeleted(false)
+                    .expiry(treasury.getExpiry())
+                    .memo(treasury.getMemo())
+                    .isSmartContract(false)
+                    .key(treasury.getAccountKey())
+                    .autoRenewPeriod(treasury.getAutoRenewSecs())
+                    .customizing(accountSupplier.get());
+            if (shouldSkipExtantAndCreateMissing) {
+                accounts.put(nextCloneId, nextClone);
+            } else {
+                nextClone.setEntityNum(EntityNum.fromAccountId(nextCloneId));
+            }
             clonesCreated.add(nextClone);
         }
         log.info(
-                "Created {} zero-balance accounts cloning treasury properties in the {}-{} range",
+                "{} {} zero-balance accounts cloning treasury properties in the {}-{} range",
+                shouldSkipExtantAndCreateMissing ? "Created" : "Synthesized records for",
                 clonesCreated.size(),
                 FIRST_POST_SYSTEM_FILE_ENTITY,
                 NUM_RESERVED_SYSTEM_ENTITIES);
@@ -95,10 +101,7 @@ public class TreasuryCloner {
 
     private long[] nonContractSystemNums() {
         return LongStream.rangeClosed(FIRST_POST_SYSTEM_FILE_ENTITY, NUM_RESERVED_SYSTEM_ENTITIES)
-                .filter(
-                        i ->
-                                i < FIRST_RESERVED_SYSTEM_CONTRACT
-                                        || i > LAST_RESERVED_SYSTEM_CONTRACT)
+                .filter(i -> i < FIRST_RESERVED_SYSTEM_CONTRACT || i > LAST_RESERVED_SYSTEM_CONTRACT)
                 .toArray();
     }
 }

@@ -13,14 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.initialization;
 
 public interface SystemFilesManager {
     void createAddressBookIfMissing();
 
     void createNodeDetailsIfMissing();
-
-    void updateStakeDetails();
 
     void createUpdateFilesIfMissing();
 

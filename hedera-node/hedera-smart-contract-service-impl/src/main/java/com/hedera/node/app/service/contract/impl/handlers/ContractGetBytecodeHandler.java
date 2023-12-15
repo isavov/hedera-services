@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Hedera Hashgraph, LLC
+ * Copyright (C) 2022-2023 Hedera Hashgraph, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,70 +13,105 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.contract.impl.handlers;
 
+import static com.hedera.hapi.node.base.ResponseCodeEnum.CONTRACT_DELETED;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.INVALID_CONTRACT_ID;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.OK;
+import static com.hedera.hapi.node.base.ResponseType.ANSWER_ONLY;
+import static com.hedera.node.app.spi.workflows.PreCheckException.validateFalsePreCheck;
 import static java.util.Objects.requireNonNull;
 
+import com.hedera.hapi.node.base.ContractID;
+import com.hedera.hapi.node.base.HederaFunctionality;
+import com.hedera.hapi.node.base.QueryHeader;
+import com.hedera.hapi.node.base.ResponseHeader;
+import com.hedera.hapi.node.contract.ContractGetBytecodeResponse;
+import com.hedera.hapi.node.state.common.EntityNumber;
+import com.hedera.hapi.node.state.token.Account;
+import com.hedera.hapi.node.transaction.Query;
+import com.hedera.hapi.node.transaction.Response;
+import com.hedera.node.app.service.contract.impl.state.ContractStateStore;
+import com.hedera.node.app.service.token.ReadableAccountStore;
+import com.hedera.node.app.spi.fees.Fees;
 import com.hedera.node.app.spi.workflows.PaidQueryHandler;
 import com.hedera.node.app.spi.workflows.PreCheckException;
-import com.hederahashgraph.api.proto.java.ContractGetBytecodeResponse;
-import com.hederahashgraph.api.proto.java.Query;
-import com.hederahashgraph.api.proto.java.QueryHeader;
-import com.hederahashgraph.api.proto.java.Response;
-import com.hederahashgraph.api.proto.java.ResponseHeader;
+import com.hedera.node.app.spi.workflows.QueryContext;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
 /**
- * This class contains all workflow-related functionality regarding {@link
- * com.hederahashgraph.api.proto.java.HederaFunctionality#ContractGetBytecode}.
+ * This class contains all workflow-related functionality regarding {@link HederaFunctionality#CONTRACT_GET_BYTECODE}.
  */
 @Singleton
 public class ContractGetBytecodeHandler extends PaidQueryHandler {
     @Inject
-    public ContractGetBytecodeHandler() {}
+    public ContractGetBytecodeHandler() {
+        // Exists for injection
+    }
 
     @Override
     public QueryHeader extractHeader(@NonNull final Query query) {
         requireNonNull(query);
-        return query.getContractGetBytecode().getHeader();
+        return query.contractGetBytecodeOrThrow().header();
     }
 
     @Override
     public Response createEmptyResponse(@NonNull final ResponseHeader header) {
-        final var response = ContractGetBytecodeResponse.newBuilder().setHeader(header);
-        return Response.newBuilder().setContractGetBytecodeResponse(response).build();
+        requireNonNull(header);
+        final var response = ContractGetBytecodeResponse.newBuilder().header(header);
+        return Response.newBuilder().contractGetBytecodeResponse(response).build();
     }
 
-    /**
-     * This method is called during the query workflow. It validates the query, but does not
-     * determine the response yet.
-     *
-     * <p>Please note: the method signature is just a placeholder which is most likely going to
-     * change.
-     *
-     * @param query the {@link Query} that should be validated
-     * @throws NullPointerException if one of the arguments is {@code null}
-     * @throws PreCheckException if validation fails
-     */
-    public void validate(@NonNull final Query query) throws PreCheckException {
-        throw new UnsupportedOperationException("Not implemented");
+    @Override
+    public void validate(@NonNull final QueryContext context) throws PreCheckException {
+        requireNonNull(context);
+        validateFalsePreCheck(contractFrom(context) == null, INVALID_CONTRACT_ID);
+        validateFalsePreCheck(contractFrom(context).deleted(), CONTRACT_DELETED);
     }
 
-    /**
-     * This method is called during the query workflow. It determines the requested value(s) and
-     * returns the appropriate response.
-     *
-     * <p>Please note: the method signature is just a placeholder which is most likely going to
-     * change.
-     *
-     * @param query the {@link Query} with the request
-     * @param header the {@link ResponseHeader} that should be used, if the request was successful
-     * @return a {@link Response} with the requested values
-     * @throws NullPointerException if one of the arguments is {@code null}
-     */
-    public Response findResponse(@NonNull final Query query, @NonNull final ResponseHeader header) {
-        throw new UnsupportedOperationException("Not implemented");
+    @Override
+    public Response findResponse(@NonNull final QueryContext context, @NonNull final ResponseHeader header) {
+        requireNonNull(context);
+        requireNonNull(header);
+        final var contractGetBytecode = ContractGetBytecodeResponse.newBuilder().header(header);
+
+        // although ResponseType enum includes an unsupported field ResponseType#ANSWER_STATE_PROOF,
+        // the response returned ONLY when both
+        // the ResponseHeader#nodeTransactionPrecheckCode is OK and the requested response type is
+        // ResponseType#ANSWER_ONLY
+        if (header.nodeTransactionPrecheckCode() == OK && header.responseType() == ANSWER_ONLY) {
+            final var contract = requireNonNull(contractFrom(context));
+            contractGetBytecode.bytecode(bytecodeFrom(context, contract));
+        }
+        return Response.newBuilder()
+                .contractGetBytecodeResponse(contractGetBytecode)
+                .build();
+    }
+
+    private @Nullable Account contractFrom(@NonNull final QueryContext context) {
+        final var accountsStore = context.createStore(ReadableAccountStore.class);
+        final var contractId = context.query().contractGetBytecodeOrThrow().contractIDOrElse(ContractID.DEFAULT);
+        final var contract = accountsStore.getContractById(contractId);
+        return (contract == null || !contract.smartContract()) ? null : contract;
+    }
+
+    private Bytes bytecodeFrom(@NonNull final QueryContext context, @NonNull Account contract) {
+        final var store = context.createStore(ContractStateStore.class);
+        var contractNumber = contract.accountId().accountNum();
+        var contractEntityNumber =
+                EntityNumber.newBuilder().number(contractNumber).build();
+        final var bytecode = store.getBytecode(contractEntityNumber);
+        return bytecode.code();
+    }
+
+    @NonNull
+    @Override
+    public Fees computeFees(@NonNull final QueryContext context) {
+        return context.feeCalculator().calculate();
     }
 }

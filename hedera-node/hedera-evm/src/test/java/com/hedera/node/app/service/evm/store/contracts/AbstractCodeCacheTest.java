@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.evm.store.contracts;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -28,6 +29,7 @@ import org.apache.tuweni.bytes.Bytes;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.evm.Code;
+import org.hyperledger.besu.evm.code.CodeFactory;
 import org.hyperledger.besu.evm.code.CodeV0;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,7 +39,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class AbstractCodeCacheTest {
-    @Mock HederaEvmEntityAccess entityAccess;
+    @Mock
+    HederaEvmEntityAccess entityAccess;
 
     MockAbstractCodeCache codeCache;
 
@@ -57,8 +60,7 @@ class AbstractCodeCacheTest {
         Code code = codeCache.getIfPresent(Address.fromHexString("0xabc"));
 
         assertEquals(
-                Hash.fromHexString(
-                        "0x4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45"),
+                Hash.fromHexString("0x4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45"),
                 code.getCodeHash());
     }
 
@@ -67,7 +69,7 @@ class AbstractCodeCacheTest {
         given(entityAccess.fetchCodeIfPresent(any())).willReturn(Bytes.EMPTY);
         Code code = codeCache.getIfPresent(Address.fromHexString("0xabc"));
 
-        assertTrue(code.getContainerBytes().isEmpty());
+        assertTrue(code.getBytes().isEmpty());
     }
 
     @Test
@@ -81,6 +83,28 @@ class AbstractCodeCacheTest {
 
         assertEquals(code, codeResult);
         verifyNoInteractions(entityAccess);
+    }
+
+    @Test
+    void conditionalInvalidateNoopUntilMismatchedCode() {
+        final var unrelatedAddress = Address.fromHexString("0x0123");
+        final var finalizedAddress = Address.fromHexString("0xabcd");
+        final var expectedBytecode = Bytes.fromHexString("0xef");
+        final var unexpectedBytecode = Bytes.fromHexString("0xaa");
+        final var expectedCode = CodeFactory.createCode(expectedBytecode, 0, false);
+        final var unexpectedCode = CodeFactory.createCode(unexpectedBytecode, 0, false);
+
+        codeCache.cacheValue(new BytesKey(unrelatedAddress.toArray()), CodeV0.EMPTY_CODE);
+        codeCache.invalidateIfPresentAndNot(finalizedAddress, expectedBytecode);
+        assertEquals(1, codeCache.size());
+
+        codeCache.cacheValue(new BytesKey(finalizedAddress.toArray()), expectedCode);
+        codeCache.invalidateIfPresentAndNot(finalizedAddress, expectedBytecode);
+        assertEquals(2, codeCache.size());
+
+        codeCache.cacheValue(new BytesKey(finalizedAddress.toArray()), unexpectedCode);
+        codeCache.invalidateIfPresentAndNot(finalizedAddress, expectedBytecode);
+        assertEquals(1, codeCache.size());
     }
 
     @Test
@@ -99,7 +123,7 @@ class AbstractCodeCacheTest {
 
         assertEquals(
                 HederaEvmWorldStateTokenAccount.proxyBytecodeFor(Address.fromHexString("0xabc")),
-                codeCache.getIfPresent(Address.fromHexString("0xabc")).getContainerBytes());
+                codeCache.getIfPresent(Address.fromHexString("0xabc")).getBytes());
     }
 
     @Test

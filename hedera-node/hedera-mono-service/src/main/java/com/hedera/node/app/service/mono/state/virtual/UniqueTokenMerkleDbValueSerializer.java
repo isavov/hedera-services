@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Hedera Hashgraph, LLC
+ * Copyright (C) 2021-2023 Hedera Hashgraph, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,9 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.virtual;
 
-import com.swirlds.common.io.streams.SerializableDataOutputStream;
 import com.swirlds.merkledb.serialize.ValueSerializer;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -56,11 +56,15 @@ public class UniqueTokenMerkleDbValueSerializer implements ValueSerializer<Uniqu
         return VARIABLE_DATA_SIZE;
     }
 
+    // FUTURE WORK: mark it as @Override after migration to platform 0.39
+    public int getTypicalSerializedSize() {
+        return UniqueTokenValue.getTypicalSerializedSize();
+    }
+
     // Value serialization
 
     @Override
-    public int serialize(final UniqueTokenValue value, final SerializableDataOutputStream out)
-            throws IOException {
+    public int serialize(final UniqueTokenValue value, final ByteBuffer out) throws IOException {
         Objects.requireNonNull(value);
         Objects.requireNonNull(out);
         value.serialize(out);
@@ -70,8 +74,7 @@ public class UniqueTokenMerkleDbValueSerializer implements ValueSerializer<Uniqu
     // Value deserialization
 
     @Override
-    public UniqueTokenValue deserialize(final ByteBuffer buffer, final long version)
-            throws IOException {
+    public UniqueTokenValue deserialize(final ByteBuffer buffer, final long version) throws IOException {
         Objects.requireNonNull(buffer);
         final UniqueTokenValue value = new UniqueTokenValue();
         value.deserialize(buffer, (int) version);

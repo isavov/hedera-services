@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.throttling;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -24,9 +25,12 @@ import static com.hedera.services.bdd.spec.utilops.UtilVerbs.overridingAllOfDefe
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.overridingTwo;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.remembering;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.BUSY;
+import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.MAX_GAS_LIMIT_EXCEEDED;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.OK;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.SUCCESS;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.utilops.UtilVerbs;
 import com.hedera.services.bdd.suites.HapiSuite;
@@ -37,6 +41,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.tuweni.bytes.Bytes;
 
+@HapiTestSuite
 public class GasLimitThrottlingSuite extends HapiSuite {
 
     private static final Logger log = LogManager.getLogger(GasLimitThrottlingSuite.class);
@@ -54,7 +59,8 @@ public class GasLimitThrottlingSuite extends HapiSuite {
         new GasLimitThrottlingSuite().runSuiteSync();
     }
 
-    private HapiSpec txsUnderGasLimitAllowed() {
+    @HapiTest
+    final HapiSpec txsUnderGasLimitAllowed() {
         final var NUM_CALLS = 10;
         final Map<String, String> startingProps = new HashMap<>();
         return defaultHapiSpec("TXsUnderGasLimitAllowed")
@@ -69,43 +75,51 @@ public class GasLimitThrottlingSuite extends HapiSuite {
                         uploadInitCode(CONTRACT),
                         contractCreate(CONTRACT).payingWith(PAYER_ACCOUNT))
                 .then(
-                        UtilVerbs.inParallel(
-                                asOpArray(
-                                        NUM_CALLS,
-                                        i ->
-                                                contractCall(
-                                                                CONTRACT,
-                                                                "twoSSTOREs",
-                                                                Bytes.fromHexString("0x05")
-                                                                        .toArray())
-                                                        .gas(100_000)
-                                                        .payingWith(PAYER_ACCOUNT)
-                                                        .hasKnownStatusFrom(SUCCESS, OK))),
+                        UtilVerbs.inParallel(asOpArray(NUM_CALLS, i -> contractCall(
+                                        CONTRACT,
+                                        "twoSSTOREs",
+                                        Bytes.fromHexString(
+                                                        "0x0000000000000000000000000000000000000000000000000000000000000005")
+                                                .toArray())
+                                .gas(100_000)
+                                .payingWith(PAYER_ACCOUNT)
+                                .hasKnownStatusFrom(SUCCESS, OK))),
                         UtilVerbs.sleepFor(1000),
-                        contractCall(CONTRACT, "twoSSTOREs", Bytes.fromHexString("0x06").toArray())
+                        contractCall(
+                                        CONTRACT,
+                                        "twoSSTOREs",
+                                        Bytes.fromHexString(
+                                                        "0x0000000000000000000000000000000000000000000000000000000000000006")
+                                                .toArray())
                                 .gas(1_000_000L)
                                 .payingWith(PAYER_ACCOUNT)
                                 .hasKnownStatusFrom(SUCCESS, OK),
                         overridingAllOfDeferred(() -> startingProps));
     }
 
-    private HapiSpec txOverGasLimitThrottled() {
+    @HapiTest
+    final HapiSpec txOverGasLimitThrottled() {
         final Map<String, String> startingProps = new HashMap<>();
+        final var MAX_GAS_PER_SECOND = 1_000_001L;
         return defaultHapiSpec("TXOverGasLimitThrottled")
                 .given(
                         remembering(startingProps, USE_GAS_THROTTLE_PROP, CONS_MAX_GAS_PROP),
                         overridingTwo(
-                                USE_GAS_THROTTLE_PROP, "true",
-                                CONS_MAX_GAS_PROP, "1000001"))
+                                USE_GAS_THROTTLE_PROP, "true", CONS_MAX_GAS_PROP, String.valueOf(MAX_GAS_PER_SECOND)))
                 .when(
                         cryptoCreate(PAYER_ACCOUNT).balance(ONE_MILLION_HBARS),
                         uploadInitCode(CONTRACT),
                         contractCreate(CONTRACT))
                 .then(
-                        contractCall(CONTRACT, "twoSSTOREs", Bytes.fromHexString("0x05").toArray())
-                                .gas(1_000_001)
+                        contractCall(
+                                        CONTRACT,
+                                        "twoSSTOREs",
+                                        Bytes.fromHexString(
+                                                        "0x0000000000000000000000000000000000000000000000000000000000000005")
+                                                .toArray())
+                                .gas(MAX_GAS_PER_SECOND + 1L)
                                 .payingWith(PAYER_ACCOUNT)
-                                .hasPrecheck(BUSY),
+                                .hasPrecheckFrom(MAX_GAS_LIMIT_EXCEEDED, BUSY),
                         overridingAllOfDeferred(() -> startingProps));
     }
 

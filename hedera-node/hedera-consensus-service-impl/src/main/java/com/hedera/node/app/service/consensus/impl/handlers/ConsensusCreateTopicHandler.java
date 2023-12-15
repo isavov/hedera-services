@@ -13,68 +13,163 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.consensus.impl.handlers;
 
-import static com.hedera.node.app.service.mono.Utils.asHederaKey;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.AUTORENEW_ACCOUNT_NOT_ALLOWED;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.AUTORENEW_DURATION_NOT_IN_RANGE;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.BAD_ENCODING;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.INVALID_AUTORENEW_ACCOUNT;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.INVALID_EXPIRATION_TIME;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.MAX_ENTITIES_IN_PRICE_REGIME_HAVE_BEEN_CREATED;
+import static com.hedera.node.app.service.consensus.impl.ConsensusServiceImpl.RUNNING_HASH_BYTE_ARRAY_SIZE;
+import static com.hedera.node.app.service.mono.pbj.PbjConverter.fromPbj;
+import static com.hedera.node.app.spi.workflows.HandleException.validateTrue;
 import static java.util.Objects.requireNonNull;
 
-import com.hedera.node.app.spi.meta.PreHandleContext;
-import com.hedera.node.app.spi.meta.TransactionMetadata;
+import com.hedera.hapi.node.base.Duration;
+import com.hedera.hapi.node.base.HederaFunctionality;
+import com.hedera.hapi.node.base.SubType;
+import com.hedera.hapi.node.base.TopicID;
+import com.hedera.hapi.node.state.consensus.Topic;
+import com.hedera.node.app.service.consensus.impl.WritableTopicStore;
+import com.hedera.node.app.service.consensus.impl.records.ConsensusCreateTopicRecordBuilder;
+import com.hedera.node.app.service.mono.fees.calculation.consensus.txns.CreateTopicResourceUsage;
+import com.hedera.node.app.spi.fees.FeeContext;
+import com.hedera.node.app.spi.fees.Fees;
+import com.hedera.node.app.spi.validation.ExpiryMeta;
+import com.hedera.node.app.spi.workflows.HandleContext;
+import com.hedera.node.app.spi.workflows.HandleException;
+import com.hedera.node.app.spi.workflows.PreCheckException;
+import com.hedera.node.app.spi.workflows.PreHandleContext;
 import com.hedera.node.app.spi.workflows.TransactionHandler;
-import com.hederahashgraph.api.proto.java.ResponseCodeEnum;
-import com.hederahashgraph.api.proto.java.TransactionBody;
+import com.hedera.node.config.data.TopicsConfig;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
 /**
- * This class contains all workflow-related functionality regarding {@link
- * com.hederahashgraph.api.proto.java.HederaFunctionality#ConsensusCreateTopic}.
+ * This class contains all workflow-related functionality regarding {@link HederaFunctionality#CONSENSUS_CREATE_TOPIC}.
  */
 @Singleton
 public class ConsensusCreateTopicHandler implements TransactionHandler {
     @Inject
-    public ConsensusCreateTopicHandler() {}
+    public ConsensusCreateTopicHandler() {
+        // Exists for injection
+    }
 
-    /**
-     * This method is called during the pre-handle workflow.
-     *
-     * <p>Typically, this method validates the {@link TransactionBody} semantically, gathers all
-     * required keys, warms the cache, and creates the {@link TransactionMetadata} that is used in
-     * the handle stage.
-     *
-     * <p>Please note: the method signature is just a placeholder which is most likely going to
-     * change.
-     *
-     * @param context the {@link PreHandleContext} which collects all information that will be
-     *     passed to {@link #handle(TransactionMetadata)}
-     * @throws NullPointerException if one of the arguments is {@code null}
-     */
-    public void preHandle(@NonNull final PreHandleContext context) {
+    @Override
+    public void preHandle(@NonNull final PreHandleContext context) throws PreCheckException {
         requireNonNull(context);
-        final var op = context.getTxn().getConsensusCreateTopic();
-        final var adminKey = asHederaKey(op.getAdminKey());
-        adminKey.ifPresent(context::addToReqNonPayerKeys);
-        final var submitKey = asHederaKey(op.getSubmitKey());
-        submitKey.ifPresent(context::addToReqNonPayerKeys);
+        final var op = context.body().consensusCreateTopicOrThrow();
 
+        // The transaction cannot set the admin key unless the transaction was signed by that key
+        if (op.hasAdminKey()) {
+            context.requireKeyOrThrow(op.adminKey(), BAD_ENCODING);
+            //  context.requireKeyOrThrow(op.adminKey(), INVALID_ADMIN_KEY); ref #7770
+        }
+
+        // If an account is to be used for auto-renewal, then the account must exist and the transaction
+        // must be signed with that account's key.
         if (op.hasAutoRenewAccount()) {
-            final var autoRenewAccount = op.getAutoRenewAccount();
-            context.addNonPayerKey(autoRenewAccount, ResponseCodeEnum.INVALID_AUTORENEW_ACCOUNT);
+            final var autoRenewAccountID = op.autoRenewAccount();
+            context.requireKeyOrThrow(autoRenewAccountID, INVALID_AUTORENEW_ACCOUNT);
         }
     }
 
     /**
-     * This method is called during the handle workflow. It executes the actual transaction.
+     * Given the appropriate context, creates a new topic.
      *
-     * <p>Please note: the method signature is just a placeholder which is most likely going to
-     * change.
-     *
-     * @param metadata the {@link TransactionMetadata} that was generated during pre-handle.
+     * @param handleContext the {@link HandleContext} for the active transaction
      * @throws NullPointerException if one of the arguments is {@code null}
      */
-    public void handle(@NonNull final TransactionMetadata metadata) {
-        requireNonNull(metadata);
-        throw new UnsupportedOperationException("Not implemented");
+    @Override
+    public void handle(@NonNull final HandleContext handleContext) {
+        requireNonNull(handleContext, "The argument 'context' must not be null");
+
+        final var op = handleContext.body().consensusCreateTopicOrThrow();
+
+        final var configuration = handleContext.configuration();
+        final var topicConfig = configuration.getConfigData(TopicsConfig.class);
+        final var topicStore = handleContext.writableStore(WritableTopicStore.class);
+
+        final var builder = new Topic.Builder();
+
+        /* Validate admin and submit keys and set them. Empty key list is allowed and is used for immutable entities */
+        if (op.hasAdminKey() && !handleContext.attributeValidator().isImmutableKey(op.adminKey())) {
+            handleContext.attributeValidator().validateKey(op.adminKey());
+            builder.adminKey(op.adminKey());
+        }
+
+        // submitKey() is not checked in preCheck()
+        if (op.hasSubmitKey()) {
+            handleContext.attributeValidator().validateKey(op.submitKey());
+            builder.submitKey(op.submitKey());
+        }
+
+        /* Validate if the current topic can be created */
+        if (topicStore.sizeOfState() >= topicConfig.maxNumber()) {
+            throw new HandleException(MAX_ENTITIES_IN_PRICE_REGIME_HAVE_BEEN_CREATED);
+        }
+
+        /* Validate the topic memo */
+        handleContext.attributeValidator().validateMemo(op.memo());
+        builder.memo(op.memo());
+
+        final var impliedExpiry = handleContext.consensusNow().getEpochSecond()
+                + op.autoRenewPeriodOrElse(Duration.DEFAULT).seconds();
+
+        final var entityExpiryMeta = new ExpiryMeta(
+                impliedExpiry, op.autoRenewPeriodOrElse(Duration.DEFAULT).seconds(), op.autoRenewAccount());
+
+        try {
+            final var effectiveExpiryMeta = handleContext
+                    .expiryValidator()
+                    .resolveCreationAttempt(false, entityExpiryMeta, HederaFunctionality.CONSENSUS_CREATE_TOPIC);
+
+            // HapiTest, TopicCreateSuite.signingRequirementsEnforced() expects error code from resolveCreationAttempt()
+            // before the following check
+            if (op.hasAutoRenewAccount()) {
+                validateTrue(op.hasAdminKey(), AUTORENEW_ACCOUNT_NOT_ALLOWED);
+            }
+
+            builder.autoRenewPeriod(effectiveExpiryMeta.autoRenewPeriod());
+            builder.expirationSecond(effectiveExpiryMeta.expiry());
+            builder.autoRenewAccountId(effectiveExpiryMeta.autoRenewAccountId());
+
+            /* --- Add topic id to topic builder --- */
+            builder.topicId(
+                    TopicID.newBuilder().topicNum(handleContext.newEntityNum()).build());
+
+            builder.runningHash(Bytes.wrap(new byte[RUNNING_HASH_BYTE_ARRAY_SIZE]));
+
+            /* --- Put the final topic. It will be in underlying state's modifications map.
+            It will not be committed to state until commit is called on the state.--- */
+            final var topic = builder.build();
+            topicStore.put(topic);
+
+            /* --- Build the record with newly created topic --- */
+            final var recordBuilder = handleContext.recordBuilder(ConsensusCreateTopicRecordBuilder.class);
+
+            recordBuilder.topicID(topic.topicId());
+        } catch (final HandleException e) {
+            if (e.getStatus() == INVALID_EXPIRATION_TIME) {
+                // Since for some reason TopicCreateTransactionBody does not have an expiration time,
+                // it makes more sense to propagate AUTORENEW_DURATION_NOT_IN_RANGE
+                throw new HandleException(AUTORENEW_DURATION_NOT_IN_RANGE);
+            }
+            throw e;
+        }
+    }
+
+    @NonNull
+    @Override
+    public Fees calculateFees(@NonNull final FeeContext feeContext) {
+        requireNonNull(feeContext);
+        final var op = feeContext.body();
+
+        return feeContext.feeCalculator(SubType.DEFAULT).legacyCalculate(sigValueObj -> new CreateTopicResourceUsage()
+                .usageGiven(fromPbj(op), sigValueObj, null));
     }
 }

@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.spec.transactions.contract;
 
 import static com.hedera.services.bdd.spec.transactions.TxnFactory.bannerWith;
@@ -42,10 +43,15 @@ import com.hederahashgraph.api.proto.java.Transaction;
 import com.hederahashgraph.api.proto.java.TransactionBody;
 import com.hederahashgraph.api.proto.java.TransactionResponse;
 import com.swirlds.common.utility.CommonUtils;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
+import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.LongConsumer;
@@ -53,8 +59,9 @@ import java.util.function.ObjLongConsumer;
 import java.util.function.Supplier;
 
 public class HapiContractCreate extends HapiBaseContractCreate<HapiContractCreate> {
-    static final Key DEPRECATED_CID_ADMIN_KEY =
-            Key.newBuilder().setContractID(ContractID.newBuilder().setContractNum(1_234L)).build();
+    static final Key DEPRECATED_CID_ADMIN_KEY = Key.newBuilder()
+            .setContractID(ContractID.newBuilder().setContractNum(1_234L))
+            .build();
 
     public HapiContractCreate(String contract) {
         super(contract);
@@ -64,9 +71,19 @@ public class HapiContractCreate extends HapiBaseContractCreate<HapiContractCreat
         super(contract, abi, args);
     }
 
+    public HapiContractCreate(
+            @NonNull final String contract,
+            @NonNull final BiConsumer<HapiSpec, ContractCreateTransactionBody.Builder> spec) {
+        super(contract);
+        this.spec = spec;
+    }
+
     private Optional<String> autoRenewAccount = Optional.empty();
     private Optional<Integer> maxAutomaticTokenAssociations = Optional.empty();
     private Optional<ByteString> inlineInitcode = Optional.empty();
+
+    @Nullable
+    private BiConsumer<HapiSpec, ContractCreateTransactionBody.Builder> spec;
 
     public HapiContractCreate exposingNumTo(LongConsumer obs) {
         newNumObserver = Optional.of(obs);
@@ -225,11 +242,7 @@ public class HapiContractCreate extends HapiBaseContractCreate<HapiContractCreat
     protected void updateStateOf(HapiSpec spec) throws Throwable {
         if (actualStatus != SUCCESS) {
             if (gasObserver.isPresent()) {
-                doGasLookup(
-                        gas -> gasObserver.get().accept(actualStatus, gas),
-                        spec,
-                        txnSubmitted,
-                        true);
+                doGasLookup(gas -> gasObserver.get().accept(actualStatus, gas), spec, txnSubmitted, true);
             }
             return;
         }
@@ -238,23 +251,15 @@ public class HapiContractCreate extends HapiBaseContractCreate<HapiContractCreat
         if (shouldAlsoRegisterAsAccount) {
             spec.registry().saveAccountId(contract, equivAccount(lastReceipt.getContractID()));
         }
-        spec.registry()
-                .saveKey(
-                        contract,
-                        (omitAdminKey || useDeprecatedAdminKey) ? MISSING_ADMIN_KEY : adminKey);
+        spec.registry().saveKey(contract, (omitAdminKey || useDeprecatedAdminKey) ? MISSING_ADMIN_KEY : adminKey);
         spec.registry().saveContractId(contract, newId);
-        final var otherInfoBuilder =
-                ContractGetInfoResponse.ContractInfo.newBuilder()
-                        .setContractAccountID(solidityIdFrom(lastReceipt.getContractID()))
-                        .setMemo(memo.orElse(spec.setup().defaultMemo()))
-                        .setAutoRenewPeriod(
-                                Duration.newBuilder()
-                                        .setSeconds(
-                                                autoRenewPeriodSecs.orElse(
-                                                        spec.setup()
-                                                                .defaultAutoRenewPeriod()
-                                                                .getSeconds()))
-                                        .build());
+        final var otherInfoBuilder = ContractGetInfoResponse.ContractInfo.newBuilder()
+                .setContractAccountID(solidityIdFrom(lastReceipt.getContractID()))
+                .setMemo(memo.orElse(spec.setup().defaultMemo()))
+                .setAutoRenewPeriod(Duration.newBuilder()
+                        .setSeconds(autoRenewPeriodSecs.orElse(
+                                spec.setup().defaultAutoRenewPeriod().getSeconds()))
+                        .build());
         if (!omitAdminKey && !useDeprecatedAdminKey) {
             otherInfoBuilder.setAdminKey(adminKey);
         }
@@ -262,13 +267,10 @@ public class HapiContractCreate extends HapiBaseContractCreate<HapiContractCreat
         spec.registry().saveContractInfo(contract, otherInfo);
         successCb.ifPresent(cb -> cb.accept(spec.registry()));
         if (advertiseCreation) {
-            String banner =
-                    "\n\n"
-                            + bannerWith(
-                                    String.format(
-                                            "Created contract '%s' with id '0.0.%d'.",
-                                            contract,
-                                            lastReceipt.getContractID().getContractNum()));
+            String banner = "\n\n"
+                    + bannerWith(String.format(
+                            "Created contract '%s' with id '0.0.%d'.",
+                            contract, lastReceipt.getContractID().getContractNum()));
             log.info(banner);
         }
         if (gasObserver.isPresent()) {
@@ -278,6 +280,15 @@ public class HapiContractCreate extends HapiBaseContractCreate<HapiContractCreat
 
     @Override
     protected Consumer<TransactionBody.Builder> opBodyDef(HapiSpec spec) throws Throwable {
+        if (this.spec != null) {
+            return b -> {
+                try {
+                    b.setContractCreateInstance(explicitContractCreate(spec));
+                } catch (InvocationTargetException | NoSuchMethodException | IllegalAccessException e) {
+                    throw new RuntimeException(e);
+                }
+            };
+        }
         if (!omitAdminKey && !useDeprecatedAdminKey) {
             generateAdminKey(spec);
         }
@@ -293,71 +304,57 @@ public class HapiContractCreate extends HapiBaseContractCreate<HapiContractCreat
         if (explicitHexedParams.isPresent()) {
             params = explicitHexedParams.map(Supplier::get).map(CommonUtils::unhex);
         } else {
-            params =
-                    abi.isPresent()
-                            ? Optional.of(encodeParametersForConstructor(args.get(), abi.get()))
-                            : Optional.empty();
+            params = abi.isPresent()
+                    ? Optional.of(encodeParametersForConstructor(args.get(), abi.get()))
+                    : Optional.empty();
         }
-        ContractCreateTransactionBody opBody =
-                spec.txns()
-                        .<ContractCreateTransactionBody, ContractCreateTransactionBody.Builder>body(
-                                ContractCreateTransactionBody.class,
-                                b -> {
-                                    if (useDeprecatedAdminKey) {
-                                        b.setAdminKey(DEPRECATED_CID_ADMIN_KEY);
-                                    } else if (omitAdminKey) {
-                                        if (makeImmutable) {
-                                            b.setAdminKey(
-                                                    Key.newBuilder()
-                                                            .setKeyList(
-                                                                    KeyList.getDefaultInstance()));
-                                        }
-                                    } else {
-                                        b.setAdminKey(adminKey);
-                                    }
-                                    inlineInitcode.ifPresentOrElse(
-                                            b::setInitcode,
-                                            () ->
-                                                    b.setFileID(
-                                                            TxnUtils.asFileId(
-                                                                    bytecodeFile.get(), spec)));
-                                    autoRenewPeriodSecs.ifPresent(
-                                            p ->
-                                                    b.setAutoRenewPeriod(
-                                                            Duration.newBuilder()
-                                                                    .setSeconds(p)
-                                                                    .build()));
-                                    balance.ifPresent(b::setInitialBalance);
-                                    memo.ifPresent(b::setMemo);
-                                    gas.ifPresent(b::setGas);
-                                    proxy.ifPresent(p -> b.setProxyAccountID(asId(p, spec)));
-                                    params.ifPresent(
-                                            bytes ->
-                                                    b.setConstructorParameters(
-                                                            ByteString.copyFrom(bytes)));
-                                    autoRenewAccount.ifPresent(
-                                            p -> b.setAutoRenewAccountId(asId(p, spec)));
-                                    maxAutomaticTokenAssociations.ifPresent(
-                                            b::setMaxAutomaticTokenAssociations);
+        ContractCreateTransactionBody opBody = spec.txns()
+                .<ContractCreateTransactionBody, ContractCreateTransactionBody.Builder>body(
+                        ContractCreateTransactionBody.class, b -> {
+                            if (useDeprecatedAdminKey) {
+                                b.setAdminKey(DEPRECATED_CID_ADMIN_KEY);
+                            } else if (omitAdminKey) {
+                                if (makeImmutable) {
+                                    b.setAdminKey(Key.newBuilder().setKeyList(KeyList.getDefaultInstance()));
+                                }
+                            } else {
+                                b.setAdminKey(adminKey);
+                            }
+                            inlineInitcode.ifPresentOrElse(
+                                    b::setInitcode, () -> b.setFileID(TxnUtils.asFileId(bytecodeFile.get(), spec)));
+                            autoRenewPeriodSecs.ifPresent(p -> b.setAutoRenewPeriod(
+                                    Duration.newBuilder().setSeconds(p).build()));
+                            balance.ifPresent(b::setInitialBalance);
+                            memo.ifPresent(b::setMemo);
+                            gas.ifPresent(b::setGas);
+                            proxy.ifPresent(p -> b.setProxyAccountID(asId(p, spec)));
+                            params.ifPresent(bytes -> b.setConstructorParameters(ByteString.copyFrom(bytes)));
+                            autoRenewAccount.ifPresent(p -> b.setAutoRenewAccountId(asId(p, spec)));
+                            maxAutomaticTokenAssociations.ifPresent(b::setMaxAutomaticTokenAssociations);
 
-                                    if (stakedAccountId.isPresent()) {
-                                        b.setStakedAccountId(asId(stakedAccountId.get(), spec));
-                                    } else if (stakedNodeId.isPresent()) {
-                                        b.setStakedNodeId(stakedNodeId.get());
-                                    }
-                                    b.setDeclineReward(isDeclinedReward);
-                                });
+                            if (stakedAccountId.isPresent()) {
+                                b.setStakedAccountId(asId(stakedAccountId.get(), spec));
+                            } else if (stakedNodeId.isPresent()) {
+                                b.setStakedNodeId(stakedNodeId.get());
+                            }
+                            b.setDeclineReward(isDeclinedReward);
+                        });
         return b -> b.setContractCreateInstance(opBody);
+    }
+
+    private ContractCreateTransactionBody explicitContractCreate(HapiSpec spec)
+            throws InvocationTargetException, NoSuchMethodException, IllegalAccessException {
+        return spec.txns()
+                .<ContractCreateTransactionBody, ContractCreateTransactionBody.Builder>body(
+                        ContractCreateTransactionBody.class,
+                        b -> Objects.requireNonNull(this.spec).accept(spec, b));
     }
 
     @Override
     protected long feeFor(HapiSpec spec, Transaction txn, int numPayerSigs) throws Throwable {
         return spec.fees()
                 .forActivityBasedOp(
-                        HederaFunctionality.ContractCreate,
-                        scFees::getContractCreateTxFeeMatrices,
-                        txn,
-                        numPayerSigs);
+                        HederaFunctionality.ContractCreate, scFees::getContractCreateTxFeeMatrices, txn, numPayerSigs);
     }
 
     @Override

@@ -13,8 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.contract.hapi;
 
+import static com.hedera.services.bdd.junit.TestTags.SMART_CONTRACT;
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
 import static com.hedera.services.bdd.spec.queries.QueryVerbs.getContractBytecode;
 import static com.hedera.services.bdd.spec.transactions.TxnVerbs.contractCreate;
@@ -24,6 +26,8 @@ import static com.hedera.services.bdd.spec.utilops.UtilVerbs.withOpContext;
 import static com.hedera.services.bdd.suites.contract.Utils.getResourcePath;
 
 import com.google.common.io.Files;
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.HapiSpecSetup;
 import com.hedera.services.bdd.suites.HapiSuite;
@@ -35,8 +39,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.bouncycastle.util.encoders.Hex;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Tag;
 
+@HapiTestSuite
+@Tag(SMART_CONTRACT)
 public class ContractGetBytecodeSuite extends HapiSuite {
+
     private static final Logger log = LogManager.getLogger(ContractGetBytecodeSuite.class);
     private static final String NON_EXISTING_CONTRACT =
             HapiSpecSetup.getDefaultInstance().invalidContractName();
@@ -52,10 +60,7 @@ public class ContractGetBytecodeSuite extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return List.of(
-                getByteCodeWorks(),
-                invalidContractFromCostAnswer(),
-                invalidContractFromAnswerOnly());
+        return List.of(getByteCodeWorks(), invalidContractFromCostAnswer(), invalidContractFromAnswerOnly());
     }
 
     @Override
@@ -63,52 +68,42 @@ public class ContractGetBytecodeSuite extends HapiSuite {
         return true;
     }
 
-    private HapiSpec getByteCodeWorks() {
+    @HapiTest
+    final HapiSpec getByteCodeWorks() {
         final var contract = "EmptyConstructor";
         return HapiSpec.defaultHapiSpec("GetByteCodeWorks")
                 .given(uploadInitCode(contract), contractCreate(contract))
                 .when()
-                .then(
-                        withOpContext(
-                                (spec, opLog) -> {
-                                    final var getBytecode =
-                                            getContractBytecode(contract)
-                                                    .saveResultTo("contractByteCode");
-                                    allRunFor(spec, getBytecode);
+                .then(withOpContext((spec, opLog) -> {
+                    final var getBytecode = getContractBytecode(contract).saveResultTo("contractByteCode");
+                    allRunFor(spec, getBytecode);
 
-                                    @SuppressWarnings("UnstableApiUsage")
-                                    final var originalBytecode =
-                                            Hex.decode(
-                                                    Files.toByteArray(
-                                                            new File(
-                                                                    getResourcePath(
-                                                                            contract, ".bin"))));
-                                    final var actualBytecode =
-                                            spec.registry().getBytes("contractByteCode");
-                                    // The original bytecode is modified on deployment
-                                    final var expectedBytecode =
-                                            Arrays.copyOfRange(
-                                                    originalBytecode, 29, originalBytecode.length);
-                                    Assertions.assertArrayEquals(expectedBytecode, actualBytecode);
-                                }));
+                    @SuppressWarnings("UnstableApiUsage")
+                    final var originalBytecode =
+                            Hex.decode(Files.toByteArray(new File(getResourcePath(contract, ".bin"))));
+                    final var actualBytecode = spec.registry().getBytes("contractByteCode");
+                    // The original bytecode is modified on deployment
+                    final var expectedBytecode = Arrays.copyOfRange(originalBytecode, 29, originalBytecode.length);
+                    Assertions.assertArrayEquals(expectedBytecode, actualBytecode);
+                }));
     }
 
-    private HapiSpec invalidContractFromCostAnswer() {
+    @HapiTest
+    final HapiSpec invalidContractFromCostAnswer() {
         return defaultHapiSpec("InvalidContractFromCostAnswer")
                 .given()
                 .when()
-                .then(
-                        getContractBytecode(NON_EXISTING_CONTRACT)
-                                .hasCostAnswerPrecheck(ResponseCodeEnum.INVALID_CONTRACT_ID));
+                .then(getContractBytecode(NON_EXISTING_CONTRACT)
+                        .hasCostAnswerPrecheck(ResponseCodeEnum.INVALID_CONTRACT_ID));
     }
 
-    private HapiSpec invalidContractFromAnswerOnly() {
+    @HapiTest
+    final HapiSpec invalidContractFromAnswerOnly() {
         return defaultHapiSpec("InvalidContractFromAnswerOnly")
                 .given()
                 .when()
-                .then(
-                        getContractBytecode(NON_EXISTING_CONTRACT)
-                                .nodePayment(27_159_182L)
-                                .hasAnswerOnlyPrecheck(ResponseCodeEnum.INVALID_CONTRACT_ID));
+                .then(getContractBytecode(NON_EXISTING_CONTRACT)
+                        .nodePayment(27_159_182L)
+                        .hasAnswerOnlyPrecheck(ResponseCodeEnum.INVALID_CONTRACT_ID));
     }
 }

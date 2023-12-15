@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.spec.transactions.token;
 
 import static com.hedera.node.app.hapi.fees.usage.SingletonEstimatorUtils.ESTIMATOR_UTILS;
@@ -46,6 +47,7 @@ public class HapiTokenAssociate extends HapiTxnOp<HapiTokenAssociate> {
 
     private String account;
     private List<String> tokens = new ArrayList<>();
+    private Optional<ResponseCodeEnum[]> permissibleCostAnswerPrechecks = Optional.empty();
 
     @Override
     public HederaFunctionality type() {
@@ -71,38 +73,41 @@ public class HapiTokenAssociate extends HapiTxnOp<HapiTokenAssociate> {
     protected long feeFor(HapiSpec spec, Transaction txn, int numPayerKeys) throws Throwable {
         try {
             final long expiry = lookupExpiry(spec);
-            FeeCalculator.ActivityMetrics metricsCalc =
-                    (_txn, svo) -> {
-                        var estimate =
-                                TokenAssociateUsage.newEstimate(
-                                                _txn,
-                                                new TxnUsageEstimator(
-                                                        suFrom(svo), _txn, ESTIMATOR_UTILS))
-                                        .givenCurrentExpiry(expiry);
-                        return estimate.get();
-                    };
+            FeeCalculator.ActivityMetrics metricsCalc = (_txn, svo) -> {
+                var estimate = TokenAssociateUsage.newEstimate(
+                                _txn, new TxnUsageEstimator(suFrom(svo), _txn, ESTIMATOR_UTILS))
+                        .givenCurrentExpiry(expiry);
+                return estimate.get();
+            };
             return spec.fees()
-                    .forActivityBasedOp(
-                            HederaFunctionality.TokenAssociateToAccount,
-                            metricsCalc,
-                            txn,
-                            numPayerKeys);
+                    .forActivityBasedOp(HederaFunctionality.TokenAssociateToAccount, metricsCalc, txn, numPayerKeys);
         } catch (Throwable ignore) {
             return 100_000_000L;
         }
     }
 
+    public HapiTokenAssociate hasCostAnswerPrecheckFrom(ResponseCodeEnum... prechecks) {
+        permissibleCostAnswerPrechecks = Optional.of(prechecks);
+        return self();
+    }
+
     private long lookupExpiry(HapiSpec spec) throws Throwable {
         if (!spec.registry().hasContractId(account)) {
-            HapiGetAccountInfo subOp = getAccountInfo(account).noLogging();
+            HapiGetAccountInfo subOp;
+            if (permissibleCostAnswerPrechecks.isPresent()) {
+                subOp = getAccountInfo(account)
+                        .hasCostAnswerPrecheckFrom(permissibleCostAnswerPrechecks.get())
+                        .noLogging();
+            } else {
+                subOp = getAccountInfo(account).noLogging();
+            }
             Optional<Throwable> error = subOp.execFor(spec);
             if (error.isPresent()) {
                 if (!loggingOff) {
-                    log.warn(
-                            "Unable to look up current info for "
-                                    + HapiPropertySource.asAccountString(
-                                            spec.registry().getAccountID(account)),
-                            error.get());
+                    String message = String.format(
+                            "Unable to look up current info for %s",
+                            HapiPropertySource.asAccountString(spec.registry().getAccountID(account)));
+                    log.warn(message, error.get());
                 }
                 throw error.get();
             }
@@ -116,11 +121,10 @@ public class HapiTokenAssociate extends HapiTxnOp<HapiTokenAssociate> {
             Optional<Throwable> error = subOp.execFor(spec);
             if (error.isPresent()) {
                 if (!loggingOff) {
-                    log.warn(
-                            "Unable to look up current info for "
-                                    + HapiPropertySource.asContractString(
-                                            spec.registry().getContractId(account)),
-                            error.get());
+                    String message = String.format(
+                            "Unable to look up current info for %s",
+                            HapiPropertySource.asContractString(spec.registry().getContractId(account)));
+                    log.warn(message, error.get());
                 }
                 throw error.get();
             }
@@ -135,25 +139,21 @@ public class HapiTokenAssociate extends HapiTxnOp<HapiTokenAssociate> {
     @Override
     protected Consumer<TransactionBody.Builder> opBodyDef(HapiSpec spec) throws Throwable {
         var aId = TxnUtils.asId(account, spec);
-        TokenAssociateTransactionBody opBody =
-                spec.txns()
-                        .<TokenAssociateTransactionBody, TokenAssociateTransactionBody.Builder>body(
-                                TokenAssociateTransactionBody.class,
-                                b -> {
-                                    b.setAccount(aId);
-                                    b.addAllTokens(
-                                            tokens.stream()
-                                                    .map(lit -> TxnUtils.asTokenId(lit, spec))
-                                                    .collect(toList()));
-                                });
+        TokenAssociateTransactionBody opBody = spec.txns()
+                .<TokenAssociateTransactionBody, TokenAssociateTransactionBody.Builder>body(
+                        TokenAssociateTransactionBody.class, b -> {
+                            b.setAccount(aId);
+                            b.addAllTokens(tokens.stream()
+                                    .map(lit -> TxnUtils.asTokenId(lit, spec))
+                                    .collect(toList()));
+                        });
         return b -> b.setTokenAssociate(opBody);
     }
 
     @Override
     protected List<Function<HapiSpec, Key>> defaultSigners() {
-        return List.of(
-                spec -> spec.registry().getKey(effectivePayer(spec)),
-                spec -> spec.registry().getKey(account));
+        return List.of(spec -> spec.registry().getKey(effectivePayer(spec)), spec -> spec.registry()
+                .getKey(account));
     }
 
     @Override

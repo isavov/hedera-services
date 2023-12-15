@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.test.factories.scenarios;
 
 import static com.hedera.test.factories.txns.ConsensusCreateTopicFactory.SIMPLE_TOPIC_ADMIN_KEY;
@@ -23,55 +24,42 @@ import com.hedera.node.app.service.mono.utils.accessors.PlatformTxnAccessor;
 
 public enum ConsensusCreateTopicScenarios implements TxnHandlingScenario {
     CONSENSUS_CREATE_TOPIC_NO_ADDITIONAL_KEYS_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
+        public PlatformTxnAccessor platformTxn() throws Exception {
             return PlatformTxnAccessor.from(newSignedConsensusCreateTopic().get());
         }
     },
     CONSENSUS_CREATE_TOPIC_ADMIN_KEY_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
-            return PlatformTxnAccessor.from(
-                    newSignedConsensusCreateTopic()
-                            .adminKey(SIMPLE_TOPIC_ADMIN_KEY)
-                            .nonPayerKts(SIMPLE_TOPIC_ADMIN_KEY)
-                            .get());
+        public PlatformTxnAccessor platformTxn() throws Exception {
+            return PlatformTxnAccessor.from(newSignedConsensusCreateTopic()
+                    .adminKey(SIMPLE_TOPIC_ADMIN_KEY)
+                    .nonPayerKts(SIMPLE_TOPIC_ADMIN_KEY)
+                    .get());
         }
     },
     CONSENSUS_CREATE_TOPIC_ADMIN_KEY_AND_AUTORENEW_ACCOUNT_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
-            return PlatformTxnAccessor.from(
-                    newSignedConsensusCreateTopic()
-                            .adminKey(SIMPLE_TOPIC_ADMIN_KEY)
-                            .autoRenewAccountId(MISC_ACCOUNT_ID)
-                            .nonPayerKts(SIMPLE_TOPIC_ADMIN_KEY, MISC_ACCOUNT_KT)
-                            .get());
+        public PlatformTxnAccessor platformTxn() throws Exception {
+            return PlatformTxnAccessor.from(newSignedConsensusCreateTopic()
+                    .adminKey(SIMPLE_TOPIC_ADMIN_KEY)
+                    .autoRenewAccountId(MISC_ACCOUNT_ID)
+                    .nonPayerKts(SIMPLE_TOPIC_ADMIN_KEY, MISC_ACCOUNT_KT)
+                    .get());
         }
     },
 
     CONSENSUS_CREATE_TOPIC_ADMIN_KEY_AND_AUTORENEW_ACCOUNT_AS_PAYER_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
-            return PlatformTxnAccessor.from(
-                    newSignedConsensusCreateTopic()
-                            .adminKey(SIMPLE_TOPIC_ADMIN_KEY)
-                            .autoRenewAccountId(DEFAULT_PAYER_ID)
-                            .nonPayerKts(SIMPLE_TOPIC_ADMIN_KEY)
-                            .get());
-        }
-    },
-
-    CONSENSUS_CREATE_TOPIC_ADMIN_KEY_AND_AUTORENEW_ACCOUNT_AS_CUSTOM_PAYER_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
-            return PlatformTxnAccessor.from(
-                    newSignedConsensusCreateTopic()
-                            .adminKey(SIMPLE_TOPIC_ADMIN_KEY)
-                            .autoRenewAccountId(CUSTOM_PAYER_ACCOUNT_ID)
-                            .nonPayerKts(SIMPLE_TOPIC_ADMIN_KEY)
-                            .get());
+        public PlatformTxnAccessor platformTxn() throws Exception {
+            return PlatformTxnAccessor.from(newSignedConsensusCreateTopic()
+                    .adminKey(SIMPLE_TOPIC_ADMIN_KEY)
+                    .autoRenewAccountId(DEFAULT_PAYER_ID)
+                    .nonPayerKts(SIMPLE_TOPIC_ADMIN_KEY)
+                    .get());
         }
     },
     CONSENSUS_CREATE_TOPIC_MISSING_AUTORENEW_ACCOUNT_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
-            return PlatformTxnAccessor.from(
-                    newSignedConsensusCreateTopic().autoRenewAccountId(MISSING_ACCOUNT_ID).get());
+        public PlatformTxnAccessor platformTxn() throws Exception {
+            return PlatformTxnAccessor.from(newSignedConsensusCreateTopic()
+                    .autoRenewAccountId(MISSING_ACCOUNT_ID)
+                    .get());
         }
     }
 }

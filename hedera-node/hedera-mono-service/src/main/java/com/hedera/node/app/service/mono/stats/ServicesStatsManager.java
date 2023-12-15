@@ -13,18 +13,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.stats;
 
 import static com.hedera.node.app.service.mono.utils.SleepingPause.SLEEPING_PAUSE;
 
 import com.hedera.node.app.service.mono.context.properties.NodeLocalProperties;
+import com.hedera.node.app.service.mono.state.adapters.VirtualMapLike;
+import com.hedera.node.app.service.mono.state.migration.AccountStorageAdapter;
+import com.hedera.node.app.service.mono.state.migration.TokenRelStorageAdapter;
+import com.hedera.node.app.service.mono.state.migration.UniqueTokenMapAdapter;
 import com.hedera.node.app.service.mono.state.virtual.ContractKey;
+import com.hedera.node.app.service.mono.state.virtual.EntityNumVirtualKey;
 import com.hedera.node.app.service.mono.state.virtual.IterableContractValue;
+import com.hedera.node.app.service.mono.state.virtual.UniqueTokenKey;
+import com.hedera.node.app.service.mono.state.virtual.UniqueTokenValue;
 import com.hedera.node.app.service.mono.state.virtual.VirtualBlobKey;
 import com.hedera.node.app.service.mono.state.virtual.VirtualBlobValue;
+import com.hedera.node.app.service.mono.state.virtual.entities.OnDiskAccount;
+import com.hedera.node.app.service.mono.state.virtual.entities.OnDiskTokenRel;
 import com.hedera.node.app.service.mono.utils.Pause;
-import com.swirlds.common.system.Platform;
-import com.swirlds.virtualmap.VirtualMap;
+import com.swirlds.platform.system.Platform;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -39,14 +48,11 @@ public class ServicesStatsManager {
     public static final String SPEEDOMETER_FORMAT = "%,13.2f";
     public static final String RUNNING_AVG_FORMAT = "%,13.6f";
     static Pause pause = SLEEPING_PAUSE;
-    static Function<Runnable, Thread> loopFactory =
-            loop ->
-                    new Thread(
-                            () -> {
-                                while (true) {
-                                    loop.run();
-                                }
-                            });
+    static Function<Runnable, Thread> loopFactory = loop -> new Thread(() -> {
+        while (true) {
+            loop.run();
+        }
+    });
 
     static final String STATS_UPDATE_THREAD_NAME_TPL = "StatsUpdateThread%d";
 
@@ -58,8 +64,11 @@ public class ServicesStatsManager {
     private final NodeLocalProperties localProperties;
     private final ThrottleGauges throttleGauges;
     private final EntityUtilGauges entityUtilGauges;
-    private final Supplier<VirtualMap<ContractKey, IterableContractValue>> storage;
-    private final Supplier<VirtualMap<VirtualBlobKey, VirtualBlobValue>> bytecode;
+    private final Supplier<VirtualMapLike<ContractKey, IterableContractValue>> storage;
+    private final Supplier<VirtualMapLike<VirtualBlobKey, VirtualBlobValue>> bytecode;
+    private final Supplier<AccountStorageAdapter> accounts;
+    private final Supplier<TokenRelStorageAdapter> tokenRels;
+    private final Supplier<UniqueTokenMapAdapter> uniqueTokens;
 
     @Inject
     public ServicesStatsManager(
@@ -71,10 +80,16 @@ public class ServicesStatsManager {
             final MiscSpeedometers speedometers,
             final HapiOpSpeedometers opSpeedometers,
             final NodeLocalProperties localProperties,
-            final Supplier<VirtualMap<ContractKey, IterableContractValue>> storage,
-            final Supplier<VirtualMap<VirtualBlobKey, VirtualBlobValue>> bytecode) {
+            final Supplier<VirtualMapLike<ContractKey, IterableContractValue>> storage,
+            final Supplier<VirtualMapLike<VirtualBlobKey, VirtualBlobValue>> bytecode,
+            final Supplier<AccountStorageAdapter> accounts,
+            final Supplier<TokenRelStorageAdapter> tokenRels,
+            final Supplier<UniqueTokenMapAdapter> uniqueTokens) {
         this.storage = storage;
         this.bytecode = bytecode;
+        this.accounts = accounts;
+        this.tokenRels = tokenRels;
+        this.uniqueTokens = uniqueTokens;
         this.localProperties = localProperties;
         this.expiryStats = expiryStats;
         this.opCounters = opCounters;
@@ -93,48 +108,51 @@ public class ServicesStatsManager {
         throttleGauges.registerWith(platform);
         opSpeedometers.registerWith(platform);
         entityUtilGauges.registerWith(platform);
-        storage.get().registerMetrics(platform.getMetrics());
-        bytecode.get().registerMetrics(platform.getMetrics());
+        storage.get().registerMetrics(platform.getContext().getMetrics());
+        bytecode.get().registerMetrics(platform.getContext().getMetrics());
+        final VirtualMapLike<EntityNumVirtualKey, OnDiskAccount> accountsOnDisk =
+                accounts.get().getOnDiskAccounts();
+        if (accountsOnDisk != null) {
+            accountsOnDisk.registerMetrics(platform.getContext().getMetrics());
+        }
+        final VirtualMapLike<EntityNumVirtualKey, OnDiskTokenRel> tokenRelsOnDisk =
+                tokenRels.get().getOnDiskRels();
+        if (tokenRelsOnDisk != null) {
+            tokenRelsOnDisk.registerMetrics(platform.getContext().getMetrics());
+        }
+        final VirtualMapLike<UniqueTokenKey, UniqueTokenValue> uniqueTokensOnDisk =
+                uniqueTokens.get().getOnDiskNfts();
+        if (uniqueTokensOnDisk != null) {
+            uniqueTokensOnDisk.registerMetrics(platform.getContext().getMetrics());
+        }
 
         final var hapiOpsUpdateIntervalMs =
-                Math.max(
-                        MIN_STAT_INTERVAL_UPDATE_MS,
-                        localProperties.hapiOpsStatsUpdateIntervalMs());
+                Math.max(MIN_STAT_INTERVAL_UPDATE_MS, localProperties.hapiOpsStatsUpdateIntervalMs());
         final var entityUtilUpdateIntervalMs =
-                Math.max(
-                        MIN_STAT_INTERVAL_UPDATE_MS,
-                        localProperties.entityUtilStatsUpdateIntervalMs());
+                Math.max(MIN_STAT_INTERVAL_UPDATE_MS, localProperties.entityUtilStatsUpdateIntervalMs());
         final var throttleUtilUpdateIntervalMs =
-                Math.max(
-                        MIN_STAT_INTERVAL_UPDATE_MS,
-                        localProperties.throttleUtilStatsUpdateIntervalMs());
-        final var pauseTimeMs =
-                gcd(
-                        hapiOpsUpdateIntervalMs,
-                        entityUtilUpdateIntervalMs,
-                        throttleUtilUpdateIntervalMs);
+                Math.max(MIN_STAT_INTERVAL_UPDATE_MS, localProperties.throttleUtilStatsUpdateIntervalMs());
+        final var pauseTimeMs = gcd(hapiOpsUpdateIntervalMs, entityUtilUpdateIntervalMs, throttleUtilUpdateIntervalMs);
         final var pausesBetweenHapiOpsUpdate = hapiOpsUpdateIntervalMs / pauseTimeMs;
         final var pausesBetweenEntityUtilUpdate = entityUtilUpdateIntervalMs / pauseTimeMs;
         final var pausesBetweenThrottleUtilUpdate = throttleUtilUpdateIntervalMs / pauseTimeMs;
         final var numPauses = new AtomicLong(0);
-        final var updateThread =
-                loopFactory.apply(
-                        () -> {
-                            pause.forMs(pauseTimeMs);
-                            final var n = numPauses.incrementAndGet();
-                            if (n % pausesBetweenHapiOpsUpdate == 0) {
-                                opSpeedometers.updateAll();
-                            }
-                            if (n % pausesBetweenThrottleUtilUpdate == 0) {
-                                throttleGauges.updateAll();
-                            }
-                            if (n % pausesBetweenEntityUtilUpdate == 0) {
-                                entityUtilGauges.updateAll();
-                            }
-                        });
+        final var updateThread = loopFactory.apply(() -> {
+            pause.forMs(pauseTimeMs);
+            final var n = numPauses.incrementAndGet();
+            if (n % pausesBetweenHapiOpsUpdate == 0) {
+                opSpeedometers.updateAll();
+            }
+            if (n % pausesBetweenThrottleUtilUpdate == 0) {
+                throttleGauges.updateAll();
+            }
+            if (n % pausesBetweenEntityUtilUpdate == 0) {
+                entityUtilGauges.updateAll();
+            }
+        });
 
         updateThread.setName(
-                String.format(STATS_UPDATE_THREAD_NAME_TPL, platform.getSelfId().getId()));
+                String.format(STATS_UPDATE_THREAD_NAME_TPL, platform.getSelfId().id()));
         updateThread.start();
     }
 

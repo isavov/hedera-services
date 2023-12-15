@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.issues;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -20,6 +21,8 @@ import static com.hedera.services.bdd.spec.transactions.TxnVerbs.cryptoTransfer;
 import static com.hedera.services.bdd.spec.transactions.TxnVerbs.fileUpdate;
 import static com.hedera.services.bdd.spec.transactions.crypto.HapiCryptoTransfer.tinyBarsFromTo;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.suites.HapiSuite;
 import java.util.List;
@@ -27,6 +30,7 @@ import java.util.Map;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+@HapiTestSuite
 public class Issue2143Spec extends HapiSuite {
     private static final Logger log = LogManager.getLogger(Issue2143Spec.class);
 
@@ -36,18 +40,15 @@ public class Issue2143Spec extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return List.of(
-                new HapiSpec[] {
-                    account55ControlCanUpdatePropertiesAndPermissions(),
-                    account57ControlCanUpdatePropertiesAndPermissions(),
-                });
+        return List.of(new HapiSpec[] {
+            account55ControlCanUpdatePropertiesAndPermissions(), account57ControlCanUpdatePropertiesAndPermissions(),
+        });
     }
 
-    private HapiSpec account55ControlCanUpdatePropertiesAndPermissions() {
+    @HapiTest
+    final HapiSpec account55ControlCanUpdatePropertiesAndPermissions() {
         return defaultHapiSpec("Account55ControlCanUpdatePropertiesAndPermissions")
-                .given(
-                        cryptoTransfer(
-                                tinyBarsFromTo(GENESIS, ADDRESS_BOOK_CONTROL, 1_000_000_000L)))
+                .given(cryptoTransfer(tinyBarsFromTo(GENESIS, ADDRESS_BOOK_CONTROL, 1_000_000_000L)))
                 .when(
                         fileUpdate(APP_PROPERTIES)
                                 .overridingProps(Map.of("simpletransferTps", "100"))
@@ -64,11 +65,10 @@ public class Issue2143Spec extends HapiSuite {
                                 .payingWith(ADDRESS_BOOK_CONTROL));
     }
 
-    private HapiSpec account57ControlCanUpdatePropertiesAndPermissions() {
+    @HapiTest
+    final HapiSpec account57ControlCanUpdatePropertiesAndPermissions() {
         return defaultHapiSpec("Account57ControlCanUpdatePropertiesAndPermissions")
-                .given(
-                        cryptoTransfer(
-                                tinyBarsFromTo(GENESIS, EXCHANGE_RATE_CONTROL, 1_000_000_000L)))
+                .given(cryptoTransfer(tinyBarsFromTo(GENESIS, EXCHANGE_RATE_CONTROL, 1_000_000_000L)))
                 .when(
                         fileUpdate(APP_PROPERTIES)
                                 .overridingProps(Map.of("simpletransferTps", "100"))

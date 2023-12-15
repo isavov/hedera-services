@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.virtual;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -27,7 +28,6 @@ import static org.mockito.Mockito.mock;
 
 import com.swirlds.common.io.streams.SerializableDataInputStream;
 import com.swirlds.common.io.streams.SerializableDataOutputStream;
-import com.swirlds.jasperdb.files.DataFileCommon;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import org.junit.jupiter.api.BeforeEach;
@@ -104,14 +104,13 @@ class VirtualBlobValueTest {
         int len = data.length;
 
         given(buffer.getInt()).willReturn(len);
-        doAnswer(
-                        new Answer() {
-                            @Override
-                            public Object answer(final InvocationOnMock invocationOnMock) {
-                                defaultSubject.setData(data);
-                                return null;
-                            }
-                        })
+        doAnswer(new Answer() {
+                    @Override
+                    public Object answer(final InvocationOnMock invocationOnMock) {
+                        defaultSubject.setData(data);
+                        return null;
+                    }
+                })
                 .when(buffer)
                 .get(ArgumentMatchers.any());
 
@@ -131,7 +130,6 @@ class VirtualBlobValueTest {
         VirtualBlobValue value = new VirtualBlobValue();
         value.setData(otherData);
         assertArrayEquals(otherData, value.getData());
-        assertEquals(DataFileCommon.VARIABLE_DATA_SIZE, value.sizeInBytes());
     }
 
     @Test

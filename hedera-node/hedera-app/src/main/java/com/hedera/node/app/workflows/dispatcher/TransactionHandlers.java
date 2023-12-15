@@ -13,9 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.workflows.dispatcher;
 
-import com.hedera.node.app.service.admin.impl.handlers.FreezeHandler;
 import com.hedera.node.app.service.consensus.impl.handlers.ConsensusCreateTopicHandler;
 import com.hedera.node.app.service.consensus.impl.handlers.ConsensusDeleteTopicHandler;
 import com.hedera.node.app.service.consensus.impl.handlers.ConsensusSubmitMessageHandler;
@@ -26,14 +26,15 @@ import com.hedera.node.app.service.contract.impl.handlers.ContractDeleteHandler;
 import com.hedera.node.app.service.contract.impl.handlers.ContractSystemDeleteHandler;
 import com.hedera.node.app.service.contract.impl.handlers.ContractSystemUndeleteHandler;
 import com.hedera.node.app.service.contract.impl.handlers.ContractUpdateHandler;
-import com.hedera.node.app.service.contract.impl.handlers.EtherumTransactionHandler;
+import com.hedera.node.app.service.contract.impl.handlers.EthereumTransactionHandler;
 import com.hedera.node.app.service.file.impl.handlers.FileAppendHandler;
 import com.hedera.node.app.service.file.impl.handlers.FileCreateHandler;
 import com.hedera.node.app.service.file.impl.handlers.FileDeleteHandler;
 import com.hedera.node.app.service.file.impl.handlers.FileSystemDeleteHandler;
 import com.hedera.node.app.service.file.impl.handlers.FileSystemUndeleteHandler;
 import com.hedera.node.app.service.file.impl.handlers.FileUpdateHandler;
-import com.hedera.node.app.service.network.impl.handlers.NetworkUncheckedSubmitHandler;
+import com.hedera.node.app.service.networkadmin.impl.handlers.FreezeHandler;
+import com.hedera.node.app.service.networkadmin.impl.handlers.NetworkUncheckedSubmitHandler;
 import com.hedera.node.app.service.schedule.impl.handlers.ScheduleCreateHandler;
 import com.hedera.node.app.service.schedule.impl.handlers.ScheduleDeleteHandler;
 import com.hedera.node.app.service.schedule.impl.handlers.ScheduleSignHandler;
@@ -64,8 +65,8 @@ import com.hedera.node.app.service.util.impl.handlers.UtilPrngHandler;
 import edu.umd.cs.findbugs.annotations.NonNull;
 
 /**
- * A record that contains all {@link com.hedera.node.app.spi.workflows.TransactionHandler}s that are
- * available in the app
+ * A record that contains all {@link com.hedera.node.app.spi.workflows.TransactionHandler}s that are available in the
+ * app
  */
 public record TransactionHandlers(
         @NonNull ConsensusCreateTopicHandler consensusCreateTopicHandler,
@@ -78,7 +79,7 @@ public record TransactionHandlers(
         @NonNull ContractDeleteHandler contractDeleteHandler,
         @NonNull ContractSystemDeleteHandler contractSystemDeleteHandler,
         @NonNull ContractSystemUndeleteHandler contractSystemUndeleteHandler,
-        @NonNull EtherumTransactionHandler etherumTransactionHandler,
+        @NonNull EthereumTransactionHandler etherumTransactionHandler,
         @NonNull CryptoCreateHandler cryptoCreateHandler,
         @NonNull CryptoUpdateHandler cryptoUpdateHandler,
         @NonNull CryptoTransferHandler cryptoTransferHandler,

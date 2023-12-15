@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.hapi.utils.fee;
 
 import com.hedera.node.app.hapi.utils.builder.RequestBuilder;
-import com.hedera.node.app.hapi.utils.exception.InvalidTxBodyException;
 import com.hederahashgraph.api.proto.java.ContractCallTransactionBody;
 import com.hederahashgraph.api.proto.java.ContractCreateTransactionBody;
 import com.hederahashgraph.api.proto.java.ContractFunctionResult;
@@ -49,14 +49,8 @@ public final class SmartContractFeeBuilder extends FeeBuilder {
      * @param txBody transaction body
      * @param sigValObj signature value object
      * @return fee data
-     * @throws InvalidTxBodyException when transaction body is invalid
      */
-    public FeeData getContractCreateTxFeeMatrices(TransactionBody txBody, SigValueObj sigValObj)
-            throws InvalidTxBodyException {
-        if (txBody == null || !txBody.hasContractCreateInstance()) {
-            throw new InvalidTxBodyException(
-                    "ContractCreateInstance Tx Body not available for Fee Calculation");
-        }
+    public FeeData getContractCreateTxFeeMatrices(TransactionBody txBody, SigValueObj sigValObj) {
         long bpt = 0;
         long vpt = 0;
         long rbs = 0;
@@ -69,32 +63,25 @@ public final class SmartContractFeeBuilder extends FeeBuilder {
         // calculate BPT - Total Bytes in Transaction
         long txBodySize = 0;
         txBodySize = getCommonTransactionBodyBytes(txBody);
-        bpt =
-                txBodySize
-                        + getContractCreateTransactionBodySize(txBody)
-                        + sigValObj.getSignatureSize();
+        bpt = txBodySize + getContractCreateTransactionBodySize(txBody) + sigValObj.getSignatureSize();
 
         // vpt - verifications per transactions
         vpt = sigValObj.getTotalSigCount();
 
         bpr = INT_SIZE;
-        rbs =
-                getBaseTransactionRecordSize(txBody)
-                        * (RECEIPT_STORAGE_TIME_SEC + THRESHOLD_STORAGE_TIME_SEC);
-        long rbsNetwork =
-                getDefaultRBHNetworkSize() + BASIC_ENTITY_ID_SIZE * (RECEIPT_STORAGE_TIME_SEC);
+        rbs = getBaseTransactionRecordSize(txBody) * (RECEIPT_STORAGE_TIME_SEC + THRESHOLD_STORAGE_TIME_SEC);
+        long rbsNetwork = getDefaultRBHNetworkSize() + BASIC_ENTITY_ID_SIZE * (RECEIPT_STORAGE_TIME_SEC);
 
-        FeeComponents feeMatricesForTx =
-                FeeComponents.newBuilder()
-                        .setBpt(bpt)
-                        .setVpt(vpt)
-                        .setRbh(rbs)
-                        .setSbh(sbs)
-                        .setGas(gas)
-                        .setTv(tv)
-                        .setBpr(bpr)
-                        .setSbpr(sbpr)
-                        .build();
+        FeeComponents feeMatricesForTx = FeeComponents.newBuilder()
+                .setBpt(bpt)
+                .setVpt(vpt)
+                .setRbh(rbs)
+                .setSbh(sbs)
+                .setGas(gas)
+                .setTv(tv)
+                .setBpr(bpr)
+                .setSbpr(sbpr)
+                .build();
 
         return getFeeDataMatrices(feeMatricesForTx, sigValObj.getPayerAcctSigCount(), rbsNetwork);
     }
@@ -149,16 +136,9 @@ public final class SmartContractFeeBuilder extends FeeBuilder {
      * @param contractExpiryTime contract expiration time
      * @param sigValObj signature value object
      * @return fee data
-     * @throws InvalidTxBodyException when transaction body is invalid
      */
     public FeeData getContractUpdateTxFeeMatrices(
-            TransactionBody txBody, Timestamp contractExpiryTime, SigValueObj sigValObj)
-            throws InvalidTxBodyException {
-        if (txBody == null || !txBody.hasContractUpdateInstance()) {
-            throw new InvalidTxBodyException(
-                    "ContractUpdateInstance Tx Body not available for Fee Calculation");
-        }
-
+            TransactionBody txBody, Timestamp contractExpiryTime, SigValueObj sigValObj) {
         long bpt = 0;
         long vpt = 0;
         long rbs = 0;
@@ -184,21 +164,18 @@ public final class SmartContractFeeBuilder extends FeeBuilder {
 
         long rbsNetwork = getDefaultRBHNetworkSize();
 
-        rbs =
-                getBaseTransactionRecordSize(txBody)
-                        * (RECEIPT_STORAGE_TIME_SEC + THRESHOLD_STORAGE_TIME_SEC);
+        rbs = getBaseTransactionRecordSize(txBody) * (RECEIPT_STORAGE_TIME_SEC + THRESHOLD_STORAGE_TIME_SEC);
 
-        FeeComponents feeMatricesForTx =
-                FeeComponents.newBuilder()
-                        .setBpt(bpt)
-                        .setVpt(vpt)
-                        .setRbh(rbs)
-                        .setSbh(sbs)
-                        .setGas(gas)
-                        .setTv(tv)
-                        .setBpr(bpr)
-                        .setSbpr(sbpr)
-                        .build();
+        FeeComponents feeMatricesForTx = FeeComponents.newBuilder()
+                .setBpt(bpt)
+                .setVpt(vpt)
+                .setRbh(rbs)
+                .setSbh(sbs)
+                .setGas(gas)
+                .setTv(tv)
+                .setBpr(bpr)
+                .setSbpr(sbpr)
+                .build();
 
         return getFeeDataMatrices(feeMatricesForTx, sigValObj.getPayerAcctSigCount(), rbsNetwork);
     }
@@ -209,15 +186,8 @@ public final class SmartContractFeeBuilder extends FeeBuilder {
      * @param txBody transaction body
      * @param sigValObj signature value object
      * @return fee data
-     * @throws InvalidTxBodyException when transaction body is invalid
      */
-    public FeeData getContractCallTxFeeMatrices(TransactionBody txBody, SigValueObj sigValObj)
-            throws InvalidTxBodyException {
-        if (txBody == null || !txBody.hasContractCall()) {
-            throw new InvalidTxBodyException(
-                    "ContractCreateInstance Tx Body not available for Fee Calculation");
-        }
-
+    public FeeData getContractCallTxFeeMatrices(TransactionBody txBody, SigValueObj sigValObj) {
         long bpt = 0;
         long vpt = 0;
         long rbs = 0;
@@ -237,22 +207,19 @@ public final class SmartContractFeeBuilder extends FeeBuilder {
 
         bpr = INT_SIZE;
 
-        rbs =
-                getBaseTransactionRecordSize(txBody)
-                        * (RECEIPT_STORAGE_TIME_SEC + THRESHOLD_STORAGE_TIME_SEC);
+        rbs = getBaseTransactionRecordSize(txBody) * (RECEIPT_STORAGE_TIME_SEC + THRESHOLD_STORAGE_TIME_SEC);
         long rbsNetwork = getDefaultRBHNetworkSize();
 
-        FeeComponents feeMatricesForTx =
-                FeeComponents.newBuilder()
-                        .setBpt(bpt)
-                        .setVpt(vpt)
-                        .setRbh(rbs)
-                        .setSbh(sbs)
-                        .setGas(gas)
-                        .setTv(tv)
-                        .setBpr(bpr)
-                        .setSbpr(sbpr)
-                        .build();
+        FeeComponents feeMatricesForTx = FeeComponents.newBuilder()
+                .setBpt(bpt)
+                .setVpt(vpt)
+                .setRbh(rbs)
+                .setSbh(sbs)
+                .setGas(gas)
+                .setTv(tv)
+                .setBpr(bpr)
+                .setSbpr(sbpr)
+                .build();
 
         return getFeeDataMatrices(feeMatricesForTx, sigValObj.getPayerAcctSigCount(), rbsNetwork);
     }
@@ -266,9 +233,7 @@ public final class SmartContractFeeBuilder extends FeeBuilder {
      * @return fee data
      */
     public FeeData getContractCallLocalFeeMatrices(
-            int funcParamSize,
-            ContractFunctionResult contractFuncResult,
-            ResponseType responseType) {
+            int funcParamSize, ContractFunctionResult contractFuncResult, ResponseType responseType) {
         // get the Fee Matrices
         long bpt = 0;
         long vpt = 0;
@@ -301,7 +266,8 @@ public final class SmartContractFeeBuilder extends FeeBuilder {
         if (contractFuncResult != null) {
 
             if (contractFuncResult.getContractCallResult() != null) {
-                contractFuncResultSize = contractFuncResult.getContractCallResult().size();
+                contractFuncResultSize =
+                        contractFuncResult.getContractCallResult().size();
             }
             if (contractFuncResult.getErrorMessage() != null) {
                 errorMessageSize = contractFuncResult.getErrorMessage().length();
@@ -312,17 +278,16 @@ public final class SmartContractFeeBuilder extends FeeBuilder {
 
         sbpr = BASIC_ENTITY_ID_SIZE + errorMessageSize + LONG_SIZE + contractFuncResultSize;
 
-        FeeComponents feeMatrices =
-                FeeComponents.newBuilder()
-                        .setBpt(bpt)
-                        .setVpt(vpt)
-                        .setRbh(rbs)
-                        .setSbh(sbs)
-                        .setGas(gas)
-                        .setTv(tv)
-                        .setBpr(bpr)
-                        .setSbpr(sbpr)
-                        .build();
+        FeeComponents feeMatrices = FeeComponents.newBuilder()
+                .setBpt(bpt)
+                .setVpt(vpt)
+                .setRbh(rbs)
+                .setSbh(sbs)
+                .setGas(gas)
+                .setTv(tv)
+                .setBpr(bpr)
+                .setSbpr(sbpr)
+                .build();
 
         return getQueryFeeDataMatrices(feeMatrices);
     }
@@ -409,8 +374,7 @@ public final class SmartContractFeeBuilder extends FeeBuilder {
      * @param responseType response type
      * @return fee data
      */
-    public FeeData getContractByteCodeQueryFeeMatrices(
-            int byteCodeSize, ResponseType responseType) {
+    public FeeData getContractByteCodeQueryFeeMatrices(int byteCodeSize, ResponseType responseType) {
         // get the Fee Matrices
         long bpt = 0;
         long vpt = 0;
@@ -439,23 +403,21 @@ public final class SmartContractFeeBuilder extends FeeBuilder {
 
         sbpr = byteCodeSize;
 
-        FeeComponents feeMatrices =
-                FeeComponents.newBuilder()
-                        .setBpt(bpt)
-                        .setVpt(vpt)
-                        .setRbh(rbs)
-                        .setSbh(sbs)
-                        .setGas(gas)
-                        .setTv(tv)
-                        .setBpr(bpr)
-                        .setSbpr(sbpr)
-                        .build();
+        FeeComponents feeMatrices = FeeComponents.newBuilder()
+                .setBpt(bpt)
+                .setVpt(vpt)
+                .setRbh(rbs)
+                .setSbh(sbs)
+                .setGas(gas)
+                .setTv(tv)
+                .setBpr(bpr)
+                .setSbpr(sbpr)
+                .build();
 
         return getQueryFeeDataMatrices(feeMatrices);
     }
 
-    private long getContractUpdateStorageBytesSec(
-            TransactionBody txBody, Timestamp contractExpiryTime) {
+    private long getContractUpdateStorageBytesSec(TransactionBody txBody, Timestamp contractExpiryTime) {
         long storageSize = 0;
         ContractUpdateTransactionBody contractUpdateTxBody = txBody.getContractUpdateInstance();
         if (contractUpdateTxBody.hasAdminKey()) {
@@ -473,12 +435,7 @@ public final class SmartContractFeeBuilder extends FeeBuilder {
         return storageSize;
     }
 
-    public FeeData getContractDeleteTxFeeMatrices(TransactionBody txBody, SigValueObj sigValObj)
-            throws InvalidTxBodyException {
-        if (txBody == null || !txBody.hasContractDeleteInstance()) {
-            throw new InvalidTxBodyException(
-                    "ContractDelete Tx Body not available for Fee Calculation");
-        }
+    public FeeData getContractDeleteTxFeeMatrices(TransactionBody txBody, SigValueObj sigValObj) {
         long bpt = 0;
         long vpt = 0;
         long rbs = 0;
@@ -491,17 +448,8 @@ public final class SmartContractFeeBuilder extends FeeBuilder {
         // calculate BPT - Total Bytes in Transaction
         long txBodySize = 0;
         txBodySize = getCommonTransactionBodyBytes(txBody);
-        /*
-         * ContractID contractID = BASIC_ENTITY_ID_SIZE oneof obtainers { AccountID transferAccountID =
-         * BASIC_ENTITY_ID_SIZE
-         * ContractID transferContractID = BASIC_ENTITY_ID_SIZE }
-         */
 
-        bpt =
-                txBodySize
-                        + BASIC_ENTITY_ID_SIZE
-                        + BASIC_ENTITY_ID_SIZE
-                        + sigValObj.getSignatureSize();
+        bpt = txBodySize + BASIC_ENTITY_ID_SIZE + BASIC_ENTITY_ID_SIZE + sigValObj.getSignatureSize();
 
         // vpt - verifications per transactions
         vpt = sigValObj.getTotalSigCount();
@@ -509,20 +457,18 @@ public final class SmartContractFeeBuilder extends FeeBuilder {
         bpr = INT_SIZE;
 
         rbs = calculateRBS(txBody);
-        long rbsNetwork =
-                getDefaultRBHNetworkSize() + BASIC_ENTITY_ID_SIZE * (RECEIPT_STORAGE_TIME_SEC);
+        long rbsNetwork = getDefaultRBHNetworkSize() + BASIC_ENTITY_ID_SIZE * (RECEIPT_STORAGE_TIME_SEC);
 
-        FeeComponents feeMatricesForTx =
-                FeeComponents.newBuilder()
-                        .setBpt(bpt)
-                        .setVpt(vpt)
-                        .setRbh(rbs)
-                        .setSbh(sbs)
-                        .setGas(gas)
-                        .setTv(tv)
-                        .setBpr(bpr)
-                        .setSbpr(sbpr)
-                        .build();
+        FeeComponents feeMatricesForTx = FeeComponents.newBuilder()
+                .setBpt(bpt)
+                .setVpt(vpt)
+                .setRbh(rbs)
+                .setSbh(sbs)
+                .setGas(gas)
+                .setTv(tv)
+                .setBpr(bpr)
+                .setSbpr(sbpr)
+                .build();
 
         return getFeeDataMatrices(feeMatricesForTx, sigValObj.getPayerAcctSigCount(), rbsNetwork);
     }
@@ -533,15 +479,8 @@ public final class SmartContractFeeBuilder extends FeeBuilder {
      * @param txBody transaction body
      * @param sigValObj signature value object
      * @return fee data
-     * @throws InvalidTxBodyException when transaction body is invalid
      */
-    public FeeData getEthereumTransactionFeeMatrices(TransactionBody txBody, SigValueObj sigValObj)
-            throws InvalidTxBodyException {
-        if (txBody == null || !txBody.hasEthereumTransaction()) {
-            throw new InvalidTxBodyException(
-                    "Ethereum Transaction Body not available for Fee Calculation");
-        }
-
+    public FeeData getEthereumTransactionFeeMatrices(TransactionBody txBody, SigValueObj sigValObj) {
         long bpt = 0;
         long vpt = 0;
         long rbs = 0;
@@ -561,22 +500,19 @@ public final class SmartContractFeeBuilder extends FeeBuilder {
 
         bpr = INT_SIZE;
 
-        rbs =
-                getBaseTransactionRecordSize(txBody)
-                        * (RECEIPT_STORAGE_TIME_SEC + THRESHOLD_STORAGE_TIME_SEC);
+        rbs = getBaseTransactionRecordSize(txBody) * (RECEIPT_STORAGE_TIME_SEC + THRESHOLD_STORAGE_TIME_SEC);
         long rbsNetwork = getDefaultRBHNetworkSize();
 
-        FeeComponents feeMatricesForTx =
-                FeeComponents.newBuilder()
-                        .setBpt(bpt)
-                        .setVpt(vpt)
-                        .setRbh(rbs)
-                        .setSbh(sbs)
-                        .setGas(gas)
-                        .setTv(tv)
-                        .setBpr(bpr)
-                        .setSbpr(sbpr)
-                        .build();
+        FeeComponents feeMatricesForTx = FeeComponents.newBuilder()
+                .setBpt(bpt)
+                .setVpt(vpt)
+                .setRbh(rbs)
+                .setSbh(sbs)
+                .setGas(gas)
+                .setTv(tv)
+                .setBpr(bpr)
+                .setSbpr(sbpr)
+                .build();
 
         return getFeeDataMatrices(feeMatricesForTx, sigValObj.getPayerAcctSigCount(), rbsNetwork);
     }

@@ -1,35 +1,45 @@
-import com.hedera.node.app.service.token.impl.CryptoServiceImpl;
-
 module com.hedera.node.app.service.token.impl {
-    requires com.hedera.node.app.service.token;
-    requires org.apache.commons.lang3;
-    requires com.google.common;
-    requires com.hedera.node.app.service.mono;
-    requires com.hedera.hashgraph.protobuf.java.api;
-    requires com.google.protobuf;
+    requires transitive com.hedera.node.app.hapi.fees;
+    requires transitive com.hedera.node.app.service.mono;
+    requires transitive com.hedera.node.app.service.token;
+    requires transitive com.hedera.node.app.spi;
+    requires transitive com.hedera.node.config;
+    requires transitive com.hedera.node.hapi;
+    requires transitive com.hedera.pbj.runtime;
+    requires transitive com.swirlds.config.api;
+    requires transitive dagger;
+    requires transitive javax.inject;
+    requires com.hedera.node.app.hapi.utils;
     requires com.hedera.node.app.service.evm;
-    requires com.hedera.node.app.spi;
-    requires dagger;
-    requires javax.inject;
+    requires com.google.common;
+    requires com.swirlds.base;
+    requires org.apache.commons.lang3;
+    requires org.apache.logging.log4j;
+    requires static com.github.spotbugs.annotations;
+    requires org.bouncycastle.provider;
+    requires static java.compiler; // javax.annotation.processing.Generated
 
     provides com.hedera.node.app.service.token.TokenService with
             com.hedera.node.app.service.token.impl.TokenServiceImpl;
-    provides com.hedera.node.app.service.token.CryptoService with
-            CryptoServiceImpl;
 
-    exports com.hedera.node.app.service.token.impl to
-            com.hedera.node.app.service.token.impl.test,
-            com.hedera.node.app;
-    exports com.hedera.node.app.service.token.impl.entity to
-            com.hedera.node.app.service.token.impl.test;
-    exports com.hedera.node.app.service.token.impl.util to
-            com.hedera.node.app.service.token.impl.test;
     exports com.hedera.node.app.service.token.impl.handlers to
-            com.hedera.node.app.service.token.impl.test,
-            com.hedera.node.app;
-
-    opens com.hedera.node.app.service.token.impl.util to
+            com.hedera.node.app,
             com.hedera.node.app.service.token.impl.test;
-
-    exports com.hedera.node.app.service.token.impl.components;
+    exports com.hedera.node.app.service.token.impl.serdes;
+    exports com.hedera.node.app.service.token.impl;
+    exports com.hedera.node.app.service.token.impl.api to
+            com.hedera.node.app,
+            com.hedera.node.app.service.token.impl.api.test;
+    exports com.hedera.node.app.service.token.impl.validators;
+    exports com.hedera.node.app.service.token.impl.util to
+            com.hedera.node.app,
+            com.hedera.node.app.service.token.impl.test;
+    exports com.hedera.node.app.service.token.impl.handlers.staking to
+            com.hedera.node.app,
+            com.hedera.node.app.service.token.impl.test;
+    exports com.hedera.node.app.service.token.impl.handlers.transfer to
+            com.hedera.node.app;
+    exports com.hedera.node.app.service.token.impl.schemas to
+            com.hedera.node.app,
+            com.hedera.node.app.service.token.impl.api.test;
 }

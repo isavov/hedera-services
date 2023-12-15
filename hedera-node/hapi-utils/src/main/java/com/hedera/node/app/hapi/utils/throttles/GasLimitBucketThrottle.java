@@ -13,11 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.hapi.utils.throttles;
 
 import static com.hedera.node.app.hapi.utils.CommonUtils.productWouldOverflow;
-
-import com.swirlds.common.utility.Units;
+import static com.swirlds.base.units.UnitConstants.SECONDS_TO_NANOSECONDS;
 
 /**
  * Responsible for throttling transaction by gas limit. Uses a {@link DiscreteLeakyBucket} under the
@@ -26,7 +26,7 @@ import com.swirlds.common.utility.Units;
  * called.
  */
 public class GasLimitBucketThrottle {
-    private static final long TIME_TO_EMPTY = Units.SECONDS_TO_NANOSECONDS;
+    private static final long TIME_TO_EMPTY = SECONDS_TO_NANOSECONDS;
 
     private final DiscreteLeakyBucket bucket;
     private long lastAllowedUnits = 0L;
@@ -74,9 +74,16 @@ public class GasLimitBucketThrottle {
      */
     double percentUsed(final long givenElapsedNanos) {
         final var used = bucket.capacityUsed();
-        return 100.0
-                * (used - Math.min(used, effectiveLeak(givenElapsedNanos)))
-                / bucket.totalCapacity();
+        return 100.0 * (used - Math.min(used, effectiveLeak(givenElapsedNanos))) / bucket.totalCapacity();
+    }
+
+    /**
+     * Returns the percent of the throttle bucket's capacity that is used, as of the last throttling decision.
+     *
+     * @return the percent of the bucket that is used
+     */
+    double instantaneousPercentUsed() {
+        return 100.0 * bucket.capacityUsed() / bucket.totalCapacity();
     }
 
     /**

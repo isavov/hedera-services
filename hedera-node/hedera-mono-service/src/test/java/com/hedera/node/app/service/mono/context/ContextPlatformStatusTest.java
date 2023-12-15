@@ -13,10 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.context;
 
-import static com.swirlds.common.system.PlatformStatus.MAINTENANCE;
-import static com.swirlds.common.system.PlatformStatus.STARTING_UP;
+import static com.swirlds.platform.system.status.PlatformStatus.CHECKING;
+import static com.swirlds.platform.system.status.PlatformStatus.STARTING_UP;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import org.junit.jupiter.api.Test;
@@ -31,8 +32,8 @@ class ContextPlatformStatusTest {
 
     @Test
     void setterWorks() {
-        subject.set(MAINTENANCE);
+        subject.set(CHECKING);
 
-        assertEquals(MAINTENANCE, subject.get());
+        assertEquals(CHECKING, subject.get());
     }
 }

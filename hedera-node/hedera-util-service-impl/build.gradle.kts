@@ -13,22 +13,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-plugins {
-    id("com.hedera.hashgraph.conventions")
-}
+
+plugins { id("com.hedera.hashgraph.conventions") }
 
 description = "Default Hedera Util Service Implementation"
 
-configurations.all {
-    exclude("javax.annotation", "javax.annotation-api")
+mainModuleInfo { annotationProcessor("dagger.compiler") }
 
-    exclude("io.grpc", "grpc-core")
-    exclude("io.grpc", "grpc-context")
-    exclude("io.grpc", "grpc-api")
-    exclude("io.grpc", "grpc-testing")
-}
-
-dependencies {
-    api(project(":hedera-node:hedera-util-service"))
-    implementation(project(":hedera-node:hedera-mono-service"))
+testModuleInfo {
+    requires("com.hedera.node.app.spi.test.fixtures")
+    requires("com.hedera.node.config.test.fixtures")
+    requires("com.swirlds.config.api")
+    requires("com.swirlds.test.framework")
+    requires("org.assertj.core")
+    requires("org.junit.jupiter.api")
+    requires("org.junit.jupiter.params")
+    requires("org.mockito")
+    requires("org.mockito.junit.jupiter")
+    requiresStatic("com.github.spotbugs.annotations")
 }

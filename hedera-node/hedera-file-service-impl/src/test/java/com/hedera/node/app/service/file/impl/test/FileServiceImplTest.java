@@ -13,25 +13,57 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.file.impl.test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.verify;
+
+import com.hedera.node.app.config.BootstrapConfigProviderImpl;
 import com.hedera.node.app.service.file.FileService;
 import com.hedera.node.app.service.file.impl.FileServiceImpl;
-import org.junit.jupiter.api.Assertions;
+import com.hedera.node.app.spi.Service;
+import com.hedera.node.app.spi.state.Schema;
+import com.hedera.node.app.spi.state.SchemaRegistry;
+import com.hedera.node.app.spi.state.StateDefinition;
+import com.hedera.node.config.ConfigProvider;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
+@ExtendWith(MockitoExtension.class)
 class FileServiceImplTest {
+    @Mock
+    private SchemaRegistry registry;
+
+    private ConfigProvider configProvider;
+
+    @BeforeEach
+    void setUp() {
+        configProvider = new BootstrapConfigProviderImpl();
+    }
 
     @Test
-    void testSpi() {
-        // when
-        final FileService service = FileService.getInstance();
+    void registersExpectedSchema() {
+        ArgumentCaptor<Schema> schemaCaptor = ArgumentCaptor.forClass(Schema.class);
 
-        // then
-        Assertions.assertNotNull(service, "We must always receive an instance");
-        Assertions.assertEquals(
-                FileServiceImpl.class,
-                service.getClass(),
-                "We must always receive an instance of type " + FileServiceImpl.class.getName());
+        subject().registerSchemas(registry, Service.RELEASE_045_VERSION);
+
+        verify(registry).register(schemaCaptor.capture());
+
+        final var schema = schemaCaptor.getValue();
+
+        final var statesToCreate = schema.statesToCreate();
+        assertEquals(11, statesToCreate.size());
+        final var iter =
+                statesToCreate.stream().map(StateDefinition::stateKey).sorted().iterator();
+        assertEquals(FileServiceImpl.BLOBS_KEY, iter.next());
+    }
+
+    private FileService subject() {
+        return new FileServiceImpl(configProvider);
     }
 }

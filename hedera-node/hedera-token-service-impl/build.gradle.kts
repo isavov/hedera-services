@@ -13,30 +13,30 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-plugins {
-    id("com.hedera.hashgraph.conventions")
-}
+
+plugins { id("com.hedera.hashgraph.conventions") }
 
 description = "Default Hedera Token Service Implementation"
 
-configurations.all {
-    exclude("javax.annotation", "javax.annotation-api")
+mainModuleInfo { annotationProcessor("dagger.compiler") }
 
-    exclude("io.grpc", "grpc-core")
-    exclude("io.grpc", "grpc-context")
-    exclude("io.grpc", "grpc-api")
-    exclude("io.grpc", "grpc-testing")
-}
-
-dependencies {
-    annotationProcessor(libs.dagger.compiler)
-    api(project(":hedera-node:hedera-token-service"))
-    implementation(project(":hedera-node:hedera-mono-service"))
-    implementation(libs.bundles.di)
-
-    testImplementation(testLibs.bundles.testing)
-    testImplementation(testFixtures(project(":hedera-node:hedera-mono-service")))
-    testImplementation(testFixtures(project(":hedera-node:hedera-app-spi")))
-    testImplementation(testLibs.mockito.inline)
-    testImplementation(project(":hedera-node:hedera-app-spi"))
+testModuleInfo {
+    requires("com.hedera.node.app")
+    requires("com.hedera.node.app.service.token.impl")
+    requires("com.hedera.node.app.service.mono.test.fixtures")
+    requires("com.hedera.node.app.spi.test.fixtures")
+    requires("com.hedera.node.config.test.fixtures")
+    requires("com.hedera.node.app.service.token.test.fixtures")
+    requires("com.swirlds.merkle")
+    requires("com.swirlds.test.framework")
+    requires("org.assertj.core")
+    requires("org.hamcrest")
+    requires("org.junit.jupiter.api")
+    requires("org.junit.jupiter.params")
+    requires("org.mockito")
+    requires("org.mockito.junit.jupiter")
+    requiresStatic("com.github.spotbugs.annotations")
+    runtimeOnly("org.mockito.inline")
+    requires("com.google.protobuf")
+    requires("com.swirlds.common")
 }

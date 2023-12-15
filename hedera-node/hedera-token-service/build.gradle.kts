@@ -13,12 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 plugins {
     id("com.hedera.hashgraph.conventions")
+    id("java-test-fixtures")
 }
 
 description = "Hedera Token Service API"
-
-dependencies {
-    api(project(":hedera-node:hedera-app-spi"))
-}

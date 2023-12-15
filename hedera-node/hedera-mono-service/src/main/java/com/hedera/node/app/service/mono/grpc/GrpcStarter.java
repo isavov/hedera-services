@@ -13,11 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.grpc;
 
 import com.hedera.node.app.service.mono.context.properties.NodeLocalProperties;
-import com.swirlds.common.system.NodeId;
-import com.swirlds.common.system.address.AddressBook;
+import com.swirlds.common.platform.NodeId;
+import com.swirlds.platform.system.address.AddressBook;
 import java.io.PrintStream;
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -68,13 +69,9 @@ public class GrpcStarter {
                     }
                 } else {
                     final var staticBook = addressBook.get();
-                    final var nodeAddress = staticBook.getAddress(nodeId.getId());
-                    int portOffset =
-                            thisNodeIsDefaultListener()
-                                    ? 0
-                                    : nodeAddress.getPortExternalIpv4() % PORT_MODULUS;
-                    grpc.start(
-                            port + portOffset, tlsPort + portOffset, this::logInfoWithConsoleEcho);
+                    final var nodeAddress = staticBook.getAddress(nodeId);
+                    int portOffset = thisNodeIsDefaultListener() ? 0 : nodeAddress.getPortExternal() % PORT_MODULUS;
+                    grpc.start(port + portOffset, tlsPort + portOffset, this::logInfoWithConsoleEcho);
                 }
                 break;
             case TEST:
@@ -94,6 +91,6 @@ public class GrpcStarter {
     private boolean thisNodeIsDefaultListener() {
         final var blessedNodeAccount = nodeLocalProperties.devListeningAccount();
         final var staticBook = addressBook.get();
-        return blessedNodeAccount.equals(staticBook.getAddress(nodeId.getId()).getMemo());
+        return blessedNodeAccount.equals(staticBook.getAddress(nodeId).getMemo());
     }
 }

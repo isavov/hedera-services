@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022-2023 Hedera Hashgraph, LLC
+ * Copyright (C) 2023 Hedera Hashgraph, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.state.merkle.disk;
+
+import static com.hedera.node.app.state.logging.TransactionStateLogger.*;
 
 import com.hedera.node.app.spi.state.WritableKVState;
 import com.hedera.node.app.spi.state.WritableKVStateBase;
@@ -30,8 +33,7 @@ import java.util.Objects;
  * @param <K> The type of key for the state
  * @param <V> The type of value for the state
  */
-public final class OnDiskWritableKVState<K extends Comparable<K>, V>
-        extends WritableKVStateBase<K, V> {
+public final class OnDiskWritableKVState<K, V> extends WritableKVStateBase<K, V> {
     /** The backing merkle data structure */
     private final VirtualMap<OnDiskKey<K>, OnDiskValue<V>> virtualMap;
 
@@ -44,8 +46,7 @@ public final class OnDiskWritableKVState<K extends Comparable<K>, V>
      * @param virtualMap the backing merkle data structure to use
      */
     public OnDiskWritableKVState(
-            @NonNull final StateMetadata<K, V> md,
-            @NonNull final VirtualMap<OnDiskKey<K>, OnDiskValue<V>> virtualMap) {
+            @NonNull final StateMetadata<K, V> md, @NonNull final VirtualMap<OnDiskKey<K>, OnDiskValue<V>> virtualMap) {
         super(md.stateDefinition().stateKey());
         this.md = md;
         this.virtualMap = Objects.requireNonNull(virtualMap);
@@ -56,7 +57,10 @@ public final class OnDiskWritableKVState<K extends Comparable<K>, V>
     protected V readFromDataSource(@NonNull K key) {
         final var k = new OnDiskKey<>(md, key);
         final var v = virtualMap.get(k);
-        return v == null ? null : v.getValue();
+        final var value = v == null ? null : v.getValue();
+        // Log to transaction state log, what was read
+        logMapGet(getStateKey(), key, value);
+        return value;
     }
 
     /** {@inheritDoc} */
@@ -71,7 +75,10 @@ public final class OnDiskWritableKVState<K extends Comparable<K>, V>
     protected V getForModifyFromDataSource(@NonNull K key) {
         final var k = new OnDiskKey<>(md, key);
         final var v = virtualMap.getForModify(k);
-        return v == null ? null : v.getValue();
+        final var value = v == null ? null : v.getValue();
+        // Log to transaction state log, what was read
+        logMapGetForModify(getStateKey(), key, value);
+        return value;
     }
 
     /** {@inheritDoc} */
@@ -84,12 +91,25 @@ public final class OnDiskWritableKVState<K extends Comparable<K>, V>
         } else {
             virtualMap.put(k, new OnDiskValue<>(md, value));
         }
+        // Log to transaction state log, what was put
+        logMapPut(getStateKey(), key, value);
     }
 
     /** {@inheritDoc} */
     @Override
     protected void removeFromDataSource(@NonNull K key) {
         final var k = new OnDiskKey<>(md, key);
-        virtualMap.remove(k);
+        final var removed = virtualMap.remove(k);
+        // Log to transaction state log, what was removed
+        logMapRemove(getStateKey(), key, removed);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public long sizeOfDataSource() {
+        final var size = virtualMap.size();
+        // Log to transaction state log, size of map
+        logMapGetSize(getStateKey(), size);
+        return size;
     }
 }

@@ -13,30 +13,52 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.evm.store.contracts;
 
 import com.hedera.node.app.service.evm.accounts.AccountAccessor;
-import com.hedera.node.app.service.evm.store.models.UpdatedHederaEvmAccount;
+import com.hedera.node.app.service.evm.store.models.UpdateTrackingAccount;
+import com.hedera.node.app.service.evm.store.tokens.TokenAccessor;
+import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.account.Account;
-import org.hyperledger.besu.evm.account.EvmAccount;
+import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.evm.worldstate.WorldView;
-import org.hyperledger.besu.evm.worldstate.WrappedEvmAccount;
 
-public abstract class AbstractLedgerEvmWorldUpdater<W extends WorldView, A extends Account>
-        implements WorldUpdater {
+/**
+ * This class implementation help for both "base" and "stacked" {@link WorldUpdater}s.
+ *
+ * <p>It tracks account changes in {@code deletedAccounts} set and {@code updatedAccounts} map.These
+ * collections are used as follows:
+ * <ol>
+ *  <li>For services, the stored accounts are added or removed from the ledger accordingly.
+ *
+ *   <li>For evm-module (i.e. mirror-node flow) the ledger's persistence role is executed by a DB
+ *       layer and {@code deletedAccounts} and {@code updatedAccounts} serve as a local cache for
+ *       for optimization purposes.
+ * </ol>
+ *
+ * @param <A> the most specialized account type to be updated
+ * @param <W> the most specialized world updater to be used
+ */
+public abstract class AbstractLedgerEvmWorldUpdater<W extends WorldView, A extends Account> implements WorldUpdater {
 
     protected final W world;
     protected final AccountAccessor accountAccessor;
-    private Map<Address, UpdatedHederaEvmAccount<A>> updatedEvmAccounts = new HashMap<>();
+    protected Map<Address, UpdateTrackingAccount<A>> updatedAccounts = new HashMap<>();
     private HederaEvmEntityAccess hederaEvmEntityAccess;
+
+    private TokenAccessor tokenAccessor;
+
+    protected Set<Address> deletedAccounts = new HashSet<>();
 
     protected AbstractLedgerEvmWorldUpdater(final W world, final AccountAccessor accountAccessor) {
         this.world = world;
@@ -46,9 +68,11 @@ public abstract class AbstractLedgerEvmWorldUpdater<W extends WorldView, A exten
     protected AbstractLedgerEvmWorldUpdater(
             final W world,
             final AccountAccessor accountAccessor,
+            final TokenAccessor tokenAccessor,
             final HederaEvmEntityAccess hederaEvmEntityAccess) {
         this(world, accountAccessor);
         this.hederaEvmEntityAccess = hederaEvmEntityAccess;
+        this.tokenAccessor = tokenAccessor;
     }
 
     /**
@@ -66,7 +90,7 @@ public abstract class AbstractLedgerEvmWorldUpdater<W extends WorldView, A exten
     }
 
     @Override
-    public EvmAccount createAccount(Address address, long nonce, Wei balance) {
+    public MutableAccount createAccount(Address address, long nonce, Wei balance) {
         return null;
     }
 
@@ -77,12 +101,12 @@ public abstract class AbstractLedgerEvmWorldUpdater<W extends WorldView, A exten
 
     @Override
     public Collection<? extends Account> getTouchedAccounts() {
-        return Collections.emptyList();
+        return new ArrayList<>(updatedAccounts.values());
     }
 
     @Override
     public Collection<Address> getDeletedAccountAddresses() {
-        return Collections.emptyList();
+        return new ArrayList<>(deletedAccounts);
     }
 
     @Override
@@ -114,7 +138,7 @@ public abstract class AbstractLedgerEvmWorldUpdater<W extends WorldView, A exten
         if (!address.equals(accountAccessor.canonicalAddress(address))) {
             return null;
         }
-        final var extantMutable = this.updatedEvmAccounts.get(address);
+        final var extantMutable = this.updatedAccounts.get(address);
         if (extantMutable != null) {
             return extantMutable;
         }
@@ -123,23 +147,36 @@ public abstract class AbstractLedgerEvmWorldUpdater<W extends WorldView, A exten
     }
 
     @Override
-    public EvmAccount getAccount(Address address) {
-        final var extantMutable = this.updatedEvmAccounts.get(address);
+    public MutableAccount getAccount(Address address) {
+        final var extantMutable = this.updatedAccounts.get(address);
         if (extantMutable != null) {
-            return new WrappedEvmAccount(extantMutable);
+            return extantMutable;
         }
 
         final var origin = getForMutation(address);
         if (origin == null) {
             return null;
         }
-        final var newMutable = new UpdatedHederaEvmAccount<>(origin);
-        return new WrappedEvmAccount(track(newMutable));
+        final var trackedAccount = track(new UpdateTrackingAccount<>(origin, null));
+        trackedAccount.setEvmEntityAccess(hederaEvmEntityAccess);
+
+        return trackedAccount;
     }
 
-    private UpdatedHederaEvmAccount<A> track(final UpdatedHederaEvmAccount<A> account) {
-        account.setEvmEntityAccess(hederaEvmEntityAccess);
-        updatedEvmAccounts.put(account.getAddress(), account);
+    public Map<Address, UpdateTrackingAccount<A>> getUpdatedAccounts() {
+        return updatedAccounts;
+    }
+
+    // FeatureWork public ContractAliases aliases()
+
+    public UpdateTrackingAccount<A> track(final UpdateTrackingAccount<A> account) {
+        final var address = account.getAddress();
+        updatedAccounts.put(address, account);
+        deletedAccounts.remove(address);
         return account;
+    }
+
+    public TokenAccessor tokenAccessor() {
+        return this.tokenAccessor;
     }
 }

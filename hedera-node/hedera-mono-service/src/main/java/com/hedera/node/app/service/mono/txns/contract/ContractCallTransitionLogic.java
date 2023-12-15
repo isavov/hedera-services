@@ -13,15 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.txns.contract;
 
 import static com.hedera.node.app.service.evm.utils.ValidationUtils.validateTrue;
 import static com.hedera.node.app.service.mono.contracts.ContractsV_0_30Module.EVM_VERSION_0_30;
-import static com.hedera.node.app.service.mono.utils.EntityIdUtils.EVM_ADDRESS_SIZE;
-import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.CONTRACT_NEGATIVE_GAS;
+import static com.hedera.node.app.service.mono.utils.EntityIdUtils.isOfEvmAddressSize;
+import static com.hederahashgraph.api.proto.java.HederaFunctionality.ContractCall;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.CONTRACT_NEGATIVE_VALUE;
-import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INVALID_ACCOUNT_ID;
+import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INSUFFICIENT_GAS;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INVALID_CONTRACT_ID;
+import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INVALID_SIGNATURE;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.MAX_GAS_LIMIT_EXCEEDED;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.OK;
 
@@ -29,6 +31,7 @@ import com.hedera.node.app.service.mono.context.TransactionContext;
 import com.hedera.node.app.service.mono.context.properties.GlobalDynamicProperties;
 import com.hedera.node.app.service.mono.contracts.execution.CallEvmTxProcessor;
 import com.hedera.node.app.service.mono.contracts.execution.TransactionProcessingResult;
+import com.hedera.node.app.service.mono.contracts.sources.EvmSigsVerifier;
 import com.hedera.node.app.service.mono.ledger.SigImpactHistorian;
 import com.hedera.node.app.service.mono.ledger.accounts.AliasManager;
 import com.hedera.node.app.service.mono.records.TransactionRecordService;
@@ -37,6 +40,7 @@ import com.hedera.node.app.service.mono.store.contracts.CodeCache;
 import com.hedera.node.app.service.mono.store.contracts.EntityAccess;
 import com.hedera.node.app.service.mono.store.contracts.HederaMutableWorldState;
 import com.hedera.node.app.service.mono.store.contracts.HederaWorldState;
+import com.hedera.node.app.service.mono.store.contracts.WorldLedgers;
 import com.hedera.node.app.service.mono.store.models.Account;
 import com.hedera.node.app.service.mono.store.models.Id;
 import com.hedera.node.app.service.mono.txns.PreFetchableTransition;
@@ -54,10 +58,14 @@ import javax.inject.Singleton;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.tuweni.bytes.Bytes;
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
 @Singleton
 public class ContractCallTransitionLogic implements PreFetchableTransition {
     private static final Logger log = LogManager.getLogger(ContractCallTransitionLogic.class);
+    private static final Address NEVER_ACTIVE_CONTRACT_ADDRESS = Address.ZERO;
+    private static final long INTRINSIC_GAS_LOWER_BOUND = 21_000L;
 
     private final AccountStore accountStore;
     private final TransactionContext txnCtx;
@@ -69,6 +77,9 @@ public class ContractCallTransitionLogic implements PreFetchableTransition {
     private final AliasManager aliasManager;
     private final SigImpactHistorian sigImpactHistorian;
     private final EntityAccess entityAccess;
+    private final EvmSigsVerifier sigsVerifier;
+    private final WorldLedgers worldLedgers;
+    private final GasCalculator gasCalculator;
 
     @Inject
     public ContractCallTransitionLogic(
@@ -81,7 +92,10 @@ public class ContractCallTransitionLogic implements PreFetchableTransition {
             final CodeCache codeCache,
             final SigImpactHistorian sigImpactHistorian,
             final AliasManager aliasManager,
-            final EntityAccess entityAccess) {
+            final EntityAccess entityAccess,
+            final EvmSigsVerifier sigsVerifier,
+            final WorldLedgers worldLedgers,
+            final GasCalculator gasCalculator) {
         this.txnCtx = txnCtx;
         this.aliasManager = aliasManager;
         this.worldState = worldState;
@@ -92,6 +106,9 @@ public class ContractCallTransitionLogic implements PreFetchableTransition {
         this.codeCache = codeCache;
         this.sigImpactHistorian = sigImpactHistorian;
         this.entityAccess = entityAccess;
+        this.sigsVerifier = sigsVerifier;
+        this.worldLedgers = worldLedgers;
+        this.gasCalculator = gasCalculator;
     }
 
     @Override
@@ -108,6 +125,9 @@ public class ContractCallTransitionLogic implements PreFetchableTransition {
             final Id relayerId,
             final long maxGasAllowanceInTinybars,
             final BigInteger offeredGasPrice) {
+        worldState.clearProvisionalContractCreations();
+        worldState.clearContractNonces();
+
         var op = contractCallTxn.getContractCall();
 
         // --- Load the model objects ---
@@ -116,55 +136,54 @@ public class ContractCallTransitionLogic implements PreFetchableTransition {
         final var target = targetOf(op);
         final var targetId = target.toId();
         Account receiver;
-        if (target.equals(EntityNum.MISSING_NUM)
+        final var targetAddressIsMissing = target.equals(EntityNum.MISSING_NUM);
+        if (targetAddressIsMissing
                 && relayerId != null
                 && !properties.evmVersion().equals(EVM_VERSION_0_30)
                 && properties.isAutoCreationEnabled()
                 && properties.isLazyCreationEnabled()) {
             // allow Ethereum transactions to lazy create a hollow account
             // if `to` is non-existent and `value` is non-zero
-            validateTrue(op.getAmount() > 0, INVALID_ACCOUNT_ID);
+            validateTrue(op.getAmount() > 0, INVALID_CONTRACT_ID);
             final var evmAddress = op.getContractID().getEvmAddress();
-            validateTrue(evmAddress.size() == EVM_ADDRESS_SIZE, INVALID_CONTRACT_ID);
+            validateTrue(isOfEvmAddressSize(evmAddress), INVALID_CONTRACT_ID);
             receiver = new Account(evmAddress);
         } else {
-            receiver =
-                    entityAccess.isTokenAccount(targetId.asEvmAddress())
-                            ? new Account(targetId)
-                            : accountStore.loadContract(targetId);
+            receiver = entityAccess.isTokenAccount(targetId.asEvmAddress())
+                    ? new Account(targetId)
+                    : accountStore.loadContract(targetId);
+        }
+        if (!targetAddressIsMissing && op.getAmount() > 0) {
+            // Since contracts cannot have receiverSigRequired=true, this can only
+            // restrict us from sending value to an EOA
+            final var sigReqIsMet = sigsVerifier.hasActiveKeyOrNoReceiverSigReq(
+                    false, target.toEvmAddress(), NEVER_ACTIVE_CONTRACT_ADDRESS, worldLedgers, ContractCall);
+            validateTrue(sigReqIsMet, INVALID_SIGNATURE);
         }
 
-        final var callData =
-                !op.getFunctionParameters().isEmpty()
-                        ? Bytes.wrap(op.getFunctionParameters().toByteArray())
-                        : Bytes.EMPTY;
+        final var callData = !op.getFunctionParameters().isEmpty()
+                ? Bytes.wrap(op.getFunctionParameters().toByteArray())
+                : Bytes.EMPTY;
 
         // --- Do the business logic ---
         TransactionProcessingResult result;
         if (relayerId == null) {
-            result =
-                    evmTxProcessor.execute(
-                            sender,
-                            receiver.canonicalAddress(),
-                            op.getGas(),
-                            op.getAmount(),
-                            callData,
-                            txnCtx.consensusTime());
+            result = evmTxProcessor.execute(
+                    sender, receiver.canonicalAddress(), op.getGas(), op.getAmount(), callData, txnCtx.consensusTime());
         } else {
             sender.incrementEthereumNonce();
             accountStore.commitAccount(sender);
 
-            result =
-                    evmTxProcessor.executeEth(
-                            sender,
-                            receiver.canonicalAddress(),
-                            op.getGas(),
-                            op.getAmount(),
-                            callData,
-                            txnCtx.consensusTime(),
-                            offeredGasPrice,
-                            accountStore.loadAccount(relayerId),
-                            maxGasAllowanceInTinybars);
+            result = evmTxProcessor.executeEth(
+                    sender,
+                    receiver.canonicalAddress(),
+                    op.getGas(),
+                    op.getAmount(),
+                    callData,
+                    txnCtx.consensusTime(),
+                    offeredGasPrice,
+                    accountStore.loadAccount(relayerId),
+                    maxGasAllowanceInTinybars);
         }
 
         /* --- Externalise result --- */
@@ -187,6 +206,11 @@ public class ContractCallTransitionLogic implements PreFetchableTransition {
             for (final var createdContract : createdContracts) {
                 sigImpactHistorian.markEntityChanged(createdContract.getContractNum());
             }
+
+            if (properties.isContractsNoncesExternalizationEnabled()) {
+                final var createdNonces = worldState.getContractNonces();
+                result.setContractNonces(createdNonces);
+            }
         }
         recordService.externaliseEvmCallTransaction(result);
     }
@@ -204,8 +228,9 @@ public class ContractCallTransitionLogic implements PreFetchableTransition {
     private ResponseCodeEnum validateSemantics(final TransactionBody transactionBody) {
         var op = transactionBody.getContractCall();
 
-        if (op.getGas() < 0) {
-            return CONTRACT_NEGATIVE_GAS;
+        if (op.getGas()
+                < Math.max(gasCalculator.transactionIntrinsicGasCost(Bytes.EMPTY, false), INTRINSIC_GAS_LOWER_BOUND)) {
+            return INSUFFICIENT_GAS;
         }
         if (op.getAmount() < 0) {
             return CONTRACT_NEGATIVE_VALUE;

@@ -13,18 +13,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.virtual;
 
 import com.swirlds.common.io.streams.SerializableDataInputStream;
 import com.swirlds.common.io.streams.SerializableDataOutputStream;
-import com.swirlds.jasperdb.files.DataFileCommon;
 import com.swirlds.virtualmap.VirtualValue;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
 public class VirtualBlobValue implements VirtualValue {
-    static final int CURRENT_VERSION = 1;
+    public static final int CURRENT_VERSION = 1;
     static final long CLASS_ID = 0x7eb72381159d8402L;
 
     private byte[] data;
@@ -59,6 +59,10 @@ public class VirtualBlobValue implements VirtualValue {
         return copy();
     }
 
+    static int getTypicalSerializedSize() {
+        return 5120; // estimated based on mainnet state as of 05/2023
+    }
+
     @Override
     public void deserialize(SerializableDataInputStream in, int version) throws IOException {
         data = in.readByteArray(Integer.MAX_VALUE);
@@ -91,10 +95,6 @@ public class VirtualBlobValue implements VirtualValue {
     @Override
     public int getVersion() {
         return CURRENT_VERSION;
-    }
-
-    public static int sizeInBytes() {
-        return DataFileCommon.VARIABLE_DATA_SIZE;
     }
 
     @Override

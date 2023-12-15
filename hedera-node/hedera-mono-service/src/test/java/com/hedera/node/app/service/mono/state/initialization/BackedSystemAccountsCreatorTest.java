@@ -13,22 +13,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.initialization;
 
 import static com.hedera.node.app.service.mono.context.properties.PropertyNames.BOOTSTRAP_SYSTEM_ENTITY_EXPIRY;
 import static com.hedera.node.app.service.mono.context.properties.PropertyNames.LEDGER_NUM_SYSTEM_ACCOUNTS;
 import static com.hedera.node.app.service.mono.context.properties.PropertyNames.LEDGER_TOTAL_TINY_BAR_FLOAT;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.collection.IsIterableContainingInOrder.contains;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.hedera.node.app.service.mono.config.AccountNumbers;
 import com.hedera.node.app.service.mono.config.HederaNumbers;
@@ -42,34 +43,28 @@ import com.hedera.node.app.service.mono.state.merkle.MerkleAccount;
 import com.hedera.node.app.service.mono.state.migration.HederaAccount;
 import com.hedera.node.app.service.mono.utils.MiscUtils;
 import com.hedera.node.app.spi.numbers.HederaAccountNumbers;
-import com.hedera.test.extensions.LogCaptor;
-import com.hedera.test.extensions.LogCaptureExtension;
 import com.hedera.test.extensions.LoggingSubject;
-import com.hedera.test.extensions.LoggingTarget;
 import com.hedera.test.utils.IdUtils;
 import com.hederahashgraph.api.proto.java.AccountID;
 import com.hederahashgraph.api.proto.java.Key;
 import com.hederahashgraph.api.proto.java.KeyList;
-import com.swirlds.common.system.address.Address;
-import com.swirlds.common.system.address.AddressBook;
+import com.swirlds.common.platform.NodeId;
+import com.swirlds.platform.system.address.Address;
+import com.swirlds.platform.system.address.AddressBook;
+import java.security.InvalidKeyException;
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
-import org.apache.commons.codec.DecoderException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 
-@ExtendWith(LogCaptureExtension.class)
 class BackedSystemAccountsCreatorTest {
     private final long shard = 0;
     private final long realm = 0;
     private final long totalBalance = 100l;
     private final long expiry = Instant.now().getEpochSecond() + 1_234_567L;
     private final int numAccounts = 4;
-    private final JEd25519Key pretendKey =
-            new JEd25519Key("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".getBytes());
+    private final JEd25519Key pretendKey = new JEd25519Key("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".getBytes());
 
     private JKey genesisKey;
     private PropertySource properties;
@@ -78,22 +73,17 @@ class BackedSystemAccountsCreatorTest {
     private TreasuryCloner treasuryCloner;
     private HederaAccountNumbers accountNums;
 
-    @LoggingTarget private LogCaptor logCaptor;
-    @LoggingSubject private BackedSystemAccountsCreator subject;
+    @LoggingSubject
+    private BackedSystemAccountsCreator subject;
 
     @BeforeEach
     @SuppressWarnings("unchecked")
-    void setup()
-            throws DecoderException, NegativeAccountBalanceException, IllegalArgumentException {
-        genesisKey =
-                JKey.mapKey(
-                        Key.newBuilder()
-                                .setKeyList(
-                                        KeyList.newBuilder()
-                                                .addKeys(MiscUtils.asKeyUnchecked(pretendKey)))
-                                .build());
+    void setup() throws InvalidKeyException, NegativeAccountBalanceException, IllegalArgumentException {
+        genesisKey = JKey.mapKey(Key.newBuilder()
+                .setKeyList(KeyList.newBuilder().addKeys(MiscUtils.asKeyUnchecked(pretendKey)))
+                .build());
 
-        HederaNumbers hederaNums = mock(HederaNumbers.class);
+        final HederaNumbers hederaNums = mock(HederaNumbers.class);
         given(hederaNums.realm()).willReturn(realm);
         given(hederaNums.shard()).willReturn(shard);
         accountNums = mock(AccountNumbers.class);
@@ -106,30 +96,22 @@ class BackedSystemAccountsCreatorTest {
         given(properties.getLongProperty(LEDGER_TOTAL_TINY_BAR_FLOAT)).willReturn(totalBalance);
         given(properties.getLongProperty(BOOTSTRAP_SYSTEM_ENTITY_EXPIRY)).willReturn(expiry);
 
-        var address = mock(Address.class);
+        final var address = mock(Address.class);
         given(address.getMemo()).willReturn("0.0.3");
         book = mock(AddressBook.class);
         given(book.getSize()).willReturn(1);
-        given(book.getAddress(0L)).willReturn(address);
+        given(book.getAddress(new NodeId(0L))).willReturn(address);
 
         backingAccounts = (BackingStore<AccountID, HederaAccount>) mock(BackingStore.class);
-        given(backingAccounts.idSet())
-                .willReturn(Set.of(accountWith(1), accountWith(2), accountWith(3), accountWith(4)));
         given(backingAccounts.getImmutableRef(accountWith(1))).willReturn(withExpectedBalance(0));
-        given(backingAccounts.getImmutableRef(accountWith(2)))
-                .willReturn(withExpectedBalance(totalBalance));
+        given(backingAccounts.getImmutableRef(accountWith(2))).willReturn(withExpectedBalance(totalBalance));
         given(backingAccounts.getImmutableRef(accountWith(3))).willReturn(withExpectedBalance(0));
         given(backingAccounts.getImmutableRef(accountWith(4))).willReturn(withExpectedBalance(0));
 
         treasuryCloner = mock(TreasuryCloner.class);
 
-        subject =
-                new BackedSystemAccountsCreator(
-                        accountNums,
-                        properties,
-                        () -> pretendKey,
-                        MerkleAccount::new,
-                        treasuryCloner);
+        subject = new BackedSystemAccountsCreator(
+                accountNums, properties, () -> pretendKey, MerkleAccount::new, treasuryCloner);
     }
 
     @Test
@@ -141,14 +123,17 @@ class BackedSystemAccountsCreatorTest {
 
         // when:
         subject.ensureSystemAccounts(backingAccounts, book);
+        assertDoesNotThrow(subject::ensureSynthRecordsPresentOnFirstEverTransaction);
 
         assertEquals(missingSystemAccount, subject.getSystemAccountsCreated());
         assertEquals(treasuryClones, subject.getTreasuryClonesCreated());
+        assertEquals(2, subject.getStakingFundAccountsCreated().size());
 
         subject.forgetCreations();
 
         verify(treasuryCloner).forgetCreatedClones();
         assertEquals(0, subject.getSystemAccountsCreated().size());
+        assertEquals(0, subject.getStakingFundAccountsCreated().size());
     }
 
     @Test
@@ -157,9 +142,7 @@ class BackedSystemAccountsCreatorTest {
         given(properties.getLongProperty(LEDGER_TOTAL_TINY_BAR_FLOAT)).willReturn(-100L);
 
         // expect:
-        assertThrows(
-                IllegalStateException.class,
-                () -> subject.ensureSystemAccounts(backingAccounts, book));
+        assertThrows(IllegalStateException.class, () -> subject.ensureSystemAccounts(backingAccounts, book));
     }
 
     @Test
@@ -209,18 +192,15 @@ class BackedSystemAccountsCreatorTest {
     }
 
     @Test
-    void createsNothingIfAllPresent() {
-        given(backingAccounts.contains(any())).willReturn(true);
-        var desiredInfo =
-                String.format("Ledger float is %d tinyBars in %d accounts.", totalBalance, 4);
-
-        // when:
-        subject.ensureSystemAccounts(backingAccounts, book);
+    void internalCreateOnlyPrepsSyntheticRecords() {
+        subject.ensureSynthRecordsPresentOnFirstEverTransaction();
 
         // then:
-        verify(backingAccounts, never()).put(any(), any());
+        verifyNoInteractions(backingAccounts);
         // and:
-        assertThat(logCaptor.infoLogs(), contains(desiredInfo));
+        assertNotEquals(0, subject.getSystemAccountsCreated().size());
+        assertNotEquals(0, subject.getStakingFundAccountsCreated().size());
+        verify(treasuryCloner).ensureTreasuryClonesExist(false);
     }
 
     @Test
@@ -232,10 +212,12 @@ class BackedSystemAccountsCreatorTest {
 
         subject.ensureSystemAccounts(backingAccounts, book);
 
+        assertEquals(List.of(canonicalFundingAccount()), subject.getStakingFundAccountsCreated());
+
         verify(backingAccounts).put(eq(funding801), captor.capture());
         final var new801 = captor.getValue();
         assertEquals(canonicalFundingAccount(), new801);
-        verify(treasuryCloner).ensureTreasuryClonesExist();
+        verify(treasuryCloner).ensureTreasuryClonesExist(true);
     }
 
     private MerkleAccount canonicalFundingAccount() {
@@ -269,43 +251,33 @@ class BackedSystemAccountsCreatorTest {
     }
 
     private void givenAllPresentSpecialAccounts() {
-        given(
-                        backingAccounts.contains(
-                                argThat(
-                                        accountID ->
-                                                (900 <= accountID.getAccountNum()
-                                                        && accountID.getAccountNum() <= 1000))))
+        given(backingAccounts.contains(
+                        argThat(accountID -> (900 <= accountID.getAccountNum() && accountID.getAccountNum() <= 1000))))
                 .willReturn(true);
     }
 
     private void givenMissingSpecialAccounts() {
-        given(
-                        backingAccounts.contains(
-                                argThat(
-                                        accountID ->
-                                                (accountID.getAccountNum() != 900
-                                                        && accountID.getAccountNum() != 1000))))
+        given(backingAccounts.contains(
+                        argThat(accountID -> (accountID.getAccountNum() != 900 && accountID.getAccountNum() != 1000))))
                 .willReturn(true);
         given(backingAccounts.contains(accountWith(900L))).willReturn(false);
         given(backingAccounts.contains(accountWith(1000L))).willReturn(false);
     }
 
-    private AccountID accountWith(long num) {
+    private AccountID accountWith(final long num) {
         return IdUtils.asAccount(String.format("%d.%d.%d", shard, realm, num));
     }
 
-    private HederaAccount withExpectedBalance(long balance) throws NegativeAccountBalanceException {
-        MerkleAccount hAccount =
-                (MerkleAccount)
-                        new HederaAccountCustomizer()
-                                .isReceiverSigRequired(false)
-                                .isDeleted(false)
-                                .expiry(expiry)
-                                .memo("")
-                                .isSmartContract(false)
-                                .key(genesisKey)
-                                .autoRenewPeriod(expiry)
-                                .customizing(new MerkleAccount());
+    private HederaAccount withExpectedBalance(final long balance) throws NegativeAccountBalanceException {
+        final MerkleAccount hAccount = (MerkleAccount) new HederaAccountCustomizer()
+                .isReceiverSigRequired(false)
+                .isDeleted(false)
+                .expiry(expiry)
+                .memo("")
+                .isSmartContract(false)
+                .key(genesisKey)
+                .autoRenewPeriod(expiry)
+                .customizing(new MerkleAccount());
         hAccount.setBalance(balance);
         return hAccount;
     }

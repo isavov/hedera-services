@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.txns.network;
 
 import static com.hederahashgraph.api.proto.java.HederaFunctionality.Freeze;
@@ -22,7 +23,7 @@ import com.hedera.node.app.service.mono.fees.annotations.FunctionKey;
 import com.hedera.node.app.service.mono.state.DualStateAccessor;
 import com.hedera.node.app.service.mono.txns.TransitionLogic;
 import com.hedera.node.app.service.mono.utils.UnzipUtility;
-import com.swirlds.common.system.SwirldDualState;
+import com.swirlds.platform.system.SwirldDualState;
 import dagger.Module;
 import dagger.Provides;
 import dagger.multibindings.IntoMap;
@@ -47,8 +48,7 @@ public final class NetworkLogicModule {
     @Provides
     @IntoMap
     @FunctionKey(Freeze)
-    public static List<TransitionLogic> provideFreezeLogic(
-            final FreezeTransitionLogic freezeLogic) {
+    public static List<TransitionLogic> provideFreezeLogic(final FreezeTransitionLogic freezeLogic) {
         return List.of(freezeLogic);
     }
 

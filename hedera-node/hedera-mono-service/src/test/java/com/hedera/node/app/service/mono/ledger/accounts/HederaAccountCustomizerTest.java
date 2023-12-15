@@ -13,12 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.ledger.accounts;
 
 import static com.hedera.node.app.service.mono.context.properties.StaticPropertiesHolder.STATIC_PROPERTIES;
 import static com.hedera.node.app.service.mono.ledger.accounts.AccountCustomizer.Option;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import com.google.protobuf.ByteString;
 import com.hedera.node.app.service.mono.ledger.properties.AccountProperty;
@@ -39,11 +41,8 @@ class HederaAccountCustomizerTest {
 
         // expect:
         Arrays.stream(Option.class.getEnumConstants())
-                .forEach(
-                        option ->
-                                assertEquals(
-                                        AccountProperty.valueOf(option.toString()),
-                                        optionProperties.get(option)));
+                .forEach(option ->
+                        assertEquals(AccountProperty.valueOf(option.toString()), optionProperties.get(option)));
     }
 
     @Test
@@ -62,21 +61,45 @@ class HederaAccountCustomizerTest {
         final var expiry = 1_234_567L;
         final var autoRenewAccount = new EntityId(0, 0, 5);
 
-        final var customizer =
-                new HederaAccountCustomizer()
-                        .memo(memo)
-                        .stakedId(stakedId)
-                        .autoRenewPeriod(autoRenew)
-                        .expiry(expiry)
-                        .isSmartContract(true)
-                        .autoRenewAccount(autoRenewAccount)
-                        .maxAutomaticAssociations(10);
+        final var customizer = new HederaAccountCustomizer()
+                .memo(memo)
+                .stakedId(stakedId)
+                .autoRenewPeriod(autoRenew)
+                .expiry(expiry)
+                .isSmartContract(true)
+                .autoRenewAccount(autoRenewAccount)
+                .maxAutomaticAssociations(10);
 
         final var op = ContractCreateTransactionBody.newBuilder();
         customizer.customizeSynthetic(op);
 
         assertEquals(memo, op.getMemo());
         assertEquals(STATIC_PROPERTIES.scopedAccountWith(stakedId), op.getStakedAccountId());
+        assertEquals(autoRenew, op.getAutoRenewPeriod().getSeconds());
+        assertEquals(false, op.getDeclineReward());
+    }
+
+    @Test
+    void ignoresMissingAutoRenewAccountWithCustomizedSyntheticContractCreation() {
+        final var memo = "Inherited";
+        final var stakedId = 4L;
+        final var autoRenew = 7776001L;
+        final var expiry = 1_234_567L;
+
+        final var customizer = new HederaAccountCustomizer()
+                .memo(memo)
+                .stakedId(stakedId)
+                .autoRenewPeriod(autoRenew)
+                .expiry(expiry)
+                .isSmartContract(true)
+                .autoRenewAccount(EntityId.MISSING_ENTITY_ID)
+                .maxAutomaticAssociations(10);
+
+        final var op = ContractCreateTransactionBody.newBuilder();
+        customizer.customizeSynthetic(op);
+
+        assertFalse(op.hasAutoRenewAccountId());
+        assertEquals(memo, op.getMemo());
         assertEquals(autoRenew, op.getAutoRenewPeriod().getSeconds());
         assertEquals(false, op.getDeclineReward());
     }
@@ -89,15 +112,14 @@ class HederaAccountCustomizerTest {
         final var expiry = 1_234_567L;
         final var autoRenewAccount = new EntityId(0, 0, 5);
 
-        final var customizer =
-                new HederaAccountCustomizer()
-                        .memo(memo)
-                        .stakedId(stakedId)
-                        .autoRenewPeriod(autoRenew)
-                        .expiry(expiry)
-                        .isSmartContract(true)
-                        .isDeclinedReward(true)
-                        .autoRenewAccount(autoRenewAccount);
+        final var customizer = new HederaAccountCustomizer()
+                .memo(memo)
+                .stakedId(stakedId)
+                .autoRenewPeriod(autoRenew)
+                .expiry(expiry)
+                .isSmartContract(true)
+                .isDeclinedReward(true)
+                .autoRenewAccount(autoRenewAccount);
 
         final var op = ContractCreateTransactionBody.newBuilder();
         customizer.customizeSynthetic(op);

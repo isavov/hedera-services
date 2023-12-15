@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.ledger.properties;
 
 import static com.hedera.node.app.service.mono.ledger.properties.AccountProperty.ALIAS;
@@ -68,6 +69,7 @@ import com.hederahashgraph.api.proto.java.ResponseCodeEnum;
 import com.hederahashgraph.api.proto.java.TokenID;
 import com.hederahashgraph.api.proto.java.TransactionReceipt;
 import com.hederahashgraph.api.proto.java.TransactionRecord;
+import java.security.InvalidKeyException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.TreeMap;
@@ -80,7 +82,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class AccountPropertyTest {
-    @Mock private MerkleAccount mockAccount;
+    @Mock
+    private MerkleAccount mockAccount;
 
     @Test
     void cannotSetNegativeBalance() throws NegativeAccountBalanceException {
@@ -94,8 +97,7 @@ class AccountPropertyTest {
     void cannotConvertNonNumericObjectToBalance() {
         final var account = new MerkleAccount();
         final var balanceSetter = BALANCE.setter();
-        assertThrows(
-                IllegalArgumentException.class, () -> balanceSetter.accept(account, "NotNumeric"));
+        assertThrows(IllegalArgumentException.class, () -> balanceSetter.accept(account, "NotNumeric"));
     }
 
     @Test
@@ -107,7 +109,7 @@ class AccountPropertyTest {
 
     @Test
     @SuppressWarnings("java:S5961")
-    void gettersAndSettersWork() throws Exception {
+    void gettersAndSettersWork() throws NegativeAccountBalanceException, InvalidKeyException {
         final boolean origIsDeleted = false;
         final boolean origIsReceiverSigReq = false;
         final boolean origIsContract = false;
@@ -162,51 +164,45 @@ class AccountPropertyTest {
         final AccountID payer = AccountID.newBuilder().setAccountNum(12345L).build();
         final EntityNum payerNum = EntityNum.fromAccountId(payer);
         final TokenID fungibleTokenID = TokenID.newBuilder().setTokenNum(1234L).build();
-        final TokenID nonFungibleTokenID = TokenID.newBuilder().setTokenNum(1235L).build();
+        final TokenID nonFungibleTokenID =
+                TokenID.newBuilder().setTokenNum(1235L).build();
         final FcTokenAllowanceId fungibleAllowanceId =
                 FcTokenAllowanceId.from(EntityNum.fromTokenId(fungibleTokenID), payerNum);
         final FcTokenAllowanceId nftAllowanceId =
                 FcTokenAllowanceId.from(EntityNum.fromTokenId(nonFungibleTokenID), payerNum);
-        final TreeMap<EntityNum, Long> cryptoAllowances =
-                new TreeMap<>() {
-                    {
-                        put(payerNum, initialAllowance);
-                    }
-                };
-        final TreeMap<FcTokenAllowanceId, Long> fungibleAllowances =
-                new TreeMap<>() {
-                    {
-                        put(fungibleAllowanceId, initialAllowance);
-                    }
-                };
-        final TreeSet<FcTokenAllowanceId> nftAllowances =
-                new TreeSet<>() {
-                    {
-                        add(fungibleAllowanceId);
-                        add(nftAllowanceId);
-                    }
-                };
+        final TreeMap<EntityNum, Long> cryptoAllowances = new TreeMap<>() {
+            {
+                put(payerNum, initialAllowance);
+            }
+        };
+        final TreeMap<FcTokenAllowanceId, Long> fungibleAllowances = new TreeMap<>() {
+            {
+                put(fungibleAllowanceId, initialAllowance);
+            }
+        };
+        final TreeSet<FcTokenAllowanceId> nftAllowances = new TreeSet<>() {
+            {
+                add(fungibleAllowanceId);
+                add(nftAllowanceId);
+            }
+        };
         final UInt256 oldFirstKey =
-                UInt256.fromHexString(
-                        "0x0000fe0432ce31138ecf09aa3e8a410004a1e204ef84efe01ee160fea1e22060");
+                UInt256.fromHexString("0x0000fe0432ce31138ecf09aa3e8a410004a1e204ef84efe01ee160fea1e22060");
         final int[] explicitOldFirstKey = ContractKey.asPackedInts(oldFirstKey);
         final UInt256 newFirstKey =
-                UInt256.fromHexString(
-                        "0x1111fe0432ce31138ecf09aa3e8a410004bbe204ef84efe01ee160febbe22060");
+                UInt256.fromHexString("0x1111fe0432ce31138ecf09aa3e8a410004bbe204ef84efe01ee160febbe22060");
         final int[] explicitNewFirstKey = ContractKey.asPackedInts(newFirstKey);
 
-        final var account =
-                (MerkleAccount)
-                        new HederaAccountCustomizer()
-                                .key(JKey.mapKey(origKey))
-                                .expiry(origExpiry)
-                                .autoRenewPeriod(origAutoRenew)
-                                .isDeleted(origIsDeleted)
-                                .alias(oldAlias)
-                                .memo(origMemo)
-                                .isSmartContract(origIsContract)
-                                .isReceiverSigRequired(origIsReceiverSigReq)
-                                .customizing(new MerkleAccount());
+        final var account = (MerkleAccount) new HederaAccountCustomizer()
+                .key(JKey.mapKey(origKey))
+                .expiry(origExpiry)
+                .autoRenewPeriod(origAutoRenew)
+                .isDeleted(origIsDeleted)
+                .alias(oldAlias)
+                .memo(origMemo)
+                .isSmartContract(origIsContract)
+                .isReceiverSigRequired(origIsReceiverSigReq)
+                .customizing(new MerkleAccount());
         account.setFirstUint256StorageKey(explicitOldFirstKey);
         account.setNumContractKvPairs(oldNumKvPairs);
         account.setNftsOwned(origNumNfts);
@@ -227,28 +223,12 @@ class AccountPropertyTest {
         account.setExpiredAndPendingRemoval(origIsExpiredAndPendingRemoval);
 
         final var adminKey = TOKEN_ADMIN_KT.asJKeyUnchecked();
-        final var unfrozenToken =
-                new MerkleToken(
-                        Long.MAX_VALUE,
-                        100,
-                        1,
-                        "UnfrozenToken",
-                        "UnfrozenTokenName",
-                        false,
-                        true,
-                        new EntityId(1, 2, 3));
+        final var unfrozenToken = new MerkleToken(
+                Long.MAX_VALUE, 100, 1, "UnfrozenToken", "UnfrozenTokenName", false, true, new EntityId(1, 2, 3));
         unfrozenToken.setFreezeKey(adminKey);
         unfrozenToken.setKycKey(adminKey);
-        final var frozenToken =
-                new MerkleToken(
-                        Long.MAX_VALUE,
-                        100,
-                        1,
-                        "FrozenToken",
-                        "FrozenTokenName",
-                        true,
-                        false,
-                        new EntityId(1, 2, 3));
+        final var frozenToken = new MerkleToken(
+                Long.MAX_VALUE, 100, 1, "FrozenToken", "FrozenTokenName", true, false, new EntityId(1, 2, 3));
         frozenToken.setFreezeKey(adminKey);
         frozenToken.setKycKey(adminKey);
 
@@ -305,16 +285,16 @@ class AccountPropertyTest {
         assertEquals(newDeclinedReward, DECLINE_REWARD.getter().apply(account));
         assertEquals(newStakedNum, STAKED_ID.getter().apply(account));
         assertEquals(
-                newExpiredAndPendingRemoval, EXPIRED_AND_PENDING_REMOVAL.getter().apply(account));
+                newExpiredAndPendingRemoval,
+                EXPIRED_AND_PENDING_REMOVAL.getter().apply(account));
 
         STAKED_ID.setter().accept(account, origStakedNum);
         assertEquals(origStakedNum, STAKED_ID.getter().apply(account));
     }
 
     private ExpirableTxnRecord expirableRecord(final ResponseCodeEnum status) {
-        return fromGprc(
-                TransactionRecord.newBuilder()
-                        .setReceipt(TransactionReceipt.newBuilder().setStatus(status))
-                        .build());
+        return fromGprc(TransactionRecord.newBuilder()
+                .setReceipt(TransactionReceipt.newBuilder().setStatus(status))
+                .build());
     }
 }

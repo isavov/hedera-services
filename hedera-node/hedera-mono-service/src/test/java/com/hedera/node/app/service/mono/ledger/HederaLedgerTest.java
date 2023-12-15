@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.ledger;
 
 import static com.hedera.node.app.service.mono.exceptions.InsufficientFundsException.messageFor;
@@ -31,7 +32,11 @@ import static com.hedera.node.app.service.mono.ledger.properties.AccountProperty
 import static com.hedera.node.app.service.mono.ledger.properties.AccountProperty.NUM_TREASURY_TITLES;
 import static com.hedera.node.app.service.mono.ledger.properties.AccountProperty.USED_AUTOMATIC_ASSOCIATIONS;
 import static com.hedera.test.utils.IdUtils.asAccount;
-import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.*;
+import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.ACCOUNT_DELETED;
+import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.ACCOUNT_EXPIRED_AND_PENDING_REMOVAL;
+import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.CONTRACT_DELETED;
+import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INVALID_ACCOUNT_ID;
+import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.OK;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -67,7 +72,8 @@ import org.mockito.quality.Strictness;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class HederaLedgerTest extends BaseHederaLedgerTestHelper {
-    @Mock private AutoCreationLogic autoCreationLogic;
+    @Mock
+    private AutoCreationLogic autoCreationLogic;
 
     @BeforeEach
     void setup() {
@@ -166,9 +172,8 @@ class HederaLedgerTest extends BaseHederaLedgerTestHelper {
     void delegatesChangeSetIfInTxn() {
         final var zeroingGenesis = "{0.0.2: [BALANCE -> 0]}";
         final var creatingTreasury = "{0.0.2 <-> 0.0.1001: [TOKEN_BALANCE -> 1_000_000]}";
-        final var changingOwner =
-                "{NftId{shard=0, realm=0, num=10000, serialNo=1234}: "
-                        + "[OWNER -> EntityId{shard=3, realm=4, num=5}]}";
+        final var changingOwner = "{NftId{shard=0, realm=0, num=10000, serialNo=1234}: "
+                + "[OWNER -> EntityId{shard=3, realm=4, num=5}]}";
         given(accountsLedger.isInTransaction()).willReturn(true);
         given(accountsLedger.changeSetSoFar()).willReturn(zeroingGenesis);
         given(tokenRelsLedger.changeSetSoFar()).willReturn(creatingTreasury);
@@ -178,16 +183,15 @@ class HederaLedgerTest extends BaseHederaLedgerTestHelper {
         final var summary = subject.currentChangeSet();
 
         verify(accountsLedger).changeSetSoFar();
-        final var desired =
-                "--- ACCOUNTS ---\n"
-                        + "{0.0.2: [BALANCE -> 0]}\n"
-                        + "--- TOKEN RELATIONSHIPS ---\n"
-                        + "{0.0.2 <-> 0.0.1001: [TOKEN_BALANCE -> 1_000_000]}\n"
-                        + "--- NFTS ---\n"
-                        + "{NftId{shard=0, realm=0, num=10000, serialNo=1234}: [OWNER ->"
-                        + " EntityId{shard=3, realm=4, num=5}]}\n"
-                        + "--- TOKENS ---\n"
-                        + "NONSENSE";
+        final var desired = "--- ACCOUNTS ---\n"
+                + "{0.0.2: [BALANCE -> 0]}\n"
+                + "--- TOKEN RELATIONSHIPS ---\n"
+                + "{0.0.2 <-> 0.0.1001: [TOKEN_BALANCE -> 1_000_000]}\n"
+                + "--- NFTS ---\n"
+                + "{NftId{shard=0, realm=0, num=10000, serialNo=1234}: [OWNER ->"
+                + " EntityId{shard=3, realm=4, num=5}]}\n"
+                + "--- TOKENS ---\n"
+                + "NONSENSE";
         assertEquals(desired, summary);
     }
 
@@ -234,18 +238,17 @@ class HederaLedgerTest extends BaseHederaLedgerTestHelper {
         validator = mock(OptionValidator.class);
         given(validator.isAfterConsensusSecond(anyLong())).willReturn(false);
         given(accountsLedger.get(genesis, BALANCE)).willReturn(0L);
-        subject =
-                new HederaLedger(
-                        tokenStore,
-                        ids,
-                        creator,
-                        validator,
-                        new SideEffectsTracker(),
-                        historian,
-                        tokensLedger,
-                        accountsLedger,
-                        transferLogic,
-                        autoCreationLogic);
+        subject = new HederaLedger(
+                tokenStore,
+                ids,
+                creator,
+                validator,
+                new SideEffectsTracker(),
+                historian,
+                tokensLedger,
+                accountsLedger,
+                transferLogic,
+                autoCreationLogic);
 
         assertTrue(subject.isDetached(genesis));
     }
@@ -256,18 +259,17 @@ class HederaLedgerTest extends BaseHederaLedgerTestHelper {
         given(validator.isAfterConsensusSecond(anyLong())).willReturn(false);
         given(accountsLedger.get(genesis, BALANCE)).willReturn(0L);
         given(accountsLedger.get(genesis, IS_SMART_CONTRACT)).willReturn(true);
-        subject =
-                new HederaLedger(
-                        tokenStore,
-                        ids,
-                        creator,
-                        validator,
-                        new SideEffectsTracker(),
-                        historian,
-                        tokensLedger,
-                        accountsLedger,
-                        transferLogic,
-                        autoCreationLogic);
+        subject = new HederaLedger(
+                tokenStore,
+                ids,
+                creator,
+                validator,
+                new SideEffectsTracker(),
+                historian,
+                tokensLedger,
+                accountsLedger,
+                transferLogic,
+                autoCreationLogic);
 
         assertTrue(subject.isDetached(genesis));
     }
@@ -282,8 +284,7 @@ class HederaLedgerTest extends BaseHederaLedgerTestHelper {
     @Test
     void recognizesDetachedIfValidatorIsNotOk() {
         validator = mock(OptionValidator.class);
-        given(validator.expiryStatusGiven(any(), any()))
-                .willReturn(ACCOUNT_EXPIRED_AND_PENDING_REMOVAL);
+        given(validator.expiryStatusGiven(any(), any())).willReturn(ACCOUNT_EXPIRED_AND_PENDING_REMOVAL);
         assertFalse(subject.isDetached(genesis));
     }
 
@@ -349,9 +350,7 @@ class HederaLedgerTest extends BaseHederaLedgerTestHelper {
 
     @Test
     void throwsOnUnderfundedCreate() {
-        assertThrows(
-                InsufficientFundsException.class,
-                () -> subject.create(rand, RAND_BALANCE + 1, noopCustomizer));
+        assertThrows(InsufficientFundsException.class, () -> subject.create(rand, RAND_BALANCE + 1, noopCustomizer));
     }
 
     @Test
@@ -394,8 +393,7 @@ class HederaLedgerTest extends BaseHederaLedgerTestHelper {
 
     @Test
     void throwsOnCustomizingDeletedAccount() {
-        assertThrows(
-                DeletedAccountException.class, () -> subject.customize(deleted, noopCustomizer));
+        assertThrows(DeletedAccountException.class, () -> subject.customize(deleted, noopCustomizer));
     }
 
     @Test
@@ -429,10 +427,8 @@ class HederaLedgerTest extends BaseHederaLedgerTestHelper {
     void throwsOnNegativeBalance() {
         final var overdraftAdjustment = -1 * GENESIS_BALANCE - 1;
 
-        final var e =
-                assertThrows(
-                        InsufficientFundsException.class,
-                        () -> subject.adjustBalance(genesis, overdraftAdjustment));
+        final var e = assertThrows(
+                InsufficientFundsException.class, () -> subject.adjustBalance(genesis, overdraftAdjustment));
 
         assertEquals(messageFor(genesis, overdraftAdjustment), e.getMessage());
         verify(accountsLedger, never()).set(any(), any(), any());
@@ -443,6 +439,13 @@ class HederaLedgerTest extends BaseHederaLedgerTestHelper {
         final var balance = subject.getBalance(genesis);
 
         assertEquals(GENESIS_BALANCE, balance);
+    }
+
+    @Test
+    void forwardsGetNonceCorrectly() {
+        final var nonce = subject.getNonce(rand);
+
+        assertEquals(RAND_NONCE, nonce);
     }
 
     @Test

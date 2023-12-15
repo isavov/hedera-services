@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.issues;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -20,6 +21,8 @@ import static com.hedera.services.bdd.spec.transactions.TxnVerbs.cryptoCreate;
 import static com.hedera.services.bdd.spec.transactions.TxnVerbs.cryptoTransfer;
 import static com.hedera.services.bdd.spec.transactions.crypto.HapiCryptoTransfer.tinyBarsFromTo;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.utilops.UtilVerbs;
 import com.hedera.services.bdd.suites.HapiSuite;
@@ -28,6 +31,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.Assertions;
 
+@HapiTestSuite
 public class Issue1648Suite extends HapiSuite {
     private static final Logger log = LogManager.getLogger(Issue1648Suite.class);
 
@@ -40,34 +44,29 @@ public class Issue1648Suite extends HapiSuite {
         return List.of(recordStorageFeeIncreasesWithNumTransfers());
     }
 
+    @HapiTest
     public static HapiSpec recordStorageFeeIncreasesWithNumTransfers() {
         return defaultHapiSpec("RecordStorageFeeIncreasesWithNumTransfers")
                 .given(
-                        UtilVerbs.inParallel(
-                                cryptoCreate("A"),
-                                cryptoCreate("B"),
-                                cryptoCreate("C"),
-                                cryptoCreate("D")),
-                        UtilVerbs.inParallel(
-                                cryptoTransfer(tinyBarsFromTo("A", "B", 1L)).via("txn1"),
-                                cryptoTransfer(
-                                                tinyBarsFromTo("A", "B", 1L),
-                                                tinyBarsFromTo("C", "D", 1L))
-                                        .via("txn2")))
-                .when(
-                        UtilVerbs.recordFeeAmount("txn1", "feeForOne"),
-                        UtilVerbs.recordFeeAmount("txn2", "feeForTwo"))
-                .then(
-                        UtilVerbs.assertionsHold(
-                                (spec, assertLog) -> {
-                                    long feeForOne = spec.registry().getAmount("feeForOne");
-                                    long feeForTwo = spec.registry().getAmount("feeForTwo");
-                                    assertLog.info(
-                                            "[Record storage] fee for one transfer : " + feeForOne);
-                                    assertLog.info(
-                                            "[Record storage] fee for two transfers: " + feeForTwo);
-                                    Assertions.assertEquals(-1, Long.compare(feeForOne, feeForTwo));
-                                }));
+                        cryptoCreate("civilian").balance(10 * ONE_HUNDRED_HBARS),
+                        cryptoCreate("A"),
+                        cryptoCreate("B"),
+                        cryptoCreate("C"),
+                        cryptoCreate("D"),
+                        cryptoTransfer(tinyBarsFromTo("A", "B", 1L))
+                                .payingWith("civilian")
+                                .via("txn1"),
+                        cryptoTransfer(tinyBarsFromTo("A", "B", 1L), tinyBarsFromTo("C", "D", 1L))
+                                .payingWith("civilian")
+                                .via("txn2"))
+                .when(UtilVerbs.recordFeeAmount("txn1", "feeForOne"), UtilVerbs.recordFeeAmount("txn2", "feeForTwo"))
+                .then(UtilVerbs.assertionsHold((spec, assertLog) -> {
+                    long feeForOne = spec.registry().getAmount("feeForOne");
+                    long feeForTwo = spec.registry().getAmount("feeForTwo");
+                    assertLog.info("[Record storage] fee for one transfer : {}", feeForOne);
+                    assertLog.info("[Record storage] fee for two transfers: {}", feeForTwo);
+                    Assertions.assertEquals(-1, Long.compare(feeForOne, feeForTwo));
+                }));
     }
 
     @Override

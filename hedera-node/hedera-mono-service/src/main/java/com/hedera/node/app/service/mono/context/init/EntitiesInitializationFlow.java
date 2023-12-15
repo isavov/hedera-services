@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.context.init;
 
 import com.hedera.node.app.service.mono.ledger.SigImpactHistorian;
@@ -45,7 +46,6 @@ public class EntitiesInitializationFlow {
         expiries.reviewExistingPayerRecords();
         log.info("Payer records reviewed");
         /* Use any entities stored in state to rebuild queue of expired entities. */
-        expiries.reviewExistingShortLivedEntities();
         log.info("Short-lived entities reviewed");
 
         sigImpactHistorian.invalidateCurrentWindow();

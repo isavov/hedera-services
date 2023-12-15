@@ -13,57 +13,153 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.file.impl.handlers;
 
+import static com.hedera.hapi.node.base.ResponseCodeEnum.AUTORENEW_DURATION_NOT_IN_RANGE;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.INVALID_EXPIRATION_TIME;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.MAX_ENTITIES_IN_PRICE_REGIME_HAVE_BEEN_CREATED;
+import static com.hedera.node.app.service.file.impl.utils.FileServiceUtils.validateAndAddRequiredKeys;
+import static com.hedera.node.app.service.file.impl.utils.FileServiceUtils.validateContent;
+import static com.hedera.node.app.service.mono.pbj.PbjConverter.fromPbj;
+import static com.hedera.node.app.spi.validation.ExpiryMeta.NA;
 import static java.util.Objects.requireNonNull;
 
-import com.hedera.node.app.spi.meta.PreHandleContext;
-import com.hedera.node.app.spi.meta.TransactionMetadata;
+import com.hedera.hapi.node.base.FileID;
+import com.hedera.hapi.node.base.HederaFunctionality;
+import com.hedera.hapi.node.base.KeyList;
+import com.hedera.hapi.node.base.SubType;
+import com.hedera.hapi.node.file.FileCreateTransactionBody;
+import com.hedera.hapi.node.state.file.File;
+import com.hedera.hapi.node.transaction.TransactionBody;
+import com.hedera.node.app.hapi.fees.usage.file.FileOpsUsage;
+import com.hedera.node.app.service.file.impl.WritableFileStore;
+import com.hedera.node.app.service.file.impl.records.CreateFileRecordBuilder;
+import com.hedera.node.app.service.mono.fees.calculation.file.txns.FileCreateResourceUsage;
+import com.hedera.node.app.service.mono.pbj.PbjConverter;
+import com.hedera.node.app.spi.fees.FeeContext;
+import com.hedera.node.app.spi.fees.Fees;
+import com.hedera.node.app.spi.validation.ExpiryMeta;
+import com.hedera.node.app.spi.workflows.HandleContext;
+import com.hedera.node.app.spi.workflows.HandleException;
+import com.hedera.node.app.spi.workflows.PreCheckException;
+import com.hedera.node.app.spi.workflows.PreHandleContext;
 import com.hedera.node.app.spi.workflows.TransactionHandler;
-import com.hederahashgraph.api.proto.java.TransactionBody;
+import com.hedera.node.config.data.FilesConfig;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
 /**
- * This class contains all workflow-related functionality regarding {@link
- * com.hederahashgraph.api.proto.java.HederaFunctionality#FileCreate}.
+ * This class contains all workflow-related functionality regarding {@link HederaFunctionality#FILE_CREATE}.
  */
 @Singleton
 public class FileCreateHandler implements TransactionHandler {
+    private final FileOpsUsage fileOpsUsage;
+
     @Inject
-    public FileCreateHandler() {}
+    public FileCreateHandler(final FileOpsUsage fileOpsUsage) {
+        this.fileOpsUsage = fileOpsUsage;
+    }
+
+    /**
+     * Performs checks independent of state or context
+     * @param txn the transaction to check
+     */
+    @Override
+    public void pureChecks(@NonNull final TransactionBody txn) throws PreCheckException {
+        final FileCreateTransactionBody transactionBody = txn.fileCreateOrThrow();
+
+        if (!transactionBody.hasExpirationTime()) {
+            throw new PreCheckException(INVALID_EXPIRATION_TIME);
+        }
+    }
 
     /**
      * This method is called during the pre-handle workflow.
      *
-     * <p>Typically, this method validates the {@link TransactionBody} semantically, gathers all
-     * required keys, warms the cache, and creates the {@link TransactionMetadata} that is used in
-     * the handle stage.
+     * <p>Determines signatures needed for create a file
      *
-     * <p>Please note: the method signature is just a placeholder which is most likely going to
-     * change.
-     *
-     * @param context the {@link PreHandleContext} which collects all information that will be
-     *     passed to {@link #handle(TransactionMetadata)}
-     * @throws NullPointerException if one of the arguments is {@code null}
+     * @param context the {@link PreHandleContext} which collects all information
+     * @throws PreCheckException if any issue happens on the pre handle level
      */
-    public void preHandle(@NonNull final PreHandleContext context) {
+    @Override
+    public void preHandle(@NonNull final PreHandleContext context) throws PreCheckException {
         requireNonNull(context);
-        throw new UnsupportedOperationException("Not implemented");
+
+        final var transactionBody = context.body().fileCreateOrThrow();
+
+        validateAndAddRequiredKeys(null, transactionBody.keys(), context);
     }
 
-    /**
-     * This method is called during the handle workflow. It executes the actual transaction.
-     *
-     * <p>Please note: the method signature is just a placeholder which is most likely going to
-     * change.
-     *
-     * @param metadata the {@link TransactionMetadata} that was generated during pre-handle.
-     * @throws NullPointerException if one of the arguments is {@code null}
-     */
-    public void handle(@NonNull final TransactionMetadata metadata) {
-        requireNonNull(metadata);
-        throw new UnsupportedOperationException("Not implemented");
+    @Override
+    public void handle(@NonNull final HandleContext handleContext) throws HandleException {
+        requireNonNull(handleContext);
+
+        final var builder = new File.Builder();
+        final var fileServiceConfig = handleContext.configuration().getConfigData(FilesConfig.class);
+
+        final var fileCreateTransactionBody = handleContext.body().fileCreateOrThrow();
+
+        if (fileCreateTransactionBody.hasKeys()) {
+            KeyList transactionKeyList = fileCreateTransactionBody.keys();
+            builder.keys(transactionKeyList);
+        }
+
+        /* Validate if the current file can be created */
+        final var fileStore = handleContext.writableStore(WritableFileStore.class);
+        if (fileStore.sizeOfState() >= fileServiceConfig.maxNumber()) {
+            throw new HandleException(MAX_ENTITIES_IN_PRICE_REGIME_HAVE_BEEN_CREATED);
+        }
+
+        var expiry = fileCreateTransactionBody.hasExpirationTime()
+                ? fileCreateTransactionBody.expirationTimeOrThrow().seconds()
+                : NA;
+        final var entityExpiryMeta = new ExpiryMeta(
+                expiry,
+                NA,
+                // Shard and realm will be ignored if num is NA
+                null);
+
+        try {
+            final var effectiveExpiryMeta = handleContext
+                    .expiryValidator()
+                    .resolveCreationAttempt(false, entityExpiryMeta, HederaFunctionality.FILE_CREATE);
+            builder.expirationSecond(effectiveExpiryMeta.expiry());
+
+            handleContext.attributeValidator().validateMemo(fileCreateTransactionBody.memo());
+            builder.memo(fileCreateTransactionBody.memo());
+
+            builder.keys(fileCreateTransactionBody.keys());
+            final var fileId = FileID.newBuilder()
+                    .fileNum(handleContext.newEntityNum())
+                    .shardNum(fileCreateTransactionBody.shardIDOrThrow().shardNum())
+                    .realmNum(fileCreateTransactionBody.realmIDOrThrow().realmNum())
+                    .build();
+            builder.fileId(fileId);
+            validateContent(PbjConverter.asBytes(fileCreateTransactionBody.contents()), fileServiceConfig);
+            builder.contents(fileCreateTransactionBody.contents());
+
+            final var file = builder.build();
+            fileStore.put(file);
+
+            handleContext.recordBuilder(CreateFileRecordBuilder.class).fileID(fileId);
+        } catch (final HandleException e) {
+            if (e.getStatus() == INVALID_EXPIRATION_TIME) {
+                // Since for some reason CreateTransactionBody does not have an expiration time,
+                // it makes more sense to propagate AUTORENEW_DURATION_NOT_IN_RANGE
+                throw new HandleException(AUTORENEW_DURATION_NOT_IN_RANGE);
+            }
+            throw e;
+        }
+    }
+
+    @NonNull
+    @Override
+    public Fees calculateFees(@NonNull FeeContext feeContext) {
+        final var op = feeContext.body();
+        return feeContext.feeCalculator(SubType.DEFAULT).legacyCalculate(sigValueObj -> {
+            return new FileCreateResourceUsage(fileOpsUsage).usageGiven(fromPbj(op), sigValueObj);
+        });
     }
 }

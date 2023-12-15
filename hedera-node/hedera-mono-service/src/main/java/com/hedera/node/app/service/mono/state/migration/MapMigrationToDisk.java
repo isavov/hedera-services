@@ -13,15 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.migration;
 
 import static com.hedera.node.app.service.mono.state.migration.StateChildIndices.ACCOUNTS;
-import static com.hedera.node.app.service.mono.state.migration.StateChildIndices.PAYER_RECORDS;
+import static com.hedera.node.app.service.mono.state.migration.StateChildIndices.PAYER_RECORDS_OR_CONSOLIDATED_FCQ;
 import static com.hedera.node.app.service.mono.state.migration.StateChildIndices.TOKEN_ASSOCIATIONS;
 import static com.hedera.node.app.service.mono.utils.MiscUtils.forEach;
 import static com.hedera.node.app.service.mono.utils.MiscUtils.withLoggedDuration;
 
 import com.hedera.node.app.service.mono.ServicesState;
+import com.hedera.node.app.service.mono.state.adapters.MerkleMapLike;
 import com.hedera.node.app.service.mono.state.merkle.MerkleAccount;
 import com.hedera.node.app.service.mono.state.merkle.MerkleAccountState;
 import com.hedera.node.app.service.mono.state.merkle.MerklePayerRecords;
@@ -47,6 +49,7 @@ public class MapMigrationToDisk {
 
     public static void migrateToDiskAsApropos(
             final int insertionsPerCopy,
+            final boolean useConsolidatedFcq,
             final ServicesState mutableState,
             final ToDiskMigrations toDiskMigrations,
             final VirtualMapFactory virtualMapFactory,
@@ -54,7 +57,7 @@ public class MapMigrationToDisk {
             final Function<MerkleTokenRelStatus, OnDiskTokenRel> tokenRelMigrator) {
         if (toDiskMigrations.doAccounts()) {
             migrateAccountsToDisk(
-                    insertionsPerCopy, mutableState, virtualMapFactory, accountMigrator);
+                    insertionsPerCopy, useConsolidatedFcq, mutableState, virtualMapFactory, accountMigrator);
         }
         if (toDiskMigrations.doTokenRels()) {
             migrateRelsToDisk(insertionsPerCopy, mutableState, virtualMapFactory, tokenRelMigrator);
@@ -64,6 +67,7 @@ public class MapMigrationToDisk {
     @SuppressWarnings("unchecked")
     private static void migrateAccountsToDisk(
             final int insertionsPerCopy,
+            final boolean useConsolidatedFcq,
             final ServicesState mutableState,
             final VirtualMapFactory virtualMapFactory,
             final Function<MerkleAccountState, OnDiskAccount> accountMigrator) {
@@ -71,35 +75,31 @@ public class MapMigrationToDisk {
         final NonAtomicReference<VirtualMap<EntityNumVirtualKey, OnDiskAccount>> onDiskAccounts =
                 new NonAtomicReference<>(virtualMapFactory.newOnDiskAccountStorage());
 
-        final var inMemoryAccounts =
-                (MerkleMap<EntityNum, MerkleAccount>) mutableState.getChild(ACCOUNTS);
-        final MerkleMap<EntityNum, MerklePayerRecords> payerRecords = new MerkleMap<>();
+        final var inMemoryAccounts = (MerkleMap<EntityNum, MerkleAccount>) mutableState.getChild(ACCOUNTS);
+        final MerkleMap<EntityNum, MerklePayerRecords> payerRecords = useConsolidatedFcq ? null : new MerkleMap<>();
         withLoggedDuration(
-                () ->
-                        forEach(
-                                inMemoryAccounts,
-                                (num, account) -> {
-                                    final var accountRecords = new MerklePayerRecords();
-                                    account.records().forEach(accountRecords::offer);
-                                    payerRecords.put(num, accountRecords);
+                () -> forEach(MerkleMapLike.from(inMemoryAccounts), (num, account) -> {
+                    // When using the consolidated FCQ, we don't need to migrate payer records; it's already done
+                    if (!useConsolidatedFcq) {
+                        final var accountRecords = new MerklePayerRecords();
+                        account.records().forEach(accountRecords::offer);
+                        payerRecords.put(num, accountRecords);
+                    }
 
-                                    final var onDiskAccount =
-                                            accountMigrator.apply(account.state());
-                                    onDiskAccounts
-                                            .get()
-                                            .put(
-                                                    new EntityNumVirtualKey(num.longValue()),
-                                                    onDiskAccount);
-                                    if (insertionsSoFar.incrementAndGet() % insertionsPerCopy
-                                            == 0) {
-                                        final var onDiskAccountsCopy = onDiskAccounts.get().copy();
-                                        onDiskAccounts.set(onDiskAccountsCopy);
-                                    }
-                                }),
+                    final var onDiskAccount = accountMigrator.apply(account.state());
+                    onDiskAccounts.get().put(new EntityNumVirtualKey(num.longValue()), onDiskAccount);
+                    if (insertionsSoFar.incrementAndGet() % insertionsPerCopy == 0) {
+                        final var onDiskAccountsCopy = onDiskAccounts.get().copy();
+                        onDiskAccounts.get().release();
+                        onDiskAccounts.set(onDiskAccountsCopy);
+                    }
+                }),
                 log,
                 "accounts-to-disk migration");
         mutableState.setChild(ACCOUNTS, onDiskAccounts.get());
-        mutableState.setChild(PAYER_RECORDS, payerRecords);
+        if (!useConsolidatedFcq) {
+            mutableState.setChild(PAYER_RECORDS_OR_CONSOLIDATED_FCQ, payerRecords);
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -113,23 +113,17 @@ public class MapMigrationToDisk {
                 new NonAtomicReference<>(virtualMapFactory.newOnDiskTokenRels());
 
         final var inMemoryRels =
-                (MerkleMap<EntityNumPair, MerkleTokenRelStatus>)
-                        mutableState.getChild(TOKEN_ASSOCIATIONS);
+                (MerkleMap<EntityNumPair, MerkleTokenRelStatus>) mutableState.getChild(TOKEN_ASSOCIATIONS);
         withLoggedDuration(
-                () ->
-                        forEach(
-                                inMemoryRels,
-                                (numPair, rel) -> {
-                                    final var onDiskRel = relMigrator.apply(rel);
-                                    onDiskRels
-                                            .get()
-                                            .put(EntityNumVirtualKey.fromPair(numPair), onDiskRel);
-                                    if (insertionsSoFar.incrementAndGet() % insertionsPerCopy
-                                            == 0) {
-                                        final var onDiskRelCopy = onDiskRels.get().copy();
-                                        onDiskRels.set(onDiskRelCopy);
-                                    }
-                                }),
+                () -> forEach(MerkleMapLike.from(inMemoryRels), (numPair, rel) -> {
+                    final var onDiskRel = relMigrator.apply(rel);
+                    onDiskRels.get().put(EntityNumVirtualKey.fromPair(numPair), onDiskRel);
+                    if (insertionsSoFar.incrementAndGet() % insertionsPerCopy == 0) {
+                        final var onDiskRelCopy = onDiskRels.get().copy();
+                        onDiskRels.get().release();
+                        onDiskRels.set(onDiskRelCopy);
+                    }
+                }),
                 log,
                 "token-rels-to-disk migration");
         mutableState.setChild(TOKEN_ASSOCIATIONS, onDiskRels.get());

@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.reconnect;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -55,11 +56,10 @@ public class SubmitMessagesForReconnect extends HapiSuite {
                 .deferStatusResolution();
     }
 
-    private HapiSpec runSubmitMessages() {
+    final HapiSpec runSubmitMessages() {
         PerfTestLoadSettings settings = new PerfTestLoadSettings();
 
-        Supplier<HapiSpecOperation[]> submitBurst =
-                () -> new HapiSpecOperation[] {submitToTestTopic(settings)};
+        Supplier<HapiSpecOperation[]> submitBurst = () -> new HapiSpecOperation[] {submitToTestTopic(settings)};
 
         return defaultHapiSpec("RunSubmitMessages")
                 .given(

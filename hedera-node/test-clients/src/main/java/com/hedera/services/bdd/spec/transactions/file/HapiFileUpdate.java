@@ -13,16 +13,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.spec.transactions.file;
 
 import static com.hedera.services.bdd.spec.queries.QueryVerbs.getFileContents;
 import static com.hedera.services.bdd.spec.queries.QueryVerbs.getFileInfo;
 import static com.hedera.services.bdd.spec.transactions.TxnUtils.suFrom;
 import static com.hedera.services.bdd.spec.utilops.CustomSpecAssert.allRunFor;
+import static com.hedera.services.bdd.suites.HapiSuite.APP_PROPERTIES;
+import static com.hedera.services.bdd.suites.HapiSuite.GENESIS;
 import static com.hedera.services.bdd.suites.HapiSuite.ONE_HBAR;
 import static com.hedera.services.bdd.suites.utils.sysfiles.serdes.StandardSerdes.SYS_FILE_SERDES;
 import static java.util.Collections.EMPTY_MAP;
-import static java.util.Collections.EMPTY_SET;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.io.Files;
@@ -51,6 +53,7 @@ import com.hederahashgraph.api.proto.java.Timestamp;
 import com.hederahashgraph.api.proto.java.Transaction;
 import com.hederahashgraph.api.proto.java.TransactionBody;
 import com.hederahashgraph.api.proto.java.TransactionResponse;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.File;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -97,6 +100,25 @@ public class HapiFileUpdate extends HapiTxnOp<HapiFileUpdate> {
 
     public HapiFileUpdate(String file) {
         this.file = file;
+    }
+
+    /**
+     * Given a spec and a map of property overrides, returns the bytes of a new {@code 0.0.121}
+     * file that is the result of:
+     * <ol>
+     *     <li>Downloading the {@code 0.0.121} file from the spec's network; and,</li>
+     *     <li>Deserializing it as a {@link ServicesConfigurationList}; and,</li>
+     *     <li>Merging the given overrides into this list; and</li>
+     *     <li>Serializing the resulting list back to a {@code byte[]}.</li>
+     * </ol>
+     *
+     * @param spec the spec whose target network we should download the properties file
+     * @param overrides the overrides to apply to the downloaded properties file
+     * @return the bytes of the updated properties file
+     */
+    public static byte[] getUpdated121(@NonNull HapiSpec spec, @NonNull final Map<String, String> overrides) {
+        final var baseConfig = downloadConfigFile(spec, APP_PROPERTIES, Optional.of(GENESIS));
+        return computeConfigFrom(baseConfig, overrides, Collections.emptySet());
     }
 
     @Override
@@ -154,7 +176,7 @@ public class HapiFileUpdate extends HapiTxnOp<HapiFileUpdate> {
         return this;
     }
 
-    private Setting asSetting(String name, String value) {
+    private static Setting asSetting(String name, String value) {
         return Setting.newBuilder().setName(name).setValue(value).build();
     }
 
@@ -186,9 +208,7 @@ public class HapiFileUpdate extends HapiTxnOp<HapiFileUpdate> {
     private Key badlyEncodedWacl() {
         return Key.newBuilder()
                 .setKeyList(
-                        KeyList.newBuilder()
-                                .addKeys(Key.getDefaultInstance())
-                                .addKeys(Key.getDefaultInstance()))
+                        KeyList.newBuilder().addKeys(Key.getDefaultInstance()).addKeys(Key.getDefaultInstance()))
                 .build();
     }
 
@@ -219,23 +239,21 @@ public class HapiFileUpdate extends HapiTxnOp<HapiFileUpdate> {
             return;
         }
         newWaclKey.ifPresent(k -> spec.registry().saveKey(file, spec.registry().getKey(k)));
-        expiryExtension.ifPresent(
-                extension -> {
-                    try {
-                        spec.registry()
-                                .saveTimestamp(
-                                        file,
-                                        Timestamp.newBuilder()
-                                                .setSeconds(
-                                                        spec.registry()
-                                                                        .getTimestamp(file)
-                                                                        .getSeconds()
-                                                                + extension)
-                                                .build());
-                    } catch (Exception ignored) {
-                        // Intentionally ignored
-                    }
-                });
+        expiryExtension.ifPresent(extension -> {
+            try {
+                spec.registry()
+                        .saveTimestamp(
+                                file,
+                                Timestamp.newBuilder()
+                                        .setSeconds(spec.registry()
+                                                        .getTimestamp(file)
+                                                        .getSeconds()
+                                                + extension)
+                                        .build());
+            } catch (Exception ignored) {
+                // Intentionally ignored
+            }
+        });
         if (file.equals(spec.setup().exchangeRatesName()) && newContents.isPresent()) {
             var newRateSet = ExchangeRateSet.parseFrom(newContents.get());
             spec.ratesProvider().updateRateSet(newRateSet);
@@ -249,48 +267,20 @@ public class HapiFileUpdate extends HapiTxnOp<HapiFileUpdate> {
     @Override
     protected Consumer<TransactionBody.Builder> opBodyDef(HapiSpec spec) throws Throwable {
         Supplier<Optional<Key>> normalWaclSupplier =
-                () ->
-                        useEmptyWacl
-                                ? Optional.of(emptyWacl())
-                                : newWaclKey.map(spec.registry()::getKey);
-        Optional<Key> wacl =
-                useBadlyEncodedWacl ? Optional.of(badlyEncodedWacl()) : normalWaclSupplier.get();
+                () -> useEmptyWacl ? Optional.of(emptyWacl()) : newWaclKey.map(spec.registry()::getKey);
+        Optional<Key> wacl = useBadlyEncodedWacl ? Optional.of(badlyEncodedWacl()) : normalWaclSupplier.get();
         if (newContentsPath.isPresent()) {
-            newContents =
-                    Optional.of(
-                            ByteString.copyFrom(
-                                    Files.toByteArray(new File(newContentsPath.get()))));
+            newContents = Optional.of(ByteString.copyFrom(Files.toByteArray(new File(newContentsPath.get()))));
         } else if (contentFn.isPresent()) {
             newContents = Optional.of(contentFn.get().apply(spec));
         } else if (propOverrides.isPresent() || propDeletions.isPresent()) {
             if (propOverrides.isEmpty()) {
                 propOverrides = Optional.of(Collections.emptyMap());
             }
-
-            ServicesConfigurationList defaults = readBaseProps(spec);
-            ServicesConfigurationList.Builder list = ServicesConfigurationList.newBuilder();
-            Map<String, String> overrides = propOverrides.get();
-            Map<String, String> defaultPairs =
-                    defaults.getNameValueList().stream()
-                            .collect(Collectors.toMap(Setting::getName, Setting::getValue));
-
-            Set<String> keys = new HashSet<>();
-            defaults.getNameValueList().stream()
-                    .map(Setting::getName)
-                    .filter(key -> !propDeletions.orElse(EMPTY_SET).contains(key))
-                    .forEach(keys::add);
-            overrides.keySet().stream().forEach(keys::add);
-
-            keys.forEach(
-                    key -> {
-                        if (overrides.containsKey(key)) {
-                            list.addNameValue(asSetting(key, overrides.get(key)));
-                        } else {
-                            list.addNameValue(asSetting(key, defaultPairs.get(key)));
-                        }
-                    });
-
-            newContents = Optional.of(list.build().toByteString());
+            final var baseProps = readBaseProps(spec);
+            final var updatedFile121 =
+                    computeConfigFrom(baseProps, propOverrides.get(), propDeletions.orElse(Collections.emptySet()));
+            newContents = Optional.of(ByteString.copyFrom(updatedFile121));
         }
 
         long nl = -1;
@@ -308,25 +298,16 @@ public class HapiFileUpdate extends HapiTxnOp<HapiFileUpdate> {
             nl = MIN_SYS_FILE_LIFETIME;
         }
         final OptionalLong newLifetime = (nl == -1) ? OptionalLong.empty() : OptionalLong.of(nl);
-        FileUpdateTransactionBody opBody =
-                spec.txns()
-                        .<FileUpdateTransactionBody, FileUpdateTransactionBody.Builder>body(
-                                FileUpdateTransactionBody.class,
-                                builder -> {
-                                    builder.setFileID(fid);
-                                    newMemo.ifPresent(
-                                            s ->
-                                                    builder.setMemo(
-                                                            StringValue.newBuilder()
-                                                                    .setValue(s)
-                                                                    .build()));
-                                    wacl.ifPresent(k -> builder.setKeys(k.getKeyList()));
-                                    newContents.ifPresent(builder::setContents);
-                                    newLifetime.ifPresent(
-                                            s ->
-                                                    builder.setExpirationTime(
-                                                            TxnFactory.expiryGiven(s)));
-                                });
+        FileUpdateTransactionBody opBody = spec.txns()
+                .<FileUpdateTransactionBody, FileUpdateTransactionBody.Builder>body(
+                        FileUpdateTransactionBody.class, builder -> {
+                            builder.setFileID(fid);
+                            newMemo.ifPresent(s -> builder.setMemo(
+                                    StringValue.newBuilder().setValue(s).build()));
+                            wacl.ifPresent(k -> builder.setKeys(k.getKeyList()));
+                            newContents.ifPresent(builder::setContents);
+                            newLifetime.ifPresent(s -> builder.setExpirationTime(TxnFactory.expiryGiven(s)));
+                        });
         preUpdateCb.ifPresent(cb -> cb.accept(fid));
         return builder -> builder.setFileUpdate(opBody);
     }
@@ -339,44 +320,9 @@ public class HapiFileUpdate extends HapiTxnOp<HapiFileUpdate> {
 
         if (!basePropsFile.isPresent()) {
             if (!file.equals(HapiSuite.API_PERMISSIONS) && !file.equals(HapiSuite.APP_PROPERTIES)) {
-                throw new IllegalStateException(
-                        "Property overrides make no sense for file '" + file + "'!");
+                throw new IllegalStateException("Property overrides make no sense for file '" + file + "'!");
             }
-            int getsRemaining = 10;
-            var gotFileContents = false;
-            HapiGetFileContents subOp = null;
-            while (!gotFileContents) {
-                try {
-                    var candSubOp = getFileContents(file);
-                    payer.ifPresent(name -> candSubOp.payingWith(payerToUse(name, spec)));
-                    allRunFor(spec, candSubOp);
-                    gotFileContents = true;
-                    subOp = candSubOp;
-                } catch (Exception ignored) {
-                    getsRemaining--;
-                }
-                if (getsRemaining == 0) {
-                    break;
-                }
-            }
-            if (!gotFileContents) {
-                Assertions.fail(
-                        "Unable to use 'overridingProps', couldn't get existing file contents!");
-            }
-            try {
-                @SuppressWarnings("java:S2259")
-                byte[] bytes =
-                        subOp.getResponse()
-                                .getFileGetContents()
-                                .getFileContents()
-                                .getContents()
-                                .toByteArray();
-                return ServicesConfigurationList.parseFrom(bytes);
-            } catch (Exception e) {
-                LOG.error("No available defaults for {} --- aborting!", file, e);
-                throw new IllegalStateException(
-                        "Property overrides via fileUpdate must have available defaults!");
-            }
+            return downloadConfigFile(spec, file, payer);
         } else {
             String defaultsPath = basePropsFile.get();
             try {
@@ -384,8 +330,7 @@ public class HapiFileUpdate extends HapiTxnOp<HapiFileUpdate> {
                 return ServicesConfigurationList.parseFrom(bytes);
             } catch (Exception e) {
                 LOG.error("No available defaults for {} --- aborting!", file, e);
-                throw new IllegalStateException(
-                        "Property overrides via fileUpdate must have available defaults!");
+                throw new IllegalStateException("Property overrides via fileUpdate must have available defaults!");
             }
         }
     }
@@ -400,9 +345,8 @@ public class HapiFileUpdate extends HapiTxnOp<HapiFileUpdate> {
     }
 
     private List<Function<HapiSpec, Key>> oldDefaults() {
-        return List.of(
-                spec -> spec.registry().getKey(effectivePayer(spec)),
-                spec -> spec.registry().getKey(file));
+        return List.of(spec -> spec.registry().getKey(effectivePayer(spec)), spec -> spec.registry()
+                .getKey(file));
     }
 
     @Override
@@ -414,20 +358,16 @@ public class HapiFileUpdate extends HapiTxnOp<HapiFileUpdate> {
     protected long feeFor(HapiSpec spec, Transaction txn, int numPayerKeys) throws Throwable {
         try {
             final FileGetInfoResponse.FileInfo info = lookupInfo(spec);
-            FeeCalculator.ActivityMetrics metricsCalc =
-                    (innerTxn, svo) -> {
-                        var ctx =
-                                ExtantFileContext.newBuilder()
-                                        .setCurrentExpiry(info.getExpirationTime().getSeconds())
-                                        .setCurrentMemo(info.getMemo())
-                                        .setCurrentWacl(info.getKeys())
-                                        .setCurrentSize(info.getSize())
-                                        .build();
-                        return fileOpsUsage.fileUpdateUsage(innerTxn, suFrom(svo), ctx);
-                    };
-            return spec.fees()
-                    .forActivityBasedOp(
-                            HederaFunctionality.FileUpdate, metricsCalc, txn, numPayerKeys);
+            FeeCalculator.ActivityMetrics metricsCalc = (innerTxn, svo) -> {
+                var ctx = ExtantFileContext.newBuilder()
+                        .setCurrentExpiry(info.getExpirationTime().getSeconds())
+                        .setCurrentMemo(info.getMemo())
+                        .setCurrentWacl(info.getKeys())
+                        .setCurrentSize(info.getSize())
+                        .build();
+                return fileOpsUsage.fileUpdateUsage(innerTxn, suFrom(svo), ctx);
+            };
+            return spec.fees().forActivityBasedOp(HederaFunctionality.FileUpdate, metricsCalc, txn, numPayerKeys);
         } catch (Throwable ignore) {
             return ONE_HBAR;
         }
@@ -459,11 +399,72 @@ public class HapiFileUpdate extends HapiTxnOp<HapiFileUpdate> {
         return helper;
     }
 
-    private String payerToUse(String designated, HapiSpec spec) {
+    private static byte[] computeConfigFrom(
+            @NonNull final ServicesConfigurationList baseConfig,
+            @NonNull final Map<String, String> overrides,
+            @NonNull final Set<String> deletions) {
+        final var updatedConfig = ServicesConfigurationList.newBuilder();
+        final Map<String, String> baseSettings =
+                baseConfig.getNameValueList().stream().collect(Collectors.toMap(Setting::getName, Setting::getValue));
+
+        final Set<String> keys = new HashSet<>();
+        baseConfig.getNameValueList().stream()
+                .map(Setting::getName)
+                .filter(key -> !deletions.contains(key))
+                .forEach(keys::add);
+        keys.addAll(overrides.keySet());
+
+        keys.forEach(key -> {
+            if (overrides.containsKey(key)) {
+                updatedConfig.addNameValue(asSetting(key, overrides.get(key)));
+            } else {
+                updatedConfig.addNameValue(asSetting(key, baseSettings.get(key)));
+            }
+        });
+        return updatedConfig.build().toByteString().toByteArray();
+    }
+
+    private static ServicesConfigurationList downloadConfigFile(
+            @NonNull final HapiSpec spec, @NonNull final String file, @NonNull final Optional<String> payer) {
+        int getsRemaining = 10;
+        var gotFileContents = false;
+        HapiGetFileContents subOp = null;
+        while (!gotFileContents) {
+            try {
+                var candSubOp = getFileContents(file);
+                payer.ifPresent(name -> candSubOp.payingWith(payerToUse(name, spec)));
+                allRunFor(spec, candSubOp);
+                gotFileContents = true;
+                subOp = candSubOp;
+            } catch (Exception ignored) {
+                getsRemaining--;
+            }
+            if (getsRemaining == 0) {
+                break;
+            }
+        }
+        if (!gotFileContents) {
+            Assertions.fail("Unable to use 'overridingProps', couldn't get existing file contents!");
+        }
+        try {
+            @SuppressWarnings("java:S2259")
+            byte[] bytes = subOp.getResponse()
+                    .getFileGetContents()
+                    .getFileContents()
+                    .getContents()
+                    .toByteArray();
+            return ServicesConfigurationList.parseFrom(bytes);
+        } catch (Exception e) {
+            LOG.error("No available defaults for {} --- aborting!", file, e);
+            throw new IllegalStateException("Property overrides via fileUpdate must have available defaults!");
+        }
+    }
+
+    private static String payerToUse(String designated, HapiSpec spec) {
         return isPrivileged(designated, spec) ? spec.setup().genesisAccountName() : designated;
     }
 
-    private boolean isPrivileged(String account, HapiSpec spec) {
+    private static boolean isPrivileged(String account, HapiSpec spec) {
         return account.equals(spec.setup().addressBookControlName())
                 || account.equals(spec.setup().exchangeRatesControlName())
                 || account.equals(spec.setup().feeScheduleControlName())

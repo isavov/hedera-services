@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.issues;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -23,6 +24,8 @@ import static com.hedera.services.bdd.spec.transactions.TxnVerbs.submitMessageTo
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.newKeyNamed;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.DUPLICATE_TRANSACTION;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.utilops.UtilVerbs;
 import com.hedera.services.bdd.suites.HapiSuite;
@@ -31,6 +34,7 @@ import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+@HapiTestSuite
 public class Issue310Suite extends HapiSuite {
     private static final Logger log = LogManager.getLogger(CryptoCreateSuite.class);
 
@@ -43,11 +47,12 @@ public class Issue310Suite extends HapiSuite {
         return List.of(
                 duplicatedTxnsSameTypeDetected(),
                 duplicatedTxnsDifferentTypesDetected(),
-                duplicatedTxnsSameTypeDifferntNodesDetected(),
-                duplicatedTxnsDiffrentTypesDifferentNodesDetected());
+                duplicatedTxnsSameTypeDifferentNodesDetected(),
+                duplicatedTxnsDifferentTypesDifferentNodesDetected());
     }
 
-    private HapiSpec duplicatedTxnsSameTypeDetected() {
+    @HapiTest
+    final HapiSpec duplicatedTxnsSameTypeDetected() {
         long initialBalance = 10_000L;
 
         return defaultHapiSpec("duplicatedTxnsSameTypeDetected")
@@ -63,24 +68,26 @@ public class Issue310Suite extends HapiSuite {
                 .then(getTxnRecord("txnId1").logged());
     }
 
-    private HapiSpec duplicatedTxnsDifferentTypesDetected() {
+    @HapiTest
+    final HapiSpec duplicatedTxnsDifferentTypesDetected() {
         return defaultHapiSpec("duplicatedTxnsDifferentTypesDetected")
                 .given(
                         cryptoCreate("acct2").via("txnId2"),
                         newKeyNamed("key1"),
                         createTopic("topic2").submitKeyName("key1"))
-                .when(
-                        submitMessageTo("topic2")
-                                .message("Hello world")
-                                .payingWith("acct2")
-                                .txnId("txnId2")
-                                .hasPrecheck(DUPLICATE_TRANSACTION))
+                .when(submitMessageTo("topic2")
+                        .message("Hello world")
+                        .payingWith("acct2")
+                        .txnId("txnId2")
+                        .hasPrecheck(DUPLICATE_TRANSACTION))
                 .then(getTxnRecord("txnId2").logged());
     }
 
-    private HapiSpec duplicatedTxnsSameTypeDifferntNodesDetected() {
+    // This test requires multiple nodes
+    @HapiTest
+    final HapiSpec duplicatedTxnsSameTypeDifferentNodesDetected() {
 
-        return defaultHapiSpec("duplicatedTxnsSameTypeDifferntNodesDetected")
+        return defaultHapiSpec("duplicatedTxnsSameTypeDifferentNodesDetected")
                 .given(
                         cryptoCreate("acct3").setNode("0.0.3").via("txnId1"),
                         UtilVerbs.sleepFor(1000),
@@ -92,18 +99,19 @@ public class Issue310Suite extends HapiSuite {
                 .then(getTxnRecord("txnId1").logged());
     }
 
-    private HapiSpec duplicatedTxnsDiffrentTypesDifferentNodesDetected() {
-        return defaultHapiSpec("duplicatedTxnsDiffrentTypesDifferentNodesDetected")
+    // This test requires multiple nodes
+    @HapiTest
+    final HapiSpec duplicatedTxnsDifferentTypesDifferentNodesDetected() {
+        return defaultHapiSpec("duplicatedTxnsDifferentTypesDifferentNodesDetected")
                 .given(
                         cryptoCreate("acct4").via("txnId4").setNode("0.0.3"),
                         newKeyNamed("key2"),
                         createTopic("topic2").setNode("0.0.5").submitKeyName("key2"))
-                .when(
-                        submitMessageTo("topic2")
-                                .message("Hello world")
-                                .payingWith("acct4")
-                                .txnId("txnId4")
-                                .hasPrecheck(DUPLICATE_TRANSACTION))
+                .when(submitMessageTo("topic2")
+                        .message("Hello world")
+                        .payingWith("acct4")
+                        .txnId("txnId4")
+                        .hasPrecheck(DUPLICATE_TRANSACTION))
                 .then(getTxnRecord("txnId4").logged());
     }
 

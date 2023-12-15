@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.ledger.accounts.staking;
 
 import static com.hedera.node.app.service.mono.context.properties.PropertyNames.LEDGER_TOTAL_TINY_BAR_FLOAT;
@@ -45,9 +46,9 @@ import com.hedera.node.app.service.mono.state.migration.HederaAccount;
 import com.hedera.node.app.service.mono.utils.EntityNum;
 import com.hedera.test.factories.accounts.MerkleAccountFactory;
 import com.hederahashgraph.api.proto.java.AccountID;
-import com.swirlds.common.system.address.Address;
-import com.swirlds.common.system.address.AddressBook;
+import com.swirlds.common.platform.NodeId;
 import com.swirlds.merkle.map.MerkleMap;
+import com.swirlds.platform.system.address.AddressBook;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,13 +59,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 public class StakingUtilsTest {
-    @Mock private AddressBook addressBook;
-    @Mock private Address address1;
-    @Mock private Address address2;
-    @Mock private BootstrapProperties bootstrapProperties;
+
+    @Mock
+    private AddressBook addressBook;
+
+    @Mock
+    private BootstrapProperties bootstrapProperties;
 
     private MerkleMap<EntityNum, MerkleStakingInfo> stakingInfo = new MerkleMap<>();
-    private MerkleMap<EntityNum, MerkleAccount> accounts = new MerkleMap<>();
+    private final MerkleMap<EntityNum, MerkleAccount> accounts = new MerkleMap<>();
 
     @BeforeEach
     void setUp() {
@@ -102,7 +105,7 @@ public class StakingUtilsTest {
     @Test
     void updatesBalance() {
         var changes = randomStakeFieldChanges(100L);
-        var pendingChanges = new EntityChangeSet<AccountID, HederaAccount, AccountProperty>();
+        final var pendingChanges = new EntityChangeSet<AccountID, HederaAccount, AccountProperty>();
         pendingChanges.include(counterpartyId, counterparty, changes);
         assertEquals(100L, pendingChanges.changes(0).get(BALANCE));
 
@@ -121,7 +124,7 @@ public class StakingUtilsTest {
     void updatesStakedToMe() {
         var changes = randomStakeFieldChanges(100L);
         final long[] stakedToMeUpdates = new long[] {2000L};
-        var pendingChanges = new EntityChangeSet<AccountID, HederaAccount, AccountProperty>();
+        final var pendingChanges = new EntityChangeSet<AccountID, HederaAccount, AccountProperty>();
         pendingChanges.include(counterpartyId, counterparty, changes);
 
         updateStakedToMe(0, 20L, stakedToMeUpdates, pendingChanges);
@@ -189,30 +192,25 @@ public class StakingUtilsTest {
     }
 
     public MerkleMap<EntityNum, MerkleStakingInfo> buildsStakingInfoMap() {
-        given(bootstrapProperties.getLongProperty(LEDGER_TOTAL_TINY_BAR_FLOAT))
-                .willReturn(2_000_000_000L);
+        given(bootstrapProperties.getLongProperty(LEDGER_TOTAL_TINY_BAR_FLOAT)).willReturn(2_000_000_000L);
         given(bootstrapProperties.getIntProperty(STAKING_REWARD_HISTORY_NUM_STORED_PERIODS))
                 .willReturn(2);
         given(addressBook.getSize()).willReturn(2);
-        given(addressBook.getAddress(0)).willReturn(address1);
-        given(address1.getId()).willReturn(0L);
-        given(addressBook.getAddress(1)).willReturn(address2);
-        given(address2.getId()).willReturn(1L);
+        given(addressBook.getNodeId(0)).willReturn(new NodeId(0));
+        given(addressBook.getNodeId(1)).willReturn(new NodeId(1));
 
         final var info = buildStakingInfoMap(addressBook, bootstrapProperties);
-        info.forEach(
-                (a, b) -> {
-                    b.setStakeToReward(300L);
-                    b.setStake(1000L);
-                    b.setStakeToNotReward(400L);
-                });
+        info.forEach((a, b) -> {
+            b.setStakeToReward(300L);
+            b.setStake(1000L);
+            b.setStakeToNotReward(400L);
+        });
         return info;
     }
 
-    public static EntityChangeSet<AccountID, HederaAccount, AccountProperty>
-            buildPendingNodeStakeChanges() {
-        var changes = randomStakeFieldChanges(100L);
-        var pendingChanges = new EntityChangeSet<AccountID, HederaAccount, AccountProperty>();
+    public static EntityChangeSet<AccountID, HederaAccount, AccountProperty> buildPendingNodeStakeChanges() {
+        final var changes = randomStakeFieldChanges(100L);
+        final var pendingChanges = new EntityChangeSet<AccountID, HederaAccount, AccountProperty>();
         pendingChanges.include(counterpartyId, counterparty, changes);
         return pendingChanges;
     }
@@ -236,17 +234,16 @@ public class StakingUtilsTest {
     private static final long counterPartyStake = 100L;
     private static final AccountID counterpartyId =
             AccountID.newBuilder().setAccountNum(321).build();
-    private final AccountID stakingFundId = AccountID.newBuilder().setAccountNum(800).build();
-    private static final MerkleAccount counterparty =
-            MerkleAccountFactory.newAccount()
-                    .stakedId(-1)
-                    .stakedToMe(counterPartyStake)
-                    .number(EntityNum.fromAccountId(counterpartyId))
-                    .balance(counterpartyBalance)
-                    .get();
-    private final MerkleAccount stakingFund =
-            MerkleAccountFactory.newAccount()
-                    .number(EntityNum.fromAccountId(stakingFundId))
-                    .balance(amount)
-                    .get();
+    private final AccountID stakingFundId =
+            AccountID.newBuilder().setAccountNum(800).build();
+    private static final MerkleAccount counterparty = MerkleAccountFactory.newAccount()
+            .stakedId(-1)
+            .stakedToMe(counterPartyStake)
+            .number(EntityNum.fromAccountId(counterpartyId))
+            .balance(counterpartyBalance)
+            .get();
+    private final MerkleAccount stakingFund = MerkleAccountFactory.newAccount()
+            .number(EntityNum.fromAccountId(stakingFundId))
+            .balance(amount)
+            .get();
 }

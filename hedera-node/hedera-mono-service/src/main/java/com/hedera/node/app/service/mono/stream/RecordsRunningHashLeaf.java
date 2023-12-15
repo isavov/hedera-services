@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022-2023 Hedera Hashgraph, LLC
+ * Copyright (C) 2020-2023 Hedera Hashgraph, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,11 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.stream;
 
 import static com.hedera.node.app.service.mono.ServicesState.EMPTY_HASH;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.hedera.node.app.service.mono.state.virtual.annotations.StateSetter;
 import com.swirlds.common.crypto.Hash;
 import com.swirlds.common.crypto.RunningHash;
@@ -38,7 +38,7 @@ public class RecordsRunningHashLeaf extends PartialMerkleLeaf implements MerkleL
     static final long CLASS_ID = 0xe370929ba5429d9bL;
     static final int CLASS_VERSION = 1;
 
-    static final int RELEASE_0280_VERSION = 2;
+    public static final int RELEASE_0280_VERSION = 2;
     /** a runningHash of all RecordStreamObject */
     private RunningHash runningHash;
     /**
@@ -80,16 +80,13 @@ public class RecordsRunningHashLeaf extends PartialMerkleLeaf implements MerkleL
             out.writeSerializable(nMinus3RunningHash.getHash(), true);
         } catch (final InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new IOException(
-                    "Got interrupted when getting runningHash when serializing RunningHashLeaf", e);
+            throw new IOException("Got interrupted when getting runningHash when serializing RunningHashLeaf", e);
         }
     }
 
     @Override
-    public void deserialize(final SerializableDataInputStream in, final int version)
-            throws IOException {
-        runningHash = new RunningHash();
-        runningHash.setHash(in.readSerializable());
+    public void deserialize(final SerializableDataInputStream in, final int version) throws IOException {
+        runningHash = new RunningHash(in.readSerializable());
 
         if (version >= RELEASE_0280_VERSION) {
             resetMinusHashes(false);
@@ -125,8 +122,7 @@ public class RecordsRunningHashLeaf extends PartialMerkleLeaf implements MerkleL
     /** {@inheritDoc} */
     @Override
     public int hashCode() {
-        return Objects.hash(
-                runningHash, nMinus1RunningHash, nMinus2RunningHash, nMinus3RunningHash);
+        return Objects.hash(runningHash, nMinus1RunningHash, nMinus2RunningHash, nMinus3RunningHash);
     }
 
     public RecordsRunningHashLeaf copy() {
@@ -219,12 +215,10 @@ public class RecordsRunningHashLeaf extends PartialMerkleLeaf implements MerkleL
         nMinus3RunningHash = alreadyCompleted ? new RunningHash(EMPTY_HASH) : new RunningHash();
     }
 
-    @VisibleForTesting
     public RunningHash getNMinus2RunningHash() {
         return nMinus2RunningHash;
     }
 
-    @VisibleForTesting
     public RunningHash getNMinus1RunningHash() {
         return nMinus1RunningHash;
     }

@@ -13,8 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.contract.opcodes;
 
+import static com.hedera.services.bdd.junit.TestTags.SMART_CONTRACT;
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
 import static com.hedera.services.bdd.spec.assertions.ContractFnResultAsserts.isLiteralResult;
 import static com.hedera.services.bdd.spec.assertions.ContractFnResultAsserts.isRandomResult;
@@ -33,6 +35,8 @@ import static com.hedera.services.bdd.spec.utilops.UtilVerbs.withOpContext;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.suites.HapiSuite;
 import com.swirlds.common.utility.CommonUtils;
@@ -41,8 +45,12 @@ import java.util.HashSet;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.Tag;
 
+@HapiTestSuite
+@Tag(SMART_CONTRACT)
 public class PrngSeedOperationSuite extends HapiSuite {
+
     private static final Logger log = LogManager.getLogger(PrngSeedOperationSuite.class);
     private static final long GAS_TO_OFFER = 400_000L;
     private static final String THE_PRNG_CONTRACT = "PrngSeedOperationContract";
@@ -53,7 +61,8 @@ public class PrngSeedOperationSuite extends HapiSuite {
     public static final String CONTRACTS_DYNAMIC_EVM_VERSION = "contracts.evm.version.dynamic";
     public static final String CONTRACTS_EVM_VERSION = "contracts.evm.version";
 
-    public static final String EVM_VERSION_0_31 = "v0.31";
+    public static final String EVM_VERSION_0_34 = "v0.34";
+    public static final String EVM_VERSION_0_30 = "v0.30";
 
     public static void main(String... args) {
         new PrngSeedOperationSuite().runSuiteSync();
@@ -75,12 +84,11 @@ public class PrngSeedOperationSuite extends HapiSuite {
 
     List<HapiSpec> positiveSpecs() {
         return List.of(
-                prngPrecompileHappyPathWorks(),
-                multipleCallsHaveIndependentResults(),
-                prngPrecompileDisabledInV030());
+                prngPrecompileHappyPathWorks(), multipleCallsHaveIndependentResults(), prngPrecompileDisabledInV030());
     }
 
-    private HapiSpec multipleCallsHaveIndependentResults() {
+    @HapiTest
+    final HapiSpec multipleCallsHaveIndependentResults() {
         final var prng = THE_PRNG_CONTRACT;
         final var gasToOffer = 400_000;
         final var numCalls = 5;
@@ -90,116 +98,90 @@ public class PrngSeedOperationSuite extends HapiSuite {
                         uploadInitCode(prng),
                         contractCreate(prng),
                         overriding(CONTRACTS_DYNAMIC_EVM_VERSION, TRUE_VALUE),
-                        overriding(CONTRACTS_EVM_VERSION, EVM_VERSION_0_31))
-                .when(
-                        withOpContext(
-                                (spec, opLog) -> {
-                                    for (int i = 0; i < numCalls; i++) {
-                                        final var txn = "call" + i;
-                                        final var call =
-                                                contractCall(prng, GET_SEED)
-                                                        .gas(gasToOffer)
-                                                        .via(txn);
-                                        final var lookup = getTxnRecord(txn).andAllChildRecords();
-                                        allRunFor(spec, call, lookup);
-                                        final var response = lookup.getResponseRecord();
-                                        final var rawResult =
-                                                response.getContractCallResult()
-                                                        .getContractCallResult()
-                                                        .toByteArray();
-                                        // Since this contract returns the result of the Prng system
-                                        // contract, its call result
-                                        // should be identical to the result of the system contract
-                                        // in the child record
-                                        for (final var child : lookup.getChildRecords()) {
-                                            if (child.hasContractCallResult()) {
-                                                assertArrayEquals(
-                                                        rawResult,
-                                                        child.getContractCallResult()
-                                                                .getContractCallResult()
-                                                                .toByteArray());
-                                            }
-                                        }
-                                        prngSeeds.add(CommonUtils.hex(rawResult));
-                                    }
-                                    opLog.info("Got prng seeds  : {}", prngSeeds);
-                                    assertEquals(
-                                            prngSeeds.size(),
-                                            new HashSet<>(prngSeeds).size(),
-                                            "An N-3 running hash was repeated, which is"
-                                                    + " inconceivable");
-                                }))
+                        overriding(CONTRACTS_EVM_VERSION, EVM_VERSION_0_34))
+                .when(withOpContext((spec, opLog) -> {
+                    for (int i = 0; i < numCalls; i++) {
+                        final var txn = "call" + i;
+                        final var call =
+                                contractCall(prng, GET_SEED).gas(gasToOffer).via(txn);
+                        final var lookup = getTxnRecord(txn).andAllChildRecords();
+                        allRunFor(spec, call, lookup);
+                        final var response = lookup.getResponseRecord();
+                        final var rawResult = response.getContractCallResult()
+                                .getContractCallResult()
+                                .toByteArray();
+                        // Since this contract returns the result of the Prng system
+                        // contract, its call result
+                        // should be identical to the result of the system contract
+                        // in the child record
+                        for (final var child : lookup.getChildRecords()) {
+                            if (child.hasContractCallResult()) {
+                                assertArrayEquals(
+                                        rawResult,
+                                        child.getContractCallResult()
+                                                .getContractCallResult()
+                                                .toByteArray());
+                            }
+                        }
+                        prngSeeds.add(CommonUtils.hex(rawResult));
+                    }
+                    opLog.info("Got prng seeds  : {}", prngSeeds);
+                    assertEquals(
+                            prngSeeds.size(),
+                            new HashSet<>(prngSeeds).size(),
+                            "An N-3 running hash was repeated, which is" + " inconceivable");
+                }))
                 .then(
                         // It's possible to call these contracts in a static context with no issues
                         contractCallLocal(prng, GET_SEED).gas(gasToOffer));
     }
 
-    private HapiSpec prngPrecompileHappyPathWorks() {
+    @HapiTest
+    final HapiSpec prngPrecompileHappyPathWorks() {
         final var prng = THE_PRNG_CONTRACT;
         final var randomBits = "randomBits";
         return defaultHapiSpec("prngPrecompileHappyPathWorks")
                 .given(
                         overriding(CONTRACTS_DYNAMIC_EVM_VERSION, TRUE_VALUE),
-                        overriding(CONTRACTS_EVM_VERSION, EVM_VERSION_0_31),
+                        overriding(CONTRACTS_EVM_VERSION, EVM_VERSION_0_34),
                         cryptoCreate(BOB),
                         uploadInitCode(prng),
                         contractCreate(prng))
-                .when(
-                        sourcing(
-                                () ->
-                                        contractCall(prng, GET_SEED)
-                                                .gas(GAS_TO_OFFER)
-                                                .payingWith(BOB)
-                                                .via(randomBits)
-                                                .logged()))
-                .then(
-                        getTxnRecord(randomBits)
-                                .hasPriority(
-                                        recordWith()
-                                                .contractCallResult(
-                                                        resultWith()
-                                                                .resultViaFunctionName(
-                                                                        GET_SEED,
-                                                                        prng,
-                                                                        isRandomResult(
-                                                                                (new Object[] {
-                                                                                    new byte[32]
-                                                                                })))))
-                                .logged());
+                .when(sourcing(() -> contractCall(prng, GET_SEED)
+                        .gas(GAS_TO_OFFER)
+                        .payingWith(BOB)
+                        .via(randomBits)
+                        .logged()))
+                .then(getTxnRecord(randomBits)
+                        .hasPriority(recordWith()
+                                .contractCallResult(resultWith()
+                                        .resultViaFunctionName(
+                                                GET_SEED, prng, isRandomResult((new Object[] {new byte[32]})))))
+                        .logged());
     }
 
-    private HapiSpec prngPrecompileDisabledInV030() {
+    @HapiTest
+    final HapiSpec prngPrecompileDisabledInV030() {
         final var prng = THE_PRNG_CONTRACT;
         final var randomBits = "randomBits";
         return defaultHapiSpec("prngPrecompileDisabledInV_0_30")
                 .given(
                         overriding(CONTRACTS_DYNAMIC_EVM_VERSION, TRUE_VALUE),
-                        overriding(CONTRACTS_EVM_VERSION, EVM_VERSION_0_31),
+                        overriding(CONTRACTS_EVM_VERSION, EVM_VERSION_0_30),
                         cryptoCreate(BOB),
                         uploadInitCode(prng),
                         contractCreate(prng))
-                .when(
-                        sourcing(
-                                () ->
-                                        contractCall(prng, GET_SEED)
-                                                .gas(GAS_TO_OFFER)
-                                                .payingWith(BOB)
-                                                .via(randomBits)
-                                                .logged()))
-                .then(
-                        getTxnRecord(randomBits)
-                                .hasPriority(
-                                        recordWith()
-                                                .contractCallResult(
-                                                        resultWith()
-                                                                .resultViaFunctionName(
-                                                                        GET_SEED,
-                                                                        prng,
-                                                                        isLiteralResult(
-                                                                                (new Object[] {
-                                                                                    new byte[32]
-                                                                                })))))
-                                .logged());
+                .when(sourcing(() -> contractCall(prng, GET_SEED)
+                        .gas(GAS_TO_OFFER)
+                        .payingWith(BOB)
+                        .via(randomBits)
+                        .logged()))
+                .then(getTxnRecord(randomBits)
+                        .hasPriority(recordWith()
+                                .contractCallResult(resultWith()
+                                        .resultViaFunctionName(
+                                                GET_SEED, prng, isLiteralResult((new Object[] {new byte[32]})))))
+                        .logged());
     }
 
     @Override

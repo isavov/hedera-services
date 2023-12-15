@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.hapi.utils.throttles;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -47,7 +48,8 @@ class GasLimitDeterministicThrottleTest {
 
         // then:
         assertTrue(result);
-        assertEquals(DEFAULT_CAPACITY - gasLimitForTX, subject.delegate().bucket().capacityFree());
+        assertEquals(
+                DEFAULT_CAPACITY - gasLimitForTX, subject.delegate().bucket().capacityFree());
     }
 
     @Test
@@ -68,23 +70,30 @@ class GasLimitDeterministicThrottleTest {
     }
 
     @Test
+    void canGetInstantaneousPercentUsed() {
+        final var now = Instant.ofEpochSecond(1_234_567L);
+        final var capacity = 1_000_000;
+        final var subject = new GasLimitDeterministicThrottle(capacity);
+        assertEquals(0.0, subject.instantaneousPercentUsed());
+        subject.allow(now, capacity / 2);
+        assertEquals(50.0, subject.instantaneousPercentUsed());
+    }
+
+    @Test
     void canGetFreeToUsedRatio() {
         final var now = Instant.ofEpochSecond(1_234_567L);
         final var capacity = 1_000_000;
         final var subject = new GasLimitDeterministicThrottle(capacity);
         subject.allow(now, capacity / 4);
-        assertEquals(3, subject.freeToUsedRatio(now));
+        assertEquals(3, subject.instantaneousFreeToUsedRatio());
     }
 
     @Test
     void leaksUntilNowBeforeEstimatingFreeToUsed() {
         final var now = Instant.ofEpochSecond(1_234_567L);
-        final var then = now.plusSeconds(1234);
         final var capacity = 1_000_000;
         final var subject = new GasLimitDeterministicThrottle(capacity);
-        subject.allow(now, capacity / 4);
-        assertEquals(Long.MAX_VALUE, subject.freeToUsedRatio(then));
-        assertEquals(then, subject.getLastDecisionTime());
+        assertEquals(Long.MAX_VALUE, subject.instantaneousFreeToUsedRatio());
     }
 
     @Test
@@ -198,7 +207,8 @@ class GasLimitDeterministicThrottleTest {
         assertTrue(result);
         assertTrue(result2);
         assertEquals(gasLimitForTX, subject.used());
-        assertEquals(DEFAULT_CAPACITY - gasLimitForTX, subject.delegate().bucket().capacityFree());
+        assertEquals(
+                DEFAULT_CAPACITY - gasLimitForTX, subject.delegate().bucket().capacityFree());
     }
 
     @Test
@@ -217,6 +227,7 @@ class GasLimitDeterministicThrottleTest {
         assertTrue(result);
         assertTrue(result2);
         assertEquals(
-                DEFAULT_CAPACITY - (gasLimitForTX * 2), subject.delegate().bucket().capacityFree());
+                DEFAULT_CAPACITY - (gasLimitForTX * 2),
+                subject.delegate().bucket().capacityFree());
     }
 }

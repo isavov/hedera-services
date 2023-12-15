@@ -13,8 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.contract.precompile;
 
+import static com.hedera.services.bdd.junit.TestTags.SMART_CONTRACT;
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
 import static com.hedera.services.bdd.spec.assertions.ContractFnResultAsserts.resultWith;
 import static com.hedera.services.bdd.spec.assertions.TransactionRecordAsserts.recordWith;
@@ -36,6 +38,8 @@ import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.SUCCESS;
 import static com.hederahashgraph.api.proto.java.TokenType.FUNGIBLE_COMMON;
 
 import com.hedera.node.app.hapi.utils.contracts.ParsingConstants.FunctionType;
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.transactions.contract.HapiParserUtil;
 import com.hedera.services.bdd.suites.HapiSuite;
@@ -44,11 +48,14 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.Tag;
 
+@HapiTestSuite
+@Tag(SMART_CONTRACT)
 public class DefaultTokenStatusSuite extends HapiSuite {
+
     private static final Logger log = LogManager.getLogger(DefaultTokenStatusSuite.class);
-    private static final String TOKEN_DEFAULT_KYC_FREEZE_STATUS_CONTRACT =
-            "TokenDefaultKycAndFreezeStatus";
+    private static final String TOKEN_DEFAULT_KYC_FREEZE_STATUS_CONTRACT = "TokenDefaultKycAndFreezeStatus";
     private static final String ACCOUNT = "anybody";
     private static final String KYC_KEY = "kycKey";
     private static final String FREEZE_KEY = "freezeKey";
@@ -75,7 +82,8 @@ public class DefaultTokenStatusSuite extends HapiSuite {
         return true;
     }
 
-    private HapiSpec getTokenDefaultFreezeStatus() {
+    @HapiTest
+    final HapiSpec getTokenDefaultFreezeStatus() {
         final AtomicReference<TokenID> vanillaTokenID = new AtomicReference<>();
 
         return defaultHapiSpec("GetTokenDefaultFreezeStatus")
@@ -92,45 +100,33 @@ public class DefaultTokenStatusSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> vanillaTokenID.set(asToken(id))),
                         uploadInitCode(TOKEN_DEFAULT_KYC_FREEZE_STATUS_CONTRACT),
                         contractCreate(TOKEN_DEFAULT_KYC_FREEZE_STATUS_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCall(
-                                                                TOKEN_DEFAULT_KYC_FREEZE_STATUS_CONTRACT,
-                                                                GET_TOKEN_DEFAULT_FREEZE,
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(ACCOUNT)
-                                                        .via("GetTokenDefaultFreezeStatusTx")
-                                                        .gas(GAS_TO_OFFER),
-                                                contractCallLocal(
-                                                        TOKEN_DEFAULT_KYC_FREEZE_STATUS_CONTRACT,
-                                                        GET_TOKEN_DEFAULT_FREEZE,
-                                                        HapiParserUtil.asHeadlongAddress(
-                                                                asAddress(vanillaTokenID.get()))))))
-                .then(
-                        childRecordsCheck(
-                                "GetTokenDefaultFreezeStatusTx",
-                                SUCCESS,
-                                recordWith()
-                                        .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .GET_TOKEN_DEFAULT_FREEZE_STATUS)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTokenDefaultFreezeStatus(
-                                                                                true)))));
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCall(
+                                        TOKEN_DEFAULT_KYC_FREEZE_STATUS_CONTRACT,
+                                        GET_TOKEN_DEFAULT_FREEZE,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(ACCOUNT)
+                                .via("GetTokenDefaultFreezeStatusTx")
+                                .gas(GAS_TO_OFFER),
+                        contractCallLocal(
+                                TOKEN_DEFAULT_KYC_FREEZE_STATUS_CONTRACT,
+                                GET_TOKEN_DEFAULT_FREEZE,
+                                HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get()))))))
+                .then(childRecordsCheck(
+                        "GetTokenDefaultFreezeStatusTx",
+                        SUCCESS,
+                        recordWith()
+                                .status(SUCCESS)
+                                .contractCallResult(resultWith()
+                                        .contractCallResult(htsPrecompileResult()
+                                                .forFunction(FunctionType.GET_TOKEN_DEFAULT_FREEZE_STATUS)
+                                                .withStatus(SUCCESS)
+                                                .withTokenDefaultFreezeStatus(true)))));
     }
 
-    private HapiSpec getTokenDefaultKycStatus() {
+    @HapiTest
+    final HapiSpec getTokenDefaultKycStatus() {
         final AtomicReference<TokenID> vanillaTokenID = new AtomicReference<>();
 
         return defaultHapiSpec("GetTokenDefaultKycStatus")
@@ -146,41 +142,28 @@ public class DefaultTokenStatusSuite extends HapiSuite {
                                 .exposingCreatedIdTo(id -> vanillaTokenID.set(asToken(id))),
                         uploadInitCode(TOKEN_DEFAULT_KYC_FREEZE_STATUS_CONTRACT),
                         contractCreate(TOKEN_DEFAULT_KYC_FREEZE_STATUS_CONTRACT))
-                .when(
-                        withOpContext(
-                                (spec, opLog) ->
-                                        allRunFor(
-                                                spec,
-                                                contractCall(
-                                                                TOKEN_DEFAULT_KYC_FREEZE_STATUS_CONTRACT,
-                                                                GET_TOKEN_DEFAULT_KYC,
-                                                                HapiParserUtil.asHeadlongAddress(
-                                                                        asAddress(
-                                                                                vanillaTokenID
-                                                                                        .get())))
-                                                        .payingWith(ACCOUNT)
-                                                        .via("GetTokenDefaultKycStatusTx")
-                                                        .gas(GAS_TO_OFFER),
-                                                contractCallLocal(
-                                                        TOKEN_DEFAULT_KYC_FREEZE_STATUS_CONTRACT,
-                                                        GET_TOKEN_DEFAULT_KYC,
-                                                        HapiParserUtil.asHeadlongAddress(
-                                                                asAddress(vanillaTokenID.get()))))))
-                .then(
-                        childRecordsCheck(
-                                "GetTokenDefaultKycStatusTx",
-                                SUCCESS,
-                                recordWith()
-                                        .status(SUCCESS)
-                                        .contractCallResult(
-                                                resultWith()
-                                                        .contractCallResult(
-                                                                htsPrecompileResult()
-                                                                        .forFunction(
-                                                                                FunctionType
-                                                                                        .GET_TOKEN_DEFAULT_KYC_STATUS)
-                                                                        .withStatus(SUCCESS)
-                                                                        .withTokenDefaultKycStatus(
-                                                                                false)))));
+                .when(withOpContext((spec, opLog) -> allRunFor(
+                        spec,
+                        contractCall(
+                                        TOKEN_DEFAULT_KYC_FREEZE_STATUS_CONTRACT,
+                                        GET_TOKEN_DEFAULT_KYC,
+                                        HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get())))
+                                .payingWith(ACCOUNT)
+                                .via("GetTokenDefaultKycStatusTx")
+                                .gas(GAS_TO_OFFER),
+                        contractCallLocal(
+                                TOKEN_DEFAULT_KYC_FREEZE_STATUS_CONTRACT,
+                                GET_TOKEN_DEFAULT_KYC,
+                                HapiParserUtil.asHeadlongAddress(asAddress(vanillaTokenID.get()))))))
+                .then(childRecordsCheck(
+                        "GetTokenDefaultKycStatusTx",
+                        SUCCESS,
+                        recordWith()
+                                .status(SUCCESS)
+                                .contractCallResult(resultWith()
+                                        .contractCallResult(htsPrecompileResult()
+                                                .forFunction(FunctionType.GET_TOKEN_DEFAULT_KYC_STATUS)
+                                                .withStatus(SUCCESS)
+                                                .withTokenDefaultKycStatus(false)))));
     }
 }

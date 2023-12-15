@@ -13,13 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.context;
 
 import com.google.protobuf.ByteString;
 import com.hedera.node.app.hapi.utils.ethereum.EthTxData;
 import com.hedera.node.app.service.mono.ledger.interceptors.StakingAccountsCommitInterceptor;
 import com.hedera.node.app.service.mono.legacy.core.jproto.JKey;
-import com.hedera.node.app.service.mono.state.expiry.ExpiringEntity;
 import com.hedera.node.app.service.mono.state.submerkle.EntityId;
 import com.hedera.node.app.service.mono.state.submerkle.EvmFnResult;
 import com.hedera.node.app.service.mono.state.submerkle.ExpirableTxnRecord;
@@ -36,7 +36,6 @@ import com.hederahashgraph.api.proto.java.ScheduleID;
 import com.hederahashgraph.api.proto.java.TopicID;
 import com.hederahashgraph.api.proto.java.TransactionID;
 import java.time.Instant;
-import java.util.Collection;
 import java.util.List;
 
 /**
@@ -84,6 +83,25 @@ public interface TransactionContext {
      * @throws IllegalStateException if there is no active txn
      */
     AccountID activePayer();
+
+    /**
+     * Returns whether the current transaction being processed was submitted by this node.
+     *
+     * @return true if the current transaction was submitted by this node
+     */
+    boolean isSelfSubmitted();
+
+    /**
+     * Returns the number of auto-creation attempts that are implied by this transaction.
+     *
+     * @return the number of auto-creation attempts
+     */
+    default int numImplicitCreations() {
+        if (!accessor().areImplicitCreationsCounted()) {
+            throw new IllegalStateException("Implicit creations requested before being counted");
+        }
+        return accessor().getNumImplicitCreations();
+    }
 
     default AccountID effectivePayer() {
         return isPayerSigKnownActive() ? activePayer() : submittingNodeAccount();
@@ -261,21 +279,6 @@ public interface TransactionContext {
      * @return a triggered TxnAccessor
      */
     TxnAccessor triggeredTxn();
-
-    /**
-     * Adds a collection of {@link ExpiringEntity} to be later tracked for purging when expired
-     *
-     * @param expiringEntities the information about entities which will be tracked for future purge
-     */
-    void addExpiringEntities(Collection<ExpiringEntity> expiringEntities);
-
-    /**
-     * Gets all expiring entities to the defined type {@link ExpiringEntity} currently being
-     * processed.
-     *
-     * @return {@code List<ExpiringEntity>} for the current expiring entities.
-     */
-    List<ExpiringEntity> expiringEntities();
 
     /**
      * Set the assessed custom fees as a result of the active transaction. It is used for {@link

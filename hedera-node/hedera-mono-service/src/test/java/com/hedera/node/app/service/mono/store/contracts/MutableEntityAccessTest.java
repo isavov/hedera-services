@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.store.contracts;
 
 import static com.hedera.node.app.service.mono.store.contracts.precompile.HTSTestsUtil.fungibleTokenAddr;
@@ -42,6 +43,7 @@ import com.hedera.node.app.service.mono.ledger.properties.AccountProperty;
 import com.hedera.node.app.service.mono.ledger.properties.NftProperty;
 import com.hedera.node.app.service.mono.ledger.properties.TokenProperty;
 import com.hedera.node.app.service.mono.ledger.properties.TokenRelProperty;
+import com.hedera.node.app.service.mono.state.adapters.VirtualMapLike;
 import com.hedera.node.app.service.mono.state.merkle.MerkleToken;
 import com.hedera.node.app.service.mono.state.migration.HederaAccount;
 import com.hedera.node.app.service.mono.state.migration.HederaTokenRel;
@@ -67,34 +69,50 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class MutableEntityAccessTest {
-    @Mock private HederaLedger ledger;
-    @Mock private Supplier<VirtualMap<VirtualBlobKey, VirtualBlobValue>> supplierBytecode;
-    @Mock private VirtualMap<VirtualBlobKey, VirtualBlobValue> bytecodeStorage;
-
-    @Mock
-    private TransactionalLedger<Pair<AccountID, TokenID>, TokenRelProperty, HederaTokenRel>
-            tokenRelsLedger;
-
-    @Mock private TransactionalLedger<AccountID, AccountProperty, HederaAccount> accountsLedger;
-    @Mock private TransactionalLedger<NftId, NftProperty, UniqueTokenAdapter> nftsLedger;
-    @Mock private TransactionalLedger<TokenID, TokenProperty, MerkleToken> tokensLedger;
-    @Mock private TransactionContext txnCtx;
-    @Mock private SignedTxnAccessor accessor;
-    @Mock private SizeLimitedStorage storage;
-    @Mock private AliasManager aliasManager;
-
-    private MutableEntityAccess subject;
-
     private final AccountID id = IdUtils.asAccount("0.0.1234");
     private final long balance = 1234L;
-
+    private final long nonce = 2L;
     private final UInt256 contractStorageKey = UInt256.ONE;
     private final UInt256 contractStorageValue = UInt256.MAX_VALUE;
-
     private final Bytes bytecode = Bytes.of("contract-code".getBytes());
     private final VirtualBlobKey expectedBytecodeKey =
             new VirtualBlobKey(VirtualBlobKey.Type.CONTRACT_BYTECODE, (int) id.getAccountNum());
     private final VirtualBlobValue expectedBytecodeValue = new VirtualBlobValue(bytecode.toArray());
+
+    @Mock
+    private HederaLedger ledger;
+
+    @Mock
+    private Supplier<VirtualMapLike<VirtualBlobKey, VirtualBlobValue>> supplierBytecode;
+
+    @Mock
+    private VirtualMap<VirtualBlobKey, VirtualBlobValue> bytecodeStorage;
+
+    @Mock
+    private TransactionalLedger<Pair<AccountID, TokenID>, TokenRelProperty, HederaTokenRel> tokenRelsLedger;
+
+    @Mock
+    private TransactionalLedger<AccountID, AccountProperty, HederaAccount> accountsLedger;
+
+    @Mock
+    private TransactionalLedger<NftId, NftProperty, UniqueTokenAdapter> nftsLedger;
+
+    @Mock
+    private TransactionalLedger<TokenID, TokenProperty, MerkleToken> tokensLedger;
+
+    @Mock
+    private TransactionContext txnCtx;
+
+    @Mock
+    private SignedTxnAccessor accessor;
+
+    @Mock
+    private SizeLimitedStorage storage;
+
+    @Mock
+    private AliasManager aliasManager;
+
+    private MutableEntityAccess subject;
 
     @BeforeEach
     void setUp() {
@@ -102,9 +120,13 @@ class MutableEntityAccessTest {
         given(ledger.getAccountsLedger()).willReturn(accountsLedger);
         given(ledger.getNftsLedger()).willReturn(nftsLedger);
 
-        subject =
-                new MutableEntityAccess(
-                        ledger, aliasManager, txnCtx, storage, tokensLedger, supplierBytecode);
+        final var worldLedgers = new WorldLedgers(
+                aliasManager,
+                ledger.getTokenRelsLedger(),
+                ledger.getAccountsLedger(),
+                ledger.getNftsLedger(),
+                tokensLedger);
+        subject = new MutableEntityAccess(ledger, worldLedgers, txnCtx, storage, tokensLedger, supplierBytecode);
     }
 
     @Test
@@ -187,6 +209,20 @@ class MutableEntityAccessTest {
     }
 
     @Test
+    void getsNonce() {
+        // given:
+        given(ledger.getNonce(id)).willReturn(nonce);
+
+        // when:
+        final var result = subject.getNonce(asTypedEvmAddress(id));
+
+        // then:
+        assertEquals(nonce, result);
+        // and:
+        verify(ledger).getNonce(id);
+    }
+
+    @Test
     void checksIfUsableOk() {
         given(ledger.usabilityOf(id)).willReturn(OK);
 
@@ -246,7 +282,7 @@ class MutableEntityAccessTest {
     @Test
     void storesBlob() {
         // given:
-        given(supplierBytecode.get()).willReturn(bytecodeStorage);
+        given(supplierBytecode.get()).willReturn(VirtualMapLike.from(bytecodeStorage));
 
         // when:
         subject.storeCode(id, bytecode);
@@ -257,14 +293,14 @@ class MutableEntityAccessTest {
 
     @Test
     void fetchesEmptyBytecode() {
-        given(supplierBytecode.get()).willReturn(bytecodeStorage);
+        given(supplierBytecode.get()).willReturn(VirtualMapLike.from(bytecodeStorage));
 
         assertNull(subject.fetchCodeIfPresent(asTypedEvmAddress(id)));
     }
 
     @Test
     void fetchesBytecode() {
-        given(supplierBytecode.get()).willReturn(bytecodeStorage);
+        given(supplierBytecode.get()).willReturn(VirtualMapLike.from(bytecodeStorage));
         given(bytecodeStorage.get(expectedBytecodeKey)).willReturn(expectedBytecodeValue);
 
         final var result = subject.fetchCodeIfPresent(asTypedEvmAddress(id));

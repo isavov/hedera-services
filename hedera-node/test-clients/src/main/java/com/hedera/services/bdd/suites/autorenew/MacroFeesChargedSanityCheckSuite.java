@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.autorenew;
 
 import static com.google.protobuf.ByteString.copyFromUtf8;
@@ -61,6 +62,7 @@ import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.Assertions;
 
 public class MacroFeesChargedSanityCheckSuite extends HapiSuite {
+
     private static final Logger log = LogManager.getLogger(MacroFeesChargedSanityCheckSuite.class);
 
     public static void main(final String... args) {
@@ -76,7 +78,7 @@ public class MacroFeesChargedSanityCheckSuite extends HapiSuite {
     }
 
     @SuppressWarnings("java:S125")
-    private HapiSpec renewalCappedByAffordablePeriod() {
+    final HapiSpec renewalCappedByAffordablePeriod() {
         final long briefAutoRenew = 10L;
         final long normalAutoRenew = THREE_MONTHS_IN_SECONDS;
         final long threeHoursInSeconds = 3 * 3600L;
@@ -86,37 +88,30 @@ public class MacroFeesChargedSanityCheckSuite extends HapiSuite {
         final var target = "czar";
         final String crazyMemo = "Calmer than you are!";
 
-        final ExtantCryptoContext cryptoCtx =
-                ExtantCryptoContext.newBuilder()
-                        .setCurrentExpiry(0L)
-                        .setCurrentKey(
-                                Key.newBuilder()
-                                        .setEd25519(copyFromUtf8(randomUppercase(32)))
-                                        .build())
-                        .setCurrentlyHasProxy(true)
-                        .setCurrentMemo(crazyMemo)
-                        .setCurrentNumTokenRels(0)
-                        .build();
+        final ExtantCryptoContext cryptoCtx = ExtantCryptoContext.newBuilder()
+                .setCurrentExpiry(0L)
+                .setCurrentKey(Key.newBuilder()
+                        .setEd25519(copyFromUtf8(randomUppercase(32)))
+                        .build())
+                .setCurrentlyHasProxy(true)
+                .setCurrentMemo(crazyMemo)
+                .setCurrentNumTokenRels(0)
+                .build();
 
         return defaultHapiSpec("RenewalCappedByAffordablePeriod")
                 .given(
-                        withOpContext(
-                                (spec, opLog) -> {
-                                    final var tbFee = autoRenewFeesFor(spec, cryptoCtx);
-                                    balanceForThreeHourRenew.set(tbFee.totalTb(3));
-                                    opLog.info(
-                                            "Balance {} will pay for three-hour renewal",
-                                            balanceForThreeHourRenew.get());
-                                }),
+                        withOpContext((spec, opLog) -> {
+                            final var tbFee = autoRenewFeesFor(spec, cryptoCtx);
+                            balanceForThreeHourRenew.set(tbFee.totalTb(3));
+                            opLog.info("Balance {} will pay for three-hour renewal", balanceForThreeHourRenew.get());
+                        }),
                         fileUpdate(APP_PROPERTIES)
                                 .payingWith(GENESIS)
                                 .overridingProps(propsForAccountAutoRenewOnWith(1, 1234L)),
-                        sourcing(
-                                () ->
-                                        cryptoCreate(target)
-                                                .entityMemo(crazyMemo)
-                                                .balance(balanceForThreeHourRenew.get())
-                                                .autoRenewSecs(briefAutoRenew)),
+                        sourcing(() -> cryptoCreate(target)
+                                .entityMemo(crazyMemo)
+                                .balance(balanceForThreeHourRenew.get())
+                                .autoRenewSecs(briefAutoRenew)),
                         /* Despite asking for a three month autorenew here, the account will only
                         be able to afford a three hour extension. */
                         cryptoUpdate(target).autoRenewPeriod(normalAutoRenew),
@@ -129,20 +124,13 @@ public class MacroFeesChargedSanityCheckSuite extends HapiSuite {
                         should only have received a three-hour renewal, and its entire balance
                         been used. */
                         getAccountBalance(target).hasTinyBars(0L),
-                        sourcing(
-                                () ->
-                                        getAccountInfo(target)
-                                                .has(
-                                                        accountWith()
-                                                                .expiry(
-                                                                        initialExpiry.get()
-                                                                                + threeHoursInSeconds,
-                                                                        0L))),
+                        sourcing(() -> getAccountInfo(target)
+                                .has(accountWith().expiry(initialExpiry.get() + threeHoursInSeconds, 0L))),
                         cryptoDelete(target));
     }
 
     @SuppressWarnings("java:S5960")
-    private HapiSpec feesChargedMatchNumberOfRenewals() {
+    final HapiSpec feesChargedMatchNumberOfRenewals() {
         final long reqAutoRenew = 2L;
         final long startBalance = ONE_HUNDRED_HBARS;
         final var target = "czar";
@@ -154,17 +142,15 @@ public class MacroFeesChargedSanityCheckSuite extends HapiSuite {
         final AtomicReference<TimeUnit> unit = new AtomicReference<>(SECONDS);
         final AtomicInteger maxOpsPerSec = new AtomicInteger(100);
 
-        final ExtantCryptoContext cryptoCtx =
-                ExtantCryptoContext.newBuilder()
-                        .setCurrentExpiry(0L)
-                        .setCurrentKey(
-                                Key.newBuilder()
-                                        .setEd25519(copyFromUtf8(randomUppercase(32)))
-                                        .build())
-                        .setCurrentlyHasProxy(true)
-                        .setCurrentMemo(crazyMemo)
-                        .setCurrentNumTokenRels(0)
-                        .build();
+        final ExtantCryptoContext cryptoCtx = ExtantCryptoContext.newBuilder()
+                .setCurrentExpiry(0L)
+                .setCurrentKey(Key.newBuilder()
+                        .setEd25519(copyFromUtf8(randomUppercase(32)))
+                        .build())
+                .setCurrentlyHasProxy(true)
+                .setCurrentMemo(crazyMemo)
+                .setCurrentNumTokenRels(0)
+                .build();
 
         return defaultHapiSpec("FeesChargedMatchNumberOfRenewals")
                 .given(
@@ -186,28 +172,24 @@ public class MacroFeesChargedSanityCheckSuite extends HapiSuite {
                         been auto-renewed) multiple times during the 30-second burst of
                         CryptoTransfers. We want to confirm its balance changed as expected
                         with the number of renewals. */
-                        assertionsHold(
-                                (spec, opLog) -> {
-                                    final var tbFee = autoRenewFeesFor(spec, cryptoCtx).totalTb(1);
-                                    opLog.info("Expected fee in tinybars: {}", tbFee);
+                        assertionsHold((spec, opLog) -> {
+                            final var tbFee = autoRenewFeesFor(spec, cryptoCtx).totalTb(1);
+                            opLog.info("Expected fee in tinybars: {}", tbFee);
 
-                                    final var infoOp =
-                                            getAccountInfo(target)
-                                                    .exposingBalance(finalBalance::set)
-                                                    .exposingExpiry(finalExpiry::set);
-                                    allRunFor(spec, infoOp);
-                                    final long balanceChange = startBalance - finalBalance.get();
-                                    final long expiryChange =
-                                            finalExpiry.get() - initialExpiry.get();
-                                    final int numRenewals = (int) (expiryChange / reqAutoRenew);
-                                    opLog.info(
-                                            "{} renewals happened, extending expiry by {} and"
-                                                    + " reducing balance by {}",
-                                            numRenewals,
-                                            expiryChange,
-                                            balanceChange);
-                                    Assertions.assertEquals(balanceChange, numRenewals * tbFee);
-                                }),
+                            final var infoOp = getAccountInfo(target)
+                                    .exposingBalance(finalBalance::set)
+                                    .exposingExpiry(finalExpiry::set);
+                            allRunFor(spec, infoOp);
+                            final long balanceChange = startBalance - finalBalance.get();
+                            final long expiryChange = finalExpiry.get() - initialExpiry.get();
+                            final int numRenewals = (int) (expiryChange / reqAutoRenew);
+                            opLog.info(
+                                    "{} renewals happened, extending expiry by {} and" + " reducing balance by {}",
+                                    numRenewals,
+                                    expiryChange,
+                                    balanceChange);
+                            Assertions.assertEquals(balanceChange, numRenewals * tbFee);
+                        }),
                         cryptoDelete(target));
     }
 
@@ -216,55 +198,46 @@ public class MacroFeesChargedSanityCheckSuite extends HapiSuite {
     }
 
     private Function<HapiSpec, OpProvider> getAnyOldXfers() {
-        return spec ->
-                new OpProvider() {
-                    @Override
-                    public List<HapiSpecOperation> suggestedInitializers() {
-                        return Collections.emptyList();
-                    }
+        return spec -> new OpProvider() {
+            @Override
+            public List<HapiSpecOperation> suggestedInitializers() {
+                return Collections.emptyList();
+            }
 
-                    @Override
-                    public Optional<HapiSpecOperation> get() {
-                        return Optional.of(
-                                cryptoTransfer(tinyBarsFromTo(GENESIS, FUNDING, 1L))
-                                        .noLogging()
-                                        .deferStatusResolution());
-                    }
-                };
+            @Override
+            public Optional<HapiSpecOperation> get() {
+                return Optional.of(cryptoTransfer(tinyBarsFromTo(GENESIS, FUNDING, 1L))
+                        .noLogging()
+                        .deferStatusResolution());
+            }
+        };
     }
 
-    private RenewalFeeComponents autoRenewFeesFor(
-            final HapiSpec spec, final ExtantCryptoContext extantCtx) {
+    private RenewalFeeComponents autoRenewFeesFor(final HapiSpec spec, final ExtantCryptoContext extantCtx) {
         @SuppressWarnings("java:S1874")
-        final var prices =
-                spec.ratesProvider().currentSchedule().getTransactionFeeScheduleList().stream()
-                        .filter(tfs -> tfs.getHederaFunctionality() == CryptoAccountAutoRenew)
-                        .findFirst()
-                        .orElseThrow()
-                        .getFeeData();
-        final var constantPrice =
-                prices.getNodedata().getConstant()
-                        + prices.getNetworkdata().getConstant()
-                        + prices.getServicedata().getConstant();
-        final var rbUsage =
-                CRYPTO_ENTITY_SIZES.fixedBytesInAccountRepr() + extantCtx.currentNonBaseRb();
+        final var prices = spec.ratesProvider().currentSchedule().getTransactionFeeScheduleList().stream()
+                .filter(tfs -> tfs.getHederaFunctionality() == CryptoAccountAutoRenew)
+                .findFirst()
+                .orElseThrow()
+                .getFeeData();
+        final var constantPrice = prices.getNodedata().getConstant()
+                + prices.getNetworkdata().getConstant()
+                + prices.getServicedata().getConstant();
+        final var rbUsage = CRYPTO_ENTITY_SIZES.fixedBytesInAccountRepr() + extantCtx.currentNonBaseRb();
         final var variablePrice = prices.getServicedata().getRbh() * rbUsage;
         final var rates = spec.ratesProvider().rates();
-        return new RenewalFeeComponents(
-                inTinybars(constantPrice, rates), inTinybars(variablePrice, rates));
+        return new RenewalFeeComponents(inTinybars(constantPrice, rates), inTinybars(variablePrice, rates));
     }
 
-    private HapiSpec macroFeesChargedSanityCheckSuiteCleanup() {
+    final HapiSpec macroFeesChargedSanityCheckSuiteCleanup() {
         return defaultHapiSpec("MacroFeesChargedSanityCheckSuiteCleanup")
                 .given()
                 .when()
-                .then(
-                        fileUpdate(APP_PROPERTIES)
-                                .payingWith(GENESIS)
-                                .overridingProps(disablingAutoRenewWithDefaults()));
+                .then(fileUpdate(APP_PROPERTIES).payingWith(GENESIS).overridingProps(disablingAutoRenewWithDefaults()));
     }
 
     private static class RenewalFeeComponents {
+
         private final long fixedTb;
         private final long hourlyTb;
 

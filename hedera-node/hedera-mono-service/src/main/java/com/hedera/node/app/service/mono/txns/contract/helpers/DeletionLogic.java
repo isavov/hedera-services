@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.txns.contract.helpers;
 
 import static com.hedera.node.app.service.evm.utils.ValidationUtils.validateFalse;
@@ -24,6 +25,7 @@ import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.ACCOUNT_STILL_
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.OBTAINER_DOES_NOT_EXIST;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.OBTAINER_REQUIRED;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.OBTAINER_SAME_CONTRACT_ID;
+import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.PERMANENT_REMOVAL_REQUIRES_SYSTEM_INITIATION;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.TRANSACTION_REQUIRES_ZERO_TOKEN_BALANCES;
 
 import com.hedera.node.app.service.mono.ledger.HederaLedger;
@@ -62,6 +64,9 @@ public class DeletionLogic {
     }
 
     public ResponseCodeEnum precheckValidity(final ContractDeleteTransactionBody op) {
+        if (op.getPermanentRemoval()) {
+            return PERMANENT_REMOVAL_REQUIRES_SYSTEM_INITIATION;
+        }
         final var id = unaliased(op.getContractID(), aliasManager);
         return validator.queryableContractStatus(id, contracts.get());
     }
@@ -72,8 +77,7 @@ public class DeletionLogic {
         final var id = unaliased(op.getContractID(), aliasManager);
         final var tbd = id.toGrpcAccountId();
         validateFalse(ledger.isKnownTreasury(tbd), ACCOUNT_IS_TREASURY);
-        validateFalse(
-                ledger.hasAnyFungibleTokenBalance(tbd), TRANSACTION_REQUIRES_ZERO_TOKEN_BALANCES);
+        validateFalse(ledger.hasAnyFungibleTokenBalance(tbd), TRANSACTION_REQUIRES_ZERO_TOKEN_BALANCES);
         validateFalse(ledger.hasAnyNfts(tbd), ACCOUNT_STILL_OWNS_NFTS);
 
         obtainer = obtainerOf(op);

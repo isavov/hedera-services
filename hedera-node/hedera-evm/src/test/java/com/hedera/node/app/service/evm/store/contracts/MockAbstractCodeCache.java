@@ -13,9 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.evm.store.contracts;
 
-import com.github.benmanes.caffeine.cache.Cache;
 import com.hedera.node.app.service.evm.store.contracts.utils.BytesKey;
 import org.hyperledger.besu.evm.Code;
 
@@ -25,10 +25,6 @@ public class MockAbstractCodeCache extends AbstractCodeCache {
     }
 
     /* --- Only used by unit tests --- */
-    Cache<BytesKey, Code> getCache() {
-        return cache;
-    }
-
     void cacheValue(BytesKey key, Code value) {
         cache.put(key, value);
     }

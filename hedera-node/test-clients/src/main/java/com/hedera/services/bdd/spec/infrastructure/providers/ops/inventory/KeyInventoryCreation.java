@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.spec.infrastructure.providers.ops.inventory;
 
 import static com.hedera.services.bdd.spec.keys.KeyShape.randomly;
@@ -34,7 +35,8 @@ public class KeyInventoryCreation {
     public static final double DEFAULT_SIMPLE_PROB = 0.5;
     public static final double DEFAULT_THRESHOLD_PROB = 0.3;
 
-    private Random r = new Random();
+    @SuppressWarnings("java:S2245") // using java.util.Random in tests is fine
+    private Random r = new Random(468417L);
 
     private int numKeys = DEFAULT_NUM_KEYS;
     private int maxDepth = DEFAULT_MAX_DEPTH;
@@ -46,15 +48,8 @@ public class KeyInventoryCreation {
 
     public HapiSpecOperation[] creationOps() {
         return IntStream.range(0, numKeys)
-                .mapToObj(
-                        i ->
-                                newKeyNamed("randKey" + i)
-                                        .shape(
-                                                randomly(
-                                                        maxDepth,
-                                                        this::someListSize,
-                                                        this::someType,
-                                                        this::someThresholdSizes)))
+                .mapToObj(i -> newKeyNamed("randKey" + i)
+                        .shape(randomly(maxDepth, this::someListSize, this::someType, this::someThresholdSizes)))
                 .toArray(HapiSpecOperation[]::new);
     }
 

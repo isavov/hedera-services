@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.file;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -26,16 +27,17 @@ import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.EXCHANGE_RATE_
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.SUCCESS;
 
 import com.google.protobuf.ByteString;
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.transactions.file.HapiFileUpdate;
-import com.hedera.services.bdd.spec.utilops.UtilVerbs;
 import com.hedera.services.bdd.suites.HapiSuite;
-import java.text.ParseException;
 import java.util.Arrays;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+@HapiTestSuite
 public class ExchangeRateControlSuite extends HapiSuite {
     private static final Logger log = LogManager.getLogger(ExchangeRateControlSuite.class);
 
@@ -49,179 +51,117 @@ public class ExchangeRateControlSuite extends HapiSuite {
     }
 
     private List<HapiSpec> positiveTests() {
-        return Arrays.asList(
-                midnightRateChangesWhenAcct50UpdatesFile112(), acct57CanMakeSmallChanges());
+        return Arrays.asList(midnightRateChangesWhenAcct50UpdatesFile112(), acct57CanMakeSmallChanges());
     }
 
     private List<HapiSpec> negativeTests() {
         return Arrays.asList(anonCantUpdateRates(), acct57CantMakeLargeChanges());
     }
 
-    final HapiFileUpdate resetRatesOp =
-            fileUpdate(EXCHANGE_RATES)
-                    .payingWith(EXCHANGE_RATE_CONTROL)
-                    .fee(ADEQUATE_FUNDS)
-                    .contents(spec -> spec.ratesProvider().rateSetWith(1, 12).toByteString());
+    final HapiFileUpdate resetRatesOp = fileUpdate(EXCHANGE_RATES)
+            .payingWith(EXCHANGE_RATE_CONTROL)
+            .fee(ADEQUATE_FUNDS)
+            .contents(spec -> spec.ratesProvider().rateSetWith(1, 12).toByteString());
 
-    private HapiSpec acct57CanMakeSmallChanges() {
+    @HapiTest
+    final HapiSpec acct57CanMakeSmallChanges() {
         return defaultHapiSpec("Acct57CanMakeSmallChanges")
                 .given(
                         resetRatesOp,
-                        cryptoTransfer(
-                                        tinyBarsFromTo(
-                                                GENESIS, EXCHANGE_RATE_CONTROL, ADEQUATE_FUNDS))
+                        cryptoTransfer(tinyBarsFromTo(GENESIS, EXCHANGE_RATE_CONTROL, ADEQUATE_FUNDS))
                                 .fee(ONE_HUNDRED_HBARS))
-                .when(
-                        fileUpdate(EXCHANGE_RATES)
-                                .contents(
-                                        spec -> {
-                                            ByteString newRates =
-                                                    spec.ratesProvider()
-                                                            .rateSetWith(10, 121)
-                                                            .toByteString();
-                                            spec.registry().saveBytes("newRates", newRates);
-                                            return newRates;
-                                        })
-                                .payingWith(EXCHANGE_RATE_CONTROL))
+                .when(fileUpdate(EXCHANGE_RATES)
+                        .contents(spec -> {
+                            ByteString newRates =
+                                    spec.ratesProvider().rateSetWith(10, 121).toByteString();
+                            spec.registry().saveBytes("newRates", newRates);
+                            return newRates;
+                        })
+                        .payingWith(EXCHANGE_RATE_CONTROL))
                 .then(
                         getFileContents(EXCHANGE_RATES)
                                 .hasContents(spec -> spec.registry().getBytes("newRates")),
                         resetRatesOp);
     }
 
-    private HapiSpec acct57UpdatesMidnightRateAtMidNight() throws ParseException {
-        return defaultHapiSpec("Acct57UpdatesMidnightRateAtMidNight")
-                .given(
-                        resetRatesOp,
-                        cryptoTransfer(
-                                tinyBarsFromTo(GENESIS, EXCHANGE_RATE_CONTROL, ADEQUATE_FUNDS)))
-                .when(
-                        // should be done just before midnight
-                        UtilVerbs.waitUntil("23:58"),
-                        fileUpdate(EXCHANGE_RATES)
-                                .contents(
-                                        spec -> {
-                                            ByteString newRates =
-                                                    spec.ratesProvider()
-                                                            .rateSetWith(10, 147)
-                                                            .toByteString();
-                                            spec.registry().saveBytes("midnightRate", newRates);
-                                            return newRates;
-                                        })
-                                .payingWith(EXCHANGE_RATE_CONTROL))
-                .then(
-                        // should be the first transaction after midnight
-                        UtilVerbs.sleepFor(300_000),
-                        fileUpdate(EXCHANGE_RATES)
-                                .contents(
-                                        spec -> {
-                                            ByteString newRates =
-                                                    spec.ratesProvider()
-                                                            .rateSetWith(10, 183)
-                                                            .toByteString();
-                                            spec.registry().saveBytes("newRates", newRates);
-                                            return newRates;
-                                        })
-                                .payingWith(EXCHANGE_RATE_CONTROL),
-                        getFileContents(EXCHANGE_RATES)
-                                .hasContents(spec -> spec.registry().getBytes("newRates")),
-                        resetRatesOp);
-    }
-
-    private HapiSpec midnightRateChangesWhenAcct50UpdatesFile112() {
+    @HapiTest
+    final HapiSpec midnightRateChangesWhenAcct50UpdatesFile112() {
         return defaultHapiSpec("MidnightRateChangesWhenAcct50UpdatesFile112")
                 .given(
                         resetRatesOp,
-                        cryptoTransfer(
-                                        tinyBarsFromTo(
-                                                GENESIS, EXCHANGE_RATE_CONTROL, ADEQUATE_FUNDS))
+                        cryptoTransfer(tinyBarsFromTo(GENESIS, EXCHANGE_RATE_CONTROL, ADEQUATE_FUNDS))
                                 .fee(ONE_HUNDRED_HBARS),
                         cryptoTransfer(tinyBarsFromTo(GENESIS, SYSTEM_ADMIN, ADEQUATE_FUNDS))
                                 .fee(ONE_HUNDRED_HBARS),
                         fileUpdate(EXCHANGE_RATES)
-                                .contents(
-                                        spec -> {
-                                            ByteString newRates =
-                                                    spec.ratesProvider()
-                                                            .rateSetWith(10, 254)
-                                                            .toByteString();
-                                            spec.registry().saveBytes("newRates", newRates);
-                                            return newRates;
-                                        })
+                                .contents(spec -> {
+                                    ByteString newRates = spec.ratesProvider()
+                                            .rateSetWith(10, 254)
+                                            .toByteString();
+                                    spec.registry().saveBytes("newRates", newRates);
+                                    return newRates;
+                                })
                                 .payingWith(EXCHANGE_RATE_CONTROL)
                                 .fee(1_000_000_000)
                                 .hasKnownStatus(EXCHANGE_RATE_CHANGE_LIMIT_EXCEEDED))
-                .when(
-                        fileUpdate(EXCHANGE_RATES)
-                                .contents(
-                                        spec -> {
-                                            ByteString newRates =
-                                                    spec.ratesProvider()
-                                                            .rateSetWith(1, 25)
-                                                            .toByteString();
-                                            spec.registry().saveBytes("newRates", newRates);
-                                            return newRates;
-                                        })
-                                .payingWith(SYSTEM_ADMIN)
-                                .fee(1_000_000_000))
+                .when(fileUpdate(EXCHANGE_RATES)
+                        .contents(spec -> {
+                            ByteString newRates =
+                                    spec.ratesProvider().rateSetWith(1, 25).toByteString();
+                            spec.registry().saveBytes("newRates", newRates);
+                            return newRates;
+                        })
+                        .payingWith(SYSTEM_ADMIN)
+                        .fee(1_000_000_000))
                 .then(
                         fileUpdate(EXCHANGE_RATES)
-                                .contents(
-                                        spec -> {
-                                            ByteString newRates =
-                                                    spec.ratesProvider()
-                                                            .rateSetWith(10, 254)
-                                                            .toByteString();
-                                            spec.registry().saveBytes("newRates", newRates);
-                                            return newRates;
-                                        })
+                                .contents(spec -> {
+                                    ByteString newRates = spec.ratesProvider()
+                                            .rateSetWith(10, 254)
+                                            .toByteString();
+                                    spec.registry().saveBytes("newRates", newRates);
+                                    return newRates;
+                                })
                                 .payingWith(EXCHANGE_RATE_CONTROL)
                                 .fee(1_000_000_000)
                                 .hasKnownStatus(SUCCESS),
                         fileUpdate(EXCHANGE_RATES)
-                                .contents(
-                                        spec -> {
-                                            ByteString newRates =
-                                                    spec.ratesProvider()
-                                                            .rateSetWith(1, 12, 1, 15)
-                                                            .toByteString();
-                                            spec.registry().saveBytes("newRates", newRates);
-                                            return newRates;
-                                        })
+                                .contents(spec -> {
+                                    ByteString newRates = spec.ratesProvider()
+                                            .rateSetWith(1, 12, 1, 15)
+                                            .toByteString();
+                                    spec.registry().saveBytes("newRates", newRates);
+                                    return newRates;
+                                })
                                 .payingWith(SYSTEM_ADMIN)
                                 .fee(1_000_000_000)
                                 .hasKnownStatus(SUCCESS));
     }
 
-    private HapiSpec anonCantUpdateRates() {
+    @HapiTest
+    final HapiSpec anonCantUpdateRates() {
         return defaultHapiSpec("AnonCantUpdateRates")
                 .given(resetRatesOp, cryptoCreate("randomAccount"))
                 .when()
-                .then(
-                        fileUpdate(EXCHANGE_RATES)
-                                .contents("Should be impossible!")
-                                .payingWith("randomAccount")
-                                .hasPrecheck(AUTHORIZATION_FAILED));
+                .then(fileUpdate(EXCHANGE_RATES)
+                        .contents("Should be impossible!")
+                        .payingWith("randomAccount")
+                        .hasPrecheck(AUTHORIZATION_FAILED));
     }
 
-    private HapiSpec acct57CantMakeLargeChanges() {
+    @HapiTest
+    final HapiSpec acct57CantMakeLargeChanges() {
         return defaultHapiSpec("Acct57CantMakeLargeChanges")
                 .given(
                         resetRatesOp,
-                        cryptoTransfer(
-                                        tinyBarsFromTo(
-                                                GENESIS, EXCHANGE_RATE_CONTROL, ADEQUATE_FUNDS))
+                        cryptoTransfer(tinyBarsFromTo(GENESIS, EXCHANGE_RATE_CONTROL, ADEQUATE_FUNDS))
                                 .fee(ONE_HUNDRED_HBARS))
                 .when()
-                .then(
-                        fileUpdate(EXCHANGE_RATES)
-                                .contents(
-                                        spec ->
-                                                spec.ratesProvider()
-                                                        .rateSetWith(1, 25)
-                                                        .toByteString())
-                                .payingWith(EXCHANGE_RATE_CONTROL)
-                                .hasKnownStatus(EXCHANGE_RATE_CHANGE_LIMIT_EXCEEDED));
+                .then(fileUpdate(EXCHANGE_RATES)
+                        .contents(
+                                spec -> spec.ratesProvider().rateSetWith(1, 25).toByteString())
+                        .payingWith(EXCHANGE_RATE_CONTROL)
+                        .hasKnownStatus(EXCHANGE_RATE_CHANGE_LIMIT_EXCEEDED));
     }
 
     @Override

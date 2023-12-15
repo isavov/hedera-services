@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.initialization;
 
 import static com.hedera.node.app.service.mono.context.properties.StaticPropertiesHolder.STATIC_PROPERTIES;
@@ -42,11 +43,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 public class TreasuryClonerTest {
 
     private static final long pretendExpiry = 1_234_567L;
-    private static final JKey pretendTreasuryKey =
-            new JEd25519Key("a123456789a123456789a123456789a1".getBytes());
+    private static final JKey pretendTreasuryKey = new JEd25519Key("a123456789a123456789a123456789a1".getBytes());
     private static final HederaAccountNumbers nums = new MockAccountNumbers();
 
-    @Mock private BackingStore<AccountID, HederaAccount> accounts;
+    @Mock
+    private BackingStore<AccountID, HederaAccount> accounts;
 
     private TreasuryCloner subject;
 
@@ -57,24 +58,20 @@ public class TreasuryClonerTest {
 
     @Test
     void clonesAsExpected() {
-        willAnswer(
-                        invocationOnMock ->
-                                ((AccountID) invocationOnMock.getArgument(0)).getAccountNum()
-                                        == 666L)
+        willAnswer(invocationOnMock -> ((AccountID) invocationOnMock.getArgument(0)).getAccountNum() == 666L)
                 .given(accounts)
                 .contains(any());
-        willAnswer(
-                        invocationOnMock -> {
-                            final var id = (AccountID) invocationOnMock.getArgument(0);
-                            if (id.getAccountNum() == 2L || id.getAccountNum() == 666L) {
-                                return accountWith(pretendExpiry, pretendTreasuryKey);
-                            }
-                            return null;
-                        })
+        willAnswer(invocationOnMock -> {
+                    final var id = (AccountID) invocationOnMock.getArgument(0);
+                    if (id.getAccountNum() == 2L || id.getAccountNum() == 666L) {
+                        return accountWith(pretendExpiry, pretendTreasuryKey);
+                    }
+                    return null;
+                })
                 .given(accounts)
                 .getImmutableRef(any());
 
-        subject.ensureTreasuryClonesExist();
+        subject.ensureTreasuryClonesExist(true);
         final var created = subject.getClonesCreated();
 
         for (long i = 200; i <= 750L; i++) {
@@ -89,20 +86,40 @@ public class TreasuryClonerTest {
         assertTrue(subject.getClonesCreated().isEmpty());
     }
 
+    @Test
+    void prepsSyntheticRecordsAsExpected() {
+        willAnswer(invocationOnMock -> {
+                    final var id = (AccountID) invocationOnMock.getArgument(0);
+                    if (id.getAccountNum() == 2L || id.getAccountNum() == 666L) {
+                        return accountWith(pretendExpiry, pretendTreasuryKey);
+                    }
+                    return null;
+                })
+                .given(accounts)
+                .getImmutableRef(any());
+
+        subject.ensureTreasuryClonesExist(false);
+        final var created = subject.getClonesCreated();
+
+        assertEquals(501, created.size());
+
+        subject.forgetCreatedClones();
+        assertTrue(subject.getClonesCreated().isEmpty());
+    }
+
     private AccountID idFor(final long num) {
         return STATIC_PROPERTIES.scopedAccountWith(num);
     }
 
     public static MerkleAccount accountWith(final long expiry, final JKey someKey) {
-        return (MerkleAccount)
-                new HederaAccountCustomizer()
-                        .isReceiverSigRequired(true)
-                        .isDeleted(false)
-                        .expiry(expiry)
-                        .memo("123")
-                        .isSmartContract(false)
-                        .key(someKey)
-                        .autoRenewPeriod(expiry)
-                        .customizing(new MerkleAccount());
+        return (MerkleAccount) new HederaAccountCustomizer()
+                .isReceiverSigRequired(true)
+                .isDeleted(false)
+                .expiry(expiry)
+                .memo("123")
+                .isSmartContract(false)
+                .key(someKey)
+                .autoRenewPeriod(expiry)
+                .customizing(new MerkleAccount());
     }
 }

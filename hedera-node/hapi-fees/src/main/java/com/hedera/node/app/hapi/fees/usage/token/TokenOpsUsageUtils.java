@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.hapi.fees.usage.token;
 
 import static com.hedera.node.app.hapi.fees.usage.EstimatorUtils.MAX_ENTITY_LIFETIME;
@@ -27,7 +28,6 @@ import static com.hederahashgraph.api.proto.java.SubType.TOKEN_NON_FUNGIBLE_UNIQ
 import static com.hederahashgraph.api.proto.java.SubType.TOKEN_NON_FUNGIBLE_UNIQUE_WITH_CUSTOM_FEES;
 import static com.hederahashgraph.api.proto.java.TokenType.NON_FUNGIBLE_UNIQUE;
 
-import com.google.protobuf.ByteString;
 import com.hedera.node.app.hapi.fees.usage.token.meta.TokenBurnMeta;
 import com.hedera.node.app.hapi.fees.usage.token.meta.TokenCreateMeta;
 import com.hedera.node.app.hapi.fees.usage.token.meta.TokenFreezeMeta;
@@ -54,28 +54,21 @@ public enum TokenOpsUsageUtils {
         final var baseSize = getTokenTxnBaseSize(txn);
 
         final var op = txn.getTokenCreation();
-        var lifetime =
-                op.hasAutoRenewAccount()
-                        ? op.getAutoRenewPeriod().getSeconds()
-                        : ESTIMATOR_UTILS.relativeLifetime(txn, op.getExpiry().getSeconds());
+        var lifetime = op.hasAutoRenewAccount()
+                ? op.getAutoRenewPeriod().getSeconds()
+                : ESTIMATOR_UTILS.relativeLifetime(txn, op.getExpiry().getSeconds());
         lifetime = Math.min(lifetime, MAX_ENTITY_LIFETIME);
 
         final var tokenOpsUsage = new TokenOpsUsage();
         final var feeSchedulesSize =
-                op.getCustomFeesCount() > 0
-                        ? tokenOpsUsage.bytesNeededToRepr(op.getCustomFeesList())
-                        : 0;
+                op.getCustomFeesCount() > 0 ? tokenOpsUsage.bytesNeededToRepr(op.getCustomFeesList()) : 0;
 
         final SubType chosenType;
         final var usesCustomFees = op.hasFeeScheduleKey() || op.getCustomFeesCount() > 0;
         if (op.getTokenType() == NON_FUNGIBLE_UNIQUE) {
-            chosenType =
-                    usesCustomFees
-                            ? TOKEN_NON_FUNGIBLE_UNIQUE_WITH_CUSTOM_FEES
-                            : TOKEN_NON_FUNGIBLE_UNIQUE;
+            chosenType = usesCustomFees ? TOKEN_NON_FUNGIBLE_UNIQUE_WITH_CUSTOM_FEES : TOKEN_NON_FUNGIBLE_UNIQUE;
         } else {
-            chosenType =
-                    usesCustomFees ? TOKEN_FUNGIBLE_COMMON_WITH_CUSTOM_FEES : TOKEN_FUNGIBLE_COMMON;
+            chosenType = usesCustomFees ? TOKEN_FUNGIBLE_COMMON_WITH_CUSTOM_FEES : TOKEN_FUNGIBLE_COMMON;
         }
 
         return new TokenCreateMeta.Builder()
@@ -97,19 +90,14 @@ public enum TokenOpsUsageUtils {
         long rbs = 0;
         int transferRecordRb = 0;
         if (subType == TOKEN_NON_FUNGIBLE_UNIQUE) {
-            var metadataBytes = 0;
-            for (final ByteString o : op.getMetadataList()) {
-                metadataBytes += o.size();
-            }
-            bpt = metadataBytes;
-            rbs = metadataBytes * expectedLifeTime;
-            transferRecordRb =
-                    TOKEN_ENTITY_SIZES.bytesUsedToRecordTokenTransfers(1, 0, op.getMetadataCount());
+            // bpt section in feeSchedules.json is manually modified to just use a constant price of $0.02
+            // for each nft metadata
+            bpt = op.getMetadataList().size();
         } else {
             bpt = AMOUNT_REPR_BYTES;
             transferRecordRb = TOKEN_ENTITY_SIZES.bytesUsedToRecordTokenTransfers(1, 1, 0);
+            bpt += BASIC_ENTITY_ID_SIZE;
         }
-        bpt += BASIC_ENTITY_ID_SIZE;
         return new TokenMintMeta(bpt, subType, transferRecordRb, rbs);
     }
 
@@ -131,8 +119,7 @@ public enum TokenOpsUsageUtils {
 
     public TokenBurnMeta tokenBurnUsageFrom(final TransactionBody txn) {
         final var op = txn.getTokenBurn();
-        final var subType =
-                op.getSerialNumbersCount() > 0 ? TOKEN_NON_FUNGIBLE_UNIQUE : TOKEN_FUNGIBLE_COMMON;
+        final var subType = op.getSerialNumbersCount() > 0 ? TOKEN_NON_FUNGIBLE_UNIQUE : TOKEN_FUNGIBLE_COMMON;
         return tokenBurnUsageFrom(txn, subType);
     }
 
@@ -141,14 +128,18 @@ public enum TokenOpsUsageUtils {
         return retrieveRawDataFrom(subType, op::getSerialNumbersCount, TokenBurnMeta::new);
     }
 
-    public TokenWipeMeta tokenWipeUsageFrom(final TokenWipeAccountTransactionBody op) {
-        final var subType =
-                op.getSerialNumbersCount() > 0 ? TOKEN_NON_FUNGIBLE_UNIQUE : TOKEN_FUNGIBLE_COMMON;
+    public TokenWipeMeta tokenWipeUsageFrom(final TransactionBody txn) {
+        final var op = txn.getTokenWipe();
+        final var subType = op.getSerialNumbersCount() > 0 ? TOKEN_NON_FUNGIBLE_UNIQUE : TOKEN_FUNGIBLE_COMMON;
         return tokenWipeUsageFrom(op, subType);
     }
 
-    public TokenWipeMeta tokenWipeUsageFrom(
-            final TokenWipeAccountTransactionBody op, final SubType subType) {
+    public TokenWipeMeta tokenWipeUsageFrom(final TokenWipeAccountTransactionBody op) {
+        final var subType = op.getSerialNumbersCount() > 0 ? TOKEN_NON_FUNGIBLE_UNIQUE : TOKEN_FUNGIBLE_COMMON;
+        return tokenWipeUsageFrom(op, subType);
+    }
+
+    public TokenWipeMeta tokenWipeUsageFrom(final TokenWipeAccountTransactionBody op, final SubType subType) {
         return retrieveRawDataFrom(subType, op::getSerialNumbersCount, TokenWipeMeta::new);
     }
 
@@ -159,8 +150,7 @@ public enum TokenOpsUsageUtils {
         int transferRecordRb = 0;
         if (subType == TOKEN_NON_FUNGIBLE_UNIQUE) {
             serialNumsCount = getDataForNFT.getAsInt();
-            transferRecordRb =
-                    TOKEN_ENTITY_SIZES.bytesUsedToRecordTokenTransfers(1, 0, serialNumsCount);
+            transferRecordRb = TOKEN_ENTITY_SIZES.bytesUsedToRecordTokenTransfers(1, 0, serialNumsCount);
             bpt = serialNumsCount * LONG_SIZE;
         } else {
             bpt = AMOUNT_REPR_BYTES;
@@ -181,41 +171,19 @@ public enum TokenOpsUsageUtils {
 
         final var tokenEntitySizes = TOKEN_ENTITY_SIZES;
         var baseSize = tokenEntitySizes.totalBytesInTokenReprGiven(op.getSymbol(), op.getName());
+        baseSize += keySizeIfPresent(op, TokenCreateTransactionBody::hasKycKey, TokenCreateTransactionBody::getKycKey);
         baseSize +=
-                keySizeIfPresent(
-                        op,
-                        TokenCreateTransactionBody::hasKycKey,
-                        TokenCreateTransactionBody::getKycKey);
+                keySizeIfPresent(op, TokenCreateTransactionBody::hasWipeKey, TokenCreateTransactionBody::getWipeKey);
         baseSize +=
-                keySizeIfPresent(
-                        op,
-                        TokenCreateTransactionBody::hasWipeKey,
-                        TokenCreateTransactionBody::getWipeKey);
+                keySizeIfPresent(op, TokenCreateTransactionBody::hasAdminKey, TokenCreateTransactionBody::getAdminKey);
+        baseSize += keySizeIfPresent(
+                op, TokenCreateTransactionBody::hasSupplyKey, TokenCreateTransactionBody::getSupplyKey);
+        baseSize += keySizeIfPresent(
+                op, TokenCreateTransactionBody::hasFreezeKey, TokenCreateTransactionBody::getFreezeKey);
+        baseSize += keySizeIfPresent(
+                op, TokenCreateTransactionBody::hasFeeScheduleKey, TokenCreateTransactionBody::getFeeScheduleKey);
         baseSize +=
-                keySizeIfPresent(
-                        op,
-                        TokenCreateTransactionBody::hasAdminKey,
-                        TokenCreateTransactionBody::getAdminKey);
-        baseSize +=
-                keySizeIfPresent(
-                        op,
-                        TokenCreateTransactionBody::hasSupplyKey,
-                        TokenCreateTransactionBody::getSupplyKey);
-        baseSize +=
-                keySizeIfPresent(
-                        op,
-                        TokenCreateTransactionBody::hasFreezeKey,
-                        TokenCreateTransactionBody::getFreezeKey);
-        baseSize +=
-                keySizeIfPresent(
-                        op,
-                        TokenCreateTransactionBody::hasFeeScheduleKey,
-                        TokenCreateTransactionBody::getFeeScheduleKey);
-        baseSize +=
-                keySizeIfPresent(
-                        op,
-                        TokenCreateTransactionBody::hasPauseKey,
-                        TokenCreateTransactionBody::getPauseKey);
+                keySizeIfPresent(op, TokenCreateTransactionBody::hasPauseKey, TokenCreateTransactionBody::getPauseKey);
         baseSize += op.getMemoBytes().size();
         if (op.hasAutoRenewAccount()) {
             baseSize += BASIC_ENTITY_ID_SIZE;
@@ -223,8 +191,7 @@ public enum TokenOpsUsageUtils {
         return baseSize;
     }
 
-    public static <T> long keySizeIfPresent(
-            final T op, final Predicate<T> check, final Function<T, Key> getter) {
+    public static <T> long keySizeIfPresent(final T op, final Predicate<T> check, final Function<T, Key> getter) {
         return check.test(op) ? getAccountKeyStorageSize(getter.apply(op)) : 0L;
     }
 }

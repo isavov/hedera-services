@@ -13,8 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.token;
 
+import static com.hedera.services.bdd.junit.TestTags.TOKEN;
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
 import static com.hedera.services.bdd.spec.queries.QueryVerbs.getAccountBalance;
 import static com.hedera.services.bdd.spec.queries.QueryVerbs.getAccountInfo;
@@ -30,16 +32,21 @@ import static com.hedera.services.bdd.spec.transactions.TxnVerbs.wipeTokenAccoun
 import static com.hedera.services.bdd.spec.transactions.token.TokenMovement.moving;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.newKeyNamed;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.suites.HapiSuite;
 import com.hederahashgraph.api.proto.java.TokenType;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.Tag;
 
+@HapiTestSuite
+@Tag(TOKEN)
 public class TokenTotalSupplyAfterMintBurnWipeSuite extends HapiSuite {
-    private static final Logger log =
-            LogManager.getLogger(TokenTotalSupplyAfterMintBurnWipeSuite.class);
+
+    private static final Logger log = LogManager.getLogger(TokenTotalSupplyAfterMintBurnWipeSuite.class);
 
     private static String TOKEN_TREASURY = "treasury";
 
@@ -49,10 +56,10 @@ public class TokenTotalSupplyAfterMintBurnWipeSuite extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return List.of(
-                new HapiSpec[] {checkTokenTotalSupplyAfterMintAndBurn(), totalSupplyAfterWipe()});
+        return List.of(new HapiSpec[] {checkTokenTotalSupplyAfterMintAndBurn(), totalSupplyAfterWipe()});
     }
 
+    @HapiTest
     public HapiSpec checkTokenTotalSupplyAfterMintAndBurn() {
         String tokenName = "tokenToTest";
         return defaultHapiSpec("checkTokenTotalSupplyAfterMintAndBurn")
@@ -61,14 +68,13 @@ public class TokenTotalSupplyAfterMintBurnWipeSuite extends HapiSuite {
                         cryptoCreate("tokenReceiver").balance(0L),
                         newKeyNamed("adminKey"),
                         newKeyNamed("supplyKey"))
-                .when(
-                        tokenCreate(tokenName)
-                                .treasury(TOKEN_TREASURY)
-                                .tokenType(TokenType.FUNGIBLE_COMMON)
-                                .initialSupply(1000)
-                                .decimals(1)
-                                .supplyKey("supplyKey")
-                                .via("createTxn"))
+                .when(tokenCreate(tokenName)
+                        .treasury(TOKEN_TREASURY)
+                        .tokenType(TokenType.FUNGIBLE_COMMON)
+                        .initialSupply(1000)
+                        .decimals(1)
+                        .supplyKey("supplyKey")
+                        .via("createTxn"))
                 .then(
                         getTxnRecord("createTxn").logged(),
                         mintToken(tokenName, 1000).via("mintToken"),
@@ -82,6 +88,7 @@ public class TokenTotalSupplyAfterMintBurnWipeSuite extends HapiSuite {
                                 .hasTotalSupply(1800));
     }
 
+    @HapiTest
     public HapiSpec totalSupplyAfterWipe() {
         var tokenToWipe = "tokenToWipe";
 
@@ -104,11 +111,18 @@ public class TokenTotalSupplyAfterMintBurnWipeSuite extends HapiSuite {
                         getAccountBalance("assoc1").hasTokenBalance(tokenToWipe, 500),
                         getAccountBalance(TOKEN_TREASURY).hasTokenBalance(tokenToWipe, 300),
                         getAccountInfo("assoc1").logged(),
-                        wipeTokenAccount(tokenToWipe, "assoc1", 200).via("wipeTxn1").logged(),
-                        wipeTokenAccount(tokenToWipe, "assoc2", 200).via("wipeTxn2").logged())
+                        wipeTokenAccount(tokenToWipe, "assoc1", 200)
+                                .via("wipeTxn1")
+                                .logged(),
+                        wipeTokenAccount(tokenToWipe, "assoc2", 200)
+                                .via("wipeTxn2")
+                                .logged())
                 .then(
                         getAccountBalance("assoc2").hasTokenBalance(tokenToWipe, 0),
-                        getTokenInfo(tokenToWipe).hasTotalSupply(600).hasName(tokenToWipe).logged(),
+                        getTokenInfo(tokenToWipe)
+                                .hasTotalSupply(600)
+                                .hasName(tokenToWipe)
+                                .logged(),
                         getAccountBalance(TOKEN_TREASURY).hasTokenBalance(tokenToWipe, 300));
     }
 

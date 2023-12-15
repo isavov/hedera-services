@@ -13,13 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.txns.submission;
 
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.FAIL_INVALID;
-import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INVALID_NODE_ACCOUNT;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.OK;
 
-import com.hedera.node.app.service.mono.context.NodeInfo;
 import com.hedera.node.app.service.mono.txns.SubmissionFlow;
 import com.hederahashgraph.api.proto.java.ResponseCodeEnum;
 import com.hederahashgraph.api.proto.java.Transaction;
@@ -33,26 +32,17 @@ import javax.inject.Singleton;
  */
 @Singleton
 public final class BasicSubmissionFlow implements SubmissionFlow {
-    private final NodeInfo nodeInfo;
     private final TransactionPrecheck precheck;
     private final PlatformSubmissionManager submissionManager;
 
     @Inject
-    public BasicSubmissionFlow(
-            final NodeInfo nodeInfo,
-            final TransactionPrecheck precheck,
-            final PlatformSubmissionManager submissionManager) {
+    public BasicSubmissionFlow(final TransactionPrecheck precheck, final PlatformSubmissionManager submissionManager) {
         this.precheck = precheck;
-        this.nodeInfo = nodeInfo;
         this.submissionManager = submissionManager;
     }
 
     @Override
     public TransactionResponse submit(final Transaction signedTxn) {
-        if (nodeInfo.isSelfZeroStake()) {
-            return responseWith(INVALID_NODE_ACCOUNT);
-        }
-
         final var precheckResult = precheck.performForTopLevel(signedTxn);
         final var precheckResultMeta = precheckResult.getLeft();
         final var precheckResultValidity = precheckResultMeta.getValidity();
@@ -70,8 +60,7 @@ public final class BasicSubmissionFlow implements SubmissionFlow {
         return responseWith(validity, 0);
     }
 
-    private TransactionResponse responseWith(
-            final ResponseCodeEnum validity, final long feeRequired) {
+    private TransactionResponse responseWith(final ResponseCodeEnum validity, final long feeRequired) {
         return TransactionResponse.newBuilder()
                 .setNodeTransactionPrecheckCode(validity)
                 .setCost(feeRequired)

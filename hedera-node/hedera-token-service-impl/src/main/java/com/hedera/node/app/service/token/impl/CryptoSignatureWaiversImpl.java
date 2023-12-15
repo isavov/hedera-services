@@ -13,32 +13,51 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.token.impl;
 
-import com.hedera.node.app.service.token.CryptoService;
+import static java.util.Objects.requireNonNull;
+
+import com.hedera.hapi.node.base.AccountID;
+import com.hedera.hapi.node.base.HederaFunctionality;
+import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.node.app.service.token.CryptoSignatureWaivers;
-import com.hedera.node.app.spi.numbers.HederaAccountNumbers;
-import com.hederahashgraph.api.proto.java.AccountID;
-import com.hederahashgraph.api.proto.java.TransactionBody;
+import com.hedera.node.app.service.token.TokenService;
+import com.hedera.node.app.spi.authorization.Authorizer;
+import com.hedera.node.app.spi.authorization.SystemPrivilege;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import org.apache.commons.lang3.NotImplementedException;
+import javax.inject.Inject;
+import javax.inject.Singleton;
 
 /**
- * A Singleton implementation of signature waivers needed for transactions in {@link CryptoService}.
- * NOTE: FUTURE - These will be implemented in the coming PR and this class should be a singleton.
+ * A Singleton implementation of signature waivers needed for transactions in {@link TokenService}. NOTE: FUTURE - These
+ * will be implemented in the coming PR and this class should be a singleton.
  */
+@Singleton
 public class CryptoSignatureWaiversImpl implements CryptoSignatureWaivers {
-    public CryptoSignatureWaiversImpl(@NonNull final HederaAccountNumbers accountNumbers) {}
+    private final Authorizer authorizer;
 
-    @Override
-    public boolean isTargetAccountSignatureWaived(
-            final TransactionBody cryptoUpdateTxn, final AccountID payer) {
-        throw new NotImplementedException();
+    @Inject
+    public CryptoSignatureWaiversImpl(@NonNull final Authorizer authorizer) {
+        this.authorizer = requireNonNull(authorizer);
     }
 
     @Override
-    public boolean isNewKeySignatureWaived(
-            final TransactionBody cryptoUpdateTxn, final AccountID payer) {
-        throw new NotImplementedException();
+    public boolean isTargetAccountSignatureWaived(final TransactionBody cryptoUpdateTxn, final AccountID payer) {
+        return authorizer.hasPrivilegedAuthorization(payer, HederaFunctionality.CRYPTO_UPDATE, cryptoUpdateTxn)
+                == SystemPrivilege.AUTHORIZED;
+    }
+
+    @Override
+    public boolean isNewKeySignatureWaived(final TransactionBody cryptoUpdateTxn, final AccountID payer) {
+        final var isAuthorized =
+                authorizer.hasPrivilegedAuthorization(payer, HederaFunctionality.CRYPTO_UPDATE, cryptoUpdateTxn)
+                        == SystemPrivilege.AUTHORIZED;
+        if (!isAuthorized) {
+            return false;
+        } else {
+            final var targetNum = cryptoUpdateTxn.cryptoUpdateAccountOrThrow().accountIDToUpdateOrThrow();
+            return !authorizer.isTreasury(targetNum);
+        }
     }
 }

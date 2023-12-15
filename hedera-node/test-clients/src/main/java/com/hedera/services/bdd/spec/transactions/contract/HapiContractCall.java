@@ -13,8 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.spec.transactions.contract;
 
+import static com.hedera.node.app.hapi.utils.CommonUtils.extractTransactionBody;
 import static com.hedera.services.bdd.spec.keys.TrieSigMapGenerator.uniqueWithFullPrefixesFor;
 import static com.hedera.services.bdd.spec.queries.QueryVerbs.getTxnRecord;
 import static com.hedera.services.bdd.spec.transactions.TxnUtils.extractTxnId;
@@ -36,6 +38,8 @@ import com.hederahashgraph.api.proto.java.Transaction;
 import com.hederahashgraph.api.proto.java.TransactionBody;
 import com.hederahashgraph.api.proto.java.TransactionRecord;
 import com.hederahashgraph.api.proto.java.TransactionResponse;
+import com.swirlds.common.utility.CommonUtils;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -47,13 +51,15 @@ import java.util.function.Function;
 import java.util.function.LongConsumer;
 import java.util.function.ObjLongConsumer;
 import java.util.function.Supplier;
-import org.checkerframework.checker.nullness.qual.Nullable;
 
 public class HapiContractCall extends HapiBaseCall<HapiContractCall> {
     protected List<String> otherSigs = Collections.emptyList();
     private Optional<String> details = Optional.empty();
     private Optional<Function<HapiSpec, Object[]>> paramsFn = Optional.empty();
-    @Nullable private Function<HapiSpec, Tuple> tupleFn = null;
+
+    @Nullable
+    private Function<HapiSpec, Tuple> tupleFn = null;
+
     private Optional<ObjLongConsumer<ResponseCodeEnum>> gasObserver = Optional.empty();
     private Optional<Long> valueSent = Optional.of(0L);
     private boolean convertableToEthCall = true;
@@ -62,6 +68,10 @@ public class HapiContractCall extends HapiBaseCall<HapiContractCall> {
     public HapiContractCall withExplicitParams(final Supplier<String> supplier) {
         explicitHexedParams = Optional.of(supplier);
         return this;
+    }
+
+    public HapiContractCall withExplicitRawParams(final byte[] params) {
+        return withExplicitParams(() -> CommonUtils.hex(params));
     }
 
     public static HapiContractCall fromDetails(String actionable) {
@@ -240,12 +250,13 @@ public class HapiContractCall extends HapiBaseCall<HapiContractCall> {
 
     @Override
     protected long feeFor(HapiSpec spec, Transaction txn, int numPayerKeys) throws Throwable {
-        return spec.fees()
+        final var ans = spec.fees()
                 .forActivityBasedOp(
-                        HederaFunctionality.ContractCall,
-                        scFees::getContractCallTxFeeMatrices,
-                        txn,
-                        numPayerKeys);
+                        HederaFunctionality.ContractCall, scFees::getContractCallTxFeeMatrices, txn, numPayerKeys);
+        final var additionalGasCost =
+                extractTransactionBody(txn).getContractCall().getGas()
+                        * spec.ratesProvider().currentTinybarGasPrice();
+        return ans + additionalGasCost;
     }
 
     @Override
@@ -268,48 +279,35 @@ public class HapiContractCall extends HapiBaseCall<HapiContractCall> {
             callData = abiFunction.encodeCall(inputTuple).array();
         }
 
-        ContractCallTransactionBody opBody =
-                spec.txns()
-                        .<ContractCallTransactionBody, ContractCallTransactionBody.Builder>body(
-                                ContractCallTransactionBody.class,
-                                builder -> {
-                                    if (!tryAsHexedAddressIfLenMatches) {
-                                        builder.setContractID(
-                                                spec.registry().getContractId(contract));
-                                    } else {
-                                        builder.setContractID(
-                                                TxnUtils.asContractId(contract, spec));
-                                    }
-                                    builder.setFunctionParameters(ByteString.copyFrom(callData));
-                                    valueSent.ifPresent(builder::setAmount);
-                                    gas.ifPresent(builder::setGas);
-                                });
+        ContractCallTransactionBody opBody = spec.txns()
+                .<ContractCallTransactionBody, ContractCallTransactionBody.Builder>body(
+                        ContractCallTransactionBody.class, builder -> {
+                            if (!tryAsHexedAddressIfLenMatches) {
+                                builder.setContractID(spec.registry().getContractId(contract));
+                            } else {
+                                builder.setContractID(TxnUtils.asContractId(contract, spec));
+                            }
+                            builder.setFunctionParameters(ByteString.copyFrom(callData));
+                            valueSent.ifPresent(builder::setAmount);
+                            gas.ifPresent(builder::setGas);
+                        });
         return b -> b.setContractCall(opBody);
     }
 
     @Override
     protected void updateStateOf(HapiSpec spec) throws Throwable {
         if (gasObserver.isPresent()) {
-            doGasLookup(
-                    gasValue -> gasObserver.get().accept(actualStatus, gasValue),
-                    spec,
-                    txnSubmitted,
-                    false);
+            doGasLookup(gasValue -> gasObserver.get().accept(actualStatus, gasValue), spec, txnSubmitted, false);
         }
         if (resultObserver != null) {
-            doObservedLookup(
-                    spec,
-                    txnSubmitted,
-                    txnRecord -> {
-                        final var function = com.esaulpaugh.headlong.abi.Function.fromJson(abi);
-                        final var result =
-                                function.decodeReturn(
-                                        txnRecord
-                                                .getContractCallResult()
-                                                .getContractCallResult()
-                                                .toByteArray());
-                        resultObserver.accept(result.toList().toArray());
-                    });
+            doObservedLookup(spec, txnSubmitted, txnRecord -> {
+                final var function = com.esaulpaugh.headlong.abi.Function.fromJson(abi);
+                final var result = function.decodeReturn(txnRecord
+                        .getContractCallResult()
+                        .getContractCallResult()
+                        .toByteArray());
+                resultObserver.accept(result.toList().toArray());
+            });
         }
     }
 
@@ -324,42 +322,30 @@ public class HapiContractCall extends HapiBaseCall<HapiContractCall> {
     }
 
     static void doGasLookup(
-            final LongConsumer gasObserver,
-            final HapiSpec spec,
-            final Transaction txn,
-            final boolean isCreate)
+            final LongConsumer gasObserver, final HapiSpec spec, final Transaction txn, final boolean isCreate)
             throws Throwable {
-        doObservedLookup(
-                spec,
-                txn,
-                txnRecord -> {
-                    final var gasUsed =
-                            isCreate
-                                    ? txnRecord.getContractCreateResult().getGasUsed()
-                                    : txnRecord.getContractCallResult().getGasUsed();
-                    gasObserver.accept(gasUsed);
-                });
+        doObservedLookup(spec, txn, txnRecord -> {
+            final var gasUsed = isCreate
+                    ? txnRecord.getContractCreateResult().getGasUsed()
+                    : txnRecord.getContractCallResult().getGasUsed();
+            gasObserver.accept(gasUsed);
+        });
     }
 
-    static void doObservedLookup(
-            final HapiSpec spec, final Transaction txn, Consumer<TransactionRecord> observer)
+    static void doObservedLookup(final HapiSpec spec, final Transaction txn, Consumer<TransactionRecord> observer)
             throws Throwable {
         final var txnId = extractTxnId(txn);
-        final var lookup =
-                getTxnRecord(txnId)
-                        .assertingNothing()
-                        .noLogging()
-                        .payingWith(GENESIS)
-                        .nodePayment(1)
-                        .exposingTo(observer);
+        final var lookup = getTxnRecord(txnId)
+                .assertingNothing()
+                .noLogging()
+                .payingWith(GENESIS)
+                .nodePayment(1)
+                .exposingTo(observer);
         allRunFor(spec, lookup);
     }
 
     @Override
     protected MoreObjects.ToStringHelper toStringHelper() {
-        return super.toStringHelper()
-                .add("contract", contract)
-                .add("abi", abi)
-                .add("params", Arrays.toString(params));
+        return super.toStringHelper().add("contract", contract).add("abi", abi).add("params", Arrays.toString(params));
     }
 }

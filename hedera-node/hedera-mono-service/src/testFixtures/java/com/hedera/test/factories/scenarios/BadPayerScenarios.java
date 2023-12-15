@@ -13,17 +13,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.test.factories.scenarios;
 
-import static com.hedera.test.factories.txns.CryptoCreateFactory.newSignedCryptoCreate;
-
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.hedera.node.app.service.mono.utils.accessors.PlatformTxnAccessor;
+import com.hedera.test.factories.txns.CryptoCreateFactory;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+import java.security.SignatureException;
 
 public enum BadPayerScenarios implements TxnHandlingScenario {
     INVALID_PAYER_ID_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
-            return PlatformTxnAccessor.from(
-                    newSignedCryptoCreate().payer(MISSING_ACCOUNT_ID).get());
+        public PlatformTxnAccessor platformTxn()
+                throws InvalidProtocolBufferException, SignatureException, NoSuchAlgorithmException,
+                        InvalidKeyException {
+            return PlatformTxnAccessor.from(CryptoCreateFactory.newSignedCryptoCreate()
+                    .payer(MISSING_ACCOUNT_ID)
+                    .get());
         }
     }
 }

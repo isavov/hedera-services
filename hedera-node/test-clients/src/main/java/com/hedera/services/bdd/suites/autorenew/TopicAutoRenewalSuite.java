@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.autorenew;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -24,6 +25,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 public class TopicAutoRenewalSuite extends HapiSuite {
+
     private static final Logger log = LogManager.getLogger(TopicAutoRenewalSuite.class);
 
     public static void main(String... args) {
@@ -37,11 +39,11 @@ public class TopicAutoRenewalSuite extends HapiSuite {
         return List.of(topicAutoRemoval(), topicAutoRenewal());
     }
 
-    private HapiSpec topicAutoRemoval() {
+    final HapiSpec topicAutoRemoval() {
         return defaultHapiSpec("").given().when().then();
     }
 
-    private HapiSpec topicAutoRenewal() {
+    final HapiSpec topicAutoRenewal() {
         return defaultHapiSpec("").given().when().then();
     }
 

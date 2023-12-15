@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.ledger.accounts.staking;
 
 import static com.hedera.node.app.service.mono.context.properties.PropertyNames.ACCOUNTS_STAKING_REWARD_ACCOUNT;
-import static com.hedera.node.app.service.mono.context.properties.PropertyNames.STAKING_REWARD_RATE;
 import static com.hedera.node.app.service.mono.utils.Units.HBARS_TO_TINYBARS;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
@@ -25,6 +25,7 @@ import com.hedera.node.app.service.mono.context.properties.GlobalDynamicProperti
 import com.hedera.node.app.service.mono.context.properties.PropertySource;
 import com.hedera.node.app.service.mono.records.RecordsHistorian;
 import com.hedera.node.app.service.mono.state.EntityCreator;
+import com.hedera.node.app.service.mono.state.adapters.MerkleMapLike;
 import com.hedera.node.app.service.mono.state.merkle.MerkleAccount;
 import com.hedera.node.app.service.mono.state.merkle.MerkleNetworkContext;
 import com.hedera.node.app.service.mono.state.merkle.MerkleStakingInfo;
@@ -45,48 +46,62 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class PendingRewardsManagementTest {
 
-    @Mock private MerkleMap<EntityNum, MerkleAccount> accounts;
-    @Mock private MerkleMap<EntityNum, MerkleStakingInfo> stakingInfos;
-    @Mock private MerkleNetworkContext networkCtx;
-    @Mock private SyntheticTxnFactory syntheticTxnFactory;
-    @Mock private RecordsHistorian recordsHistorian;
-    @Mock private EntityCreator creator;
-    @Mock private PropertySource properties;
-    @Mock private MerkleStakingInfo info;
-    @Mock private GlobalDynamicProperties dynamicProperties;
+    @Mock
+    private MerkleMap<EntityNum, MerkleAccount> accounts;
+
+    @Mock
+    private MerkleMap<EntityNum, MerkleStakingInfo> stakingInfos;
+
+    @Mock
+    private MerkleNetworkContext networkCtx;
+
+    @Mock
+    private SyntheticTxnFactory syntheticTxnFactory;
+
+    @Mock
+    private RecordsHistorian recordsHistorian;
+
+    @Mock
+    private EntityCreator creator;
+
+    @Mock
+    private PropertySource properties;
+
+    @Mock
+    private MerkleStakingInfo info;
+
+    @Mock
+    private GlobalDynamicProperties dynamicProperties;
 
     private EndOfStakingPeriodCalculator subject;
 
     @BeforeEach
     void setUp() {
-        subject =
-                new EndOfStakingPeriodCalculator(
-                        () -> AccountStorageAdapter.fromInMemory(accounts),
-                        () -> stakingInfos,
-                        () -> networkCtx,
-                        syntheticTxnFactory,
-                        recordsHistorian,
-                        creator,
-                        properties,
-                        dynamicProperties);
+        subject = new EndOfStakingPeriodCalculator(
+                () -> AccountStorageAdapter.fromInMemory(MerkleMapLike.from(accounts)),
+                () -> MerkleMapLike.from(stakingInfos),
+                () -> networkCtx,
+                syntheticTxnFactory,
+                recordsHistorian,
+                creator,
+                properties,
+                dynamicProperties);
     }
 
     @Test
     void pendingRewardsIsUpdatedBasedOnLastPeriodRewardRateAndStakeRewardStart() {
         given800Balance(1_000_000_000_000L);
-        given(dynamicProperties.maxDailyStakeRewardThPerH()).willReturn(lastPeriodRewardRate);
         given(networkCtx.getTotalStakedRewardStart()).willReturn(totalStakedRewardStart);
-        given(properties.getLongProperty(STAKING_REWARD_RATE)).willReturn(rewardRate);
+        given(dynamicProperties.stakingPerHbarRewardRate()).willReturn(lastPeriodRewardRate);
+        given(dynamicProperties.maxStakeRewarded()).willReturn(Long.MAX_VALUE);
         given(stakingInfos.keySet()).willReturn(Set.of(onlyNodeNum));
         given(stakingInfos.getForModify(onlyNodeNum)).willReturn(info);
-        given(info.stakeRewardStartMinusUnclaimed())
-                .willReturn(stakeRewardStart - unclaimedStakeRewardStart);
+        given(info.getStake()).willReturn(125_000L * HBARS_TO_TINYBARS);
+        given(info.stakeRewardStartMinusUnclaimed()).willReturn(stakeRewardStart - unclaimedStakeRewardStart);
         given(dynamicProperties.requireMinStakeToReward()).willReturn(true);
-        given(
-                        info.updateRewardSumHistory(
-                                rewardRate / (totalStakedRewardStart / HBARS_TO_TINYBARS),
-                                lastPeriodRewardRate,
-                                true))
+        final var periodRewardRate = (lastPeriodRewardRate * totalStakedRewardStart / HBARS_TO_TINYBARS);
+        given(info.updateRewardSumHistory(
+                        periodRewardRate / (totalStakedRewardStart / HBARS_TO_TINYBARS), lastPeriodRewardRate, true))
                 .willReturn(lastPeriodRewardRate);
         given(info.reviewElectionsAndRecomputeStakes()).willReturn(updatedStakeRewardStart);
         given(dynamicProperties.isStakingEnabled()).willReturn(true);
@@ -95,9 +110,7 @@ class PendingRewardsManagementTest {
 
         verify(networkCtx)
                 .increasePendingRewards(
-                        (stakeRewardStart - unclaimedStakeRewardStart)
-                                / 100_000_000
-                                * lastPeriodRewardRate);
+                        (stakeRewardStart - unclaimedStakeRewardStart) / 100_000_000 * lastPeriodRewardRate);
     }
 
     @Test
@@ -105,7 +118,7 @@ class PendingRewardsManagementTest {
         given800Balance(123);
         given(networkCtx.pendingRewards()).willReturn(124L);
 
-        Assertions.assertEquals(0, subject.rewardRateForEndingPeriod());
+        Assertions.assertEquals(0, subject.perHbarRewardRateForEndingPeriod(1234));
     }
 
     private void given800Balance(final long balance) {

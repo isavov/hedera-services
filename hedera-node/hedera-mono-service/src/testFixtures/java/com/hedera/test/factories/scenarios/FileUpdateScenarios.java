@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.test.factories.scenarios;
 
 import static com.hedera.test.factories.txns.FileUpdateFactory.MASTER_PAYER_ID;
@@ -23,55 +24,52 @@ import com.hedera.node.app.service.mono.utils.accessors.PlatformTxnAccessor;
 
 public enum FileUpdateScenarios implements TxnHandlingScenario {
     VANILLA_FILE_UPDATE_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
+        public PlatformTxnAccessor platformTxn() throws Exception {
             return PlatformTxnAccessor.from(newSignedFileUpdate(MISC_FILE_ID).get());
         }
     },
     TREASURY_SYS_FILE_UPDATE_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
-            return PlatformTxnAccessor.from(
-                    newSignedFileUpdate(SYS_FILE_ID)
-                            .payer(TREASURY_PAYER_ID)
-                            .newWaclKt(SIMPLE_NEW_WACL_KT)
-                            .get());
+        public PlatformTxnAccessor platformTxn() throws Exception {
+            return PlatformTxnAccessor.from(newSignedFileUpdate(SYS_FILE_ID)
+                    .payer(TREASURY_PAYER_ID)
+                    .newWaclKt(SIMPLE_NEW_WACL_KT)
+                    .get());
         }
     },
     TREASURY_SYS_FILE_UPDATE_SCENARIO_NO_NEW_KEY {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
+        public PlatformTxnAccessor platformTxn() throws Exception {
             return PlatformTxnAccessor.from(
                     newSignedFileUpdate(SYS_FILE_ID).payer(TREASURY_PAYER_ID).get());
         }
     },
     MASTER_SYS_FILE_UPDATE_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
-            return PlatformTxnAccessor.from(
-                    newSignedFileUpdate(SYS_FILE_ID)
-                            .payer(MASTER_PAYER_ID)
-                            .newWaclKt(SIMPLE_NEW_WACL_KT)
-                            .get());
+        public PlatformTxnAccessor platformTxn() throws Exception {
+            return PlatformTxnAccessor.from(newSignedFileUpdate(SYS_FILE_ID)
+                    .payer(MASTER_PAYER_ID)
+                    .newWaclKt(SIMPLE_NEW_WACL_KT)
+                    .get());
         }
     },
     IMMUTABLE_FILE_UPDATE_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
-            return PlatformTxnAccessor.from(newSignedFileUpdate(IMMUTABLE_FILE_ID).get());
+        public PlatformTxnAccessor platformTxn() throws Exception {
+            return PlatformTxnAccessor.from(
+                    newSignedFileUpdate(IMMUTABLE_FILE_ID).get());
         }
     },
     FILE_UPDATE_NEW_WACL_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
-            return PlatformTxnAccessor.from(
-                    newSignedFileUpdate(MISC_FILE_ID)
-                            .payer(TREASURY_PAYER_ID)
-                            .newWaclKt(SIMPLE_NEW_WACL_KT)
-                            .get());
+        public PlatformTxnAccessor platformTxn() throws Exception {
+            return PlatformTxnAccessor.from(newSignedFileUpdate(MISC_FILE_ID)
+                    .payer(TREASURY_PAYER_ID)
+                    .newWaclKt(SIMPLE_NEW_WACL_KT)
+                    .get());
         }
     },
     FILE_UPDATE_MISSING_SCENARIO {
-        public PlatformTxnAccessor platformTxn() throws Throwable {
-            return PlatformTxnAccessor.from(
-                    newSignedFileUpdate(MISSING_FILE_ID)
-                            .payer(TREASURY_PAYER_ID)
-                            .newWaclKt(SIMPLE_NEW_WACL_KT)
-                            .get());
+        public PlatformTxnAccessor platformTxn() throws Exception {
+            return PlatformTxnAccessor.from(newSignedFileUpdate(MISSING_FILE_ID)
+                    .payer(TREASURY_PAYER_ID)
+                    .newWaclKt(SIMPLE_NEW_WACL_KT)
+                    .get());
         }
     }
 }

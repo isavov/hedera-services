@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.virtual;
 
 import static com.hedera.node.app.service.mono.state.virtual.ContractKey.deserializeContractID;
@@ -20,7 +21,6 @@ import static com.hedera.node.app.service.mono.state.virtual.ContractKey.getCont
 import static com.hedera.node.app.service.mono.state.virtual.ContractKey.getUint256KeyNonZeroBytesFromPacked;
 import static com.hedera.node.app.service.mono.state.virtual.KeyPackingUtils.deserializeUint256Key;
 
-import com.swirlds.common.io.streams.SerializableDataOutputStream;
 import com.swirlds.merkledb.serialize.KeySerializer;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -68,15 +68,7 @@ public class ContractMerkleDbKeySerializer implements KeySerializer<ContractKey>
     }
 
     @Override
-    public int serialize(final ContractKey key, final ByteBuffer buffer) throws IOException {
-        Objects.requireNonNull(key);
-        Objects.requireNonNull(buffer);
-        return key.serializeReturningBytesWritten(buffer);
-    }
-
-    @Override
-    public int serialize(final ContractKey key, SerializableDataOutputStream out)
-            throws IOException {
+    public int serialize(final ContractKey key, ByteBuffer out) throws IOException {
         Objects.requireNonNull(key);
         Objects.requireNonNull(out);
         return key.serializeReturningBytesWritten(out);
@@ -85,7 +77,7 @@ public class ContractMerkleDbKeySerializer implements KeySerializer<ContractKey>
     // Key deserialization
 
     @Override
-    public int deserializeKeySize(ByteBuffer buffer) {
+    public int deserializeKeySize(final ByteBuffer buffer) {
         Objects.requireNonNull(buffer);
         return ContractKey.readKeySize(buffer);
     }
@@ -107,8 +99,7 @@ public class ContractMerkleDbKeySerializer implements KeySerializer<ContractKey>
         if (uint256KeyNonZeroBytes != contractKey.getUint256KeyNonZeroBytes()) return false;
         final long contractId = deserializeContractID(contractIdNonZeroBytes, buf, ByteBuffer::get);
         if (contractId != contractKey.getContractId()) return false;
-        final int[] uint256Key =
-                deserializeUint256Key(uint256KeyNonZeroBytes, buf, ByteBuffer::get);
+        final int[] uint256Key = deserializeUint256Key(uint256KeyNonZeroBytes, buf, ByteBuffer::get);
         return Arrays.equals(uint256Key, contractKey.getKey());
     }
 }

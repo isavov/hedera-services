@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.exports;
 
 import static org.mockito.BDDMockito.given;
@@ -20,10 +21,9 @@ import static org.mockito.Mockito.verify;
 
 import com.hedera.node.app.service.mono.ServicesState;
 import com.hedera.node.app.service.mono.context.CurrentPlatformStatus;
-import com.swirlds.common.system.NodeId;
-import com.swirlds.common.system.PlatformStatus;
-import com.swirlds.common.system.state.notifications.NewSignedStateNotification;
-import java.security.NoSuchAlgorithmException;
+import com.swirlds.common.platform.NodeId;
+import com.swirlds.platform.system.state.notifications.NewSignedStateNotification;
+import com.swirlds.platform.system.status.PlatformStatus;
 import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,11 +34,19 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class ServicesSignedStateListenerTest {
     private final Instant consensusNow = Instant.ofEpochSecond(1_234_567L, 890);
-    private final NodeId selfId = new NodeId(false, 123L);
-    @Mock private NewSignedStateNotification notice;
-    @Mock private CurrentPlatformStatus currentPlatformStatus;
-    @Mock private ServicesState signedState;
-    @Mock private BalancesExporter balancesExporter;
+    private final NodeId selfId = new NodeId(123L);
+
+    @Mock
+    private NewSignedStateNotification notice;
+
+    @Mock
+    private CurrentPlatformStatus currentPlatformStatus;
+
+    @Mock
+    private ServicesState signedState;
+
+    @Mock
+    private BalancesExporter balancesExporter;
 
     private ServicesSignedStateListener subject;
 
@@ -60,7 +68,7 @@ class ServicesSignedStateListenerTest {
     }
 
     @Test
-    void justLogsIfFreezeCompleteAndNotTimeToExport() throws NoSuchAlgorithmException {
+    void justLogsIfFreezeCompleteAndNotTimeToExport() {
         given(notice.getSwirldState()).willReturn(signedState);
         given(currentPlatformStatus.get()).willReturn(PlatformStatus.FREEZE_COMPLETE);
 

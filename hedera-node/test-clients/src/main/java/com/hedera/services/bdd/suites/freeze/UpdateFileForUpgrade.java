@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.freeze;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -23,6 +24,7 @@ import static com.hedera.services.bdd.suites.freeze.CommonUpgradeResources.upgra
 import static com.hedera.services.bdd.suites.freeze.CommonUpgradeResources.upgradeFilePath;
 
 import com.google.protobuf.ByteString;
+import com.hedera.services.bdd.junit.HapiTest;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.transactions.TxnUtils;
 import com.hedera.services.bdd.spec.utilops.UtilVerbs;
@@ -51,26 +53,23 @@ public final class UpdateFileForUpgrade extends HapiSuite {
         return List.of(new HapiSpec[] {updateFileForUpgrade()});
     }
 
-    private HapiSpec updateFileForUpgrade() {
+    @HapiTest
+    final HapiSpec updateFileForUpgrade() {
         return defaultHapiSpec("UpdateFileForUpgrade")
                 .given(initializeSettings())
-                .when(
-                        sourcing(
-                                () -> {
-                                    try {
-                                        return UtilVerbs.updateSpecialFile(
-                                                GENESIS,
-                                                upgradeFileId(),
-                                                ByteString.copyFrom(
-                                                        Files.readAllBytes(
-                                                                Paths.get(upgradeFilePath()))),
-                                                TxnUtils.BYTES_4K,
-                                                upgradeFileAppendsPerBurst());
-                                    } catch (IOException e) {
-                                        e.printStackTrace();
-                                        return null;
-                                    }
-                                }))
+                .when(sourcing(() -> {
+                    try {
+                        return UtilVerbs.updateSpecialFile(
+                                GENESIS,
+                                upgradeFileId(),
+                                ByteString.copyFrom(Files.readAllBytes(Paths.get(upgradeFilePath()))),
+                                TxnUtils.BYTES_4K,
+                                upgradeFileAppendsPerBurst());
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                        return null;
+                    }
+                }))
                 .then();
     }
 }

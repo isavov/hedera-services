@@ -13,35 +13,46 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.state.merkle.singleton;
 
+import static com.hedera.node.app.state.merkle.StateUtils.readFromStream;
+import static com.hedera.node.app.state.merkle.StateUtils.writeToStream;
+import static java.util.Objects.requireNonNull;
+
 import com.hedera.node.app.state.merkle.StateMetadata;
+import com.hedera.pbj.runtime.Codec;
 import com.swirlds.common.io.streams.SerializableDataInputStream;
 import com.swirlds.common.io.streams.SerializableDataOutputStream;
 import com.swirlds.common.merkle.MerkleLeaf;
 import com.swirlds.common.merkle.impl.PartialMerkleLeaf;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
-import java.io.DataInputStream;
 import java.io.IOException;
-import java.util.Objects;
 
 /**
  * A Merkle leaf that stores an arbitrary value with delegated serialization based on the {@link
  * StateMetadata}.
  */
 public class ValueLeaf<T> extends PartialMerkleLeaf implements MerkleLeaf {
+    /**
+     * {@deprecated} Needed for ConstructableRegistry, TO BE REMOVED ASAP
+     */
     @Deprecated(forRemoval = true)
     private static final long CLASS_ID = 0x65A48B28C563D72EL;
 
     private final StateMetadata<?, T> md;
+    private final Codec<T> codec;
     /** The actual value. For example, it could be an Account or SmartContract. */
     private T val;
 
-    // Default constructor provided for ConstructableRegistry, TO BE REMOVED ASAP
+    /**
+     * {@deprecated} Default constructor provided for ConstructableRegistry, TO BE REMOVED ASAP
+     */
     @Deprecated(forRemoval = true)
     public ValueLeaf() {
         md = null;
+        codec = null;
     }
 
     /**
@@ -51,7 +62,8 @@ public class ValueLeaf<T> extends PartialMerkleLeaf implements MerkleLeaf {
      * @param md The state metadata
      */
     public ValueLeaf(@NonNull final StateMetadata<?, T> md) {
-        this.md = Objects.requireNonNull(md);
+        this.md = requireNonNull(md);
+        this.codec = md.stateDefinition().valueCodec();
     }
 
     /**
@@ -92,16 +104,21 @@ public class ValueLeaf<T> extends PartialMerkleLeaf implements MerkleLeaf {
     /** {@inheritDoc} */
     @Override
     public void serialize(final SerializableDataOutputStream out) throws IOException {
-        final var valueSerdes = md.stateDefinition().valueSerdes();
-        valueSerdes.write(val, out);
+        if (md == null) {
+            throw new IllegalStateException("Metadata is null, meaning this is not a proper object");
+        }
+
+        writeToStream(out, codec, val);
     }
 
     /** {@inheritDoc} */
     @Override
-    public void deserialize(final SerializableDataInputStream in, final int version)
-            throws IOException {
-        final var valueSerdes = md.stateDefinition().valueSerdes();
-        this.val = valueSerdes.parse(new DataInputStream(in));
+    public void deserialize(final SerializableDataInputStream in, final int version) throws IOException {
+        if (md == null) {
+            throw new IllegalStateException("Metadata is null, meaning this is not a proper object");
+        }
+
+        this.val = readFromStream(in, codec);
     }
 
     /**

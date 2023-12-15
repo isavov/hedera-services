@@ -13,10 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.txns;
 
-import com.swirlds.common.system.Round;
-import com.swirlds.common.system.transaction.ConsensusTransaction;
+import com.swirlds.platform.system.Round;
+import com.swirlds.platform.system.SoftwareVersion;
+import com.swirlds.platform.system.transaction.ConsensusTransaction;
 
 /**
  * Defines a type that can delegate to the correct state transition, if any, implied by the given
@@ -34,15 +36,18 @@ public interface ProcessLogic {
      * @param round a round of consensus transactions
      */
     default void incorporateConsensus(final Round round) {
-        round.forEachEventTransaction((e, t) -> incorporateConsensusTxn(t, e.getCreatorId()));
+        round.forEachEventTransaction(
+                (e, t) -> incorporateConsensusTxn(t, e.getCreatorId().id(), e.getSoftwareVersion()));
     }
 
     /**
-     * Orchestrates a process to express the full implications of the given consensus transaction at
-     * the specified time.
+     * Orchestrates a process to express the full implications of the given consensus transaction at the specified
+     * time.
      *
-     * @param platformTxn the consensus transaction to incorporate.
+     * @param platformTxn      the consensus transaction to incorporate.
      * @param submittingMember the id of the member that submitted the txn
+     * @param softwareVersion the version of the software that submitted the txn
      */
-    void incorporateConsensusTxn(ConsensusTransaction platformTxn, long submittingMember);
+    void incorporateConsensusTxn(
+            ConsensusTransaction platformTxn, long submittingMember, SoftwareVersion softwareVersion);
 }

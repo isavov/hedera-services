@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.store.contracts.precompile;
 
 import static com.hedera.node.app.service.mono.state.EntityCreator.EMPTY_MEMO;
@@ -62,6 +63,7 @@ import static com.hedera.node.app.service.mono.store.contracts.precompile.HTSTes
 import static com.hedera.node.app.service.mono.store.contracts.precompile.HTSTestsUtil.tokenAddress;
 import static com.hedera.node.app.service.mono.store.contracts.precompile.HTSTestsUtil.tokenTransferChanges;
 import static com.hedera.node.app.service.mono.store.contracts.precompile.HTSTestsUtil.tokensTransferList;
+import static com.hederahashgraph.api.proto.java.HederaFunctionality.CryptoTransfer;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.OK;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.SUCCESS;
@@ -73,6 +75,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mock.Strictness.LENIENT;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -109,6 +112,7 @@ import com.hedera.node.app.service.mono.state.merkle.MerkleToken;
 import com.hedera.node.app.service.mono.state.migration.HederaAccount;
 import com.hedera.node.app.service.mono.state.migration.HederaTokenRel;
 import com.hedera.node.app.service.mono.state.migration.UniqueTokenAdapter;
+import com.hedera.node.app.service.mono.state.submerkle.EntityId;
 import com.hedera.node.app.service.mono.state.submerkle.EvmFnResult;
 import com.hedera.node.app.service.mono.state.submerkle.ExpirableTxnRecord;
 import com.hedera.node.app.service.mono.state.submerkle.FcTokenAllowanceId;
@@ -125,6 +129,7 @@ import com.hedera.node.app.service.mono.store.contracts.precompile.impl.Allowanc
 import com.hedera.node.app.service.mono.store.contracts.precompile.impl.ApprovePrecompile;
 import com.hedera.node.app.service.mono.store.contracts.precompile.impl.BalanceOfPrecompile;
 import com.hedera.node.app.service.mono.store.contracts.precompile.impl.ERCTransferPrecompile;
+import com.hedera.node.app.service.mono.store.contracts.precompile.impl.TransferPrecompile;
 import com.hedera.node.app.service.mono.store.contracts.precompile.utils.PrecompilePricingUtils;
 import com.hedera.node.app.service.mono.store.models.Account;
 import com.hedera.node.app.service.mono.store.models.NftId;
@@ -152,11 +157,15 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.Consumer;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.tuweni.bytes.Bytes;
 import org.hyperledger.besu.datatypes.Address;
@@ -169,6 +178,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
@@ -177,56 +188,162 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class ERC20PrecompilesTest {
-    @Mock private GlobalDynamicProperties dynamicProperties;
-    @Mock private GasCalculator gasCalculator;
-    @Mock private MessageFrame frame;
-    @Mock private TxnAwareEvmSigsVerifier sigsVerifier;
-    @Mock private RecordsHistorian recordsHistorian;
-    @Mock private EncodingFacade encoder;
-    @Mock private EvmEncodingFacade evmEncoder;
-    @Mock private SideEffectsTracker sideEffects;
-    @Mock private TransactionBody.Builder mockSynthBodyBuilder;
-    @Mock private ExpirableTxnRecord.Builder mockRecordBuilder;
-    @Mock private SyntheticTxnFactory syntheticTxnFactory;
-    @Mock private HederaStackedWorldStateUpdater worldUpdater;
-    @Mock private WorldLedgers wrappedLedgers;
-    @Mock private TransactionalLedger<NftId, NftProperty, UniqueTokenAdapter> nfts;
+    @Mock
+    private org.hyperledger.besu.evm.account.Account acc;
 
     @Mock
-    private TransactionalLedger<Pair<AccountID, TokenID>, TokenRelProperty, HederaTokenRel>
-            tokenRels;
+    private Deque<MessageFrame> stack;
 
-    @Mock private TransactionalLedger<AccountID, AccountProperty, HederaAccount> accounts;
-    @Mock private TransactionalLedger<TokenID, TokenProperty, MerkleToken> tokens;
-    @Mock private ExpiringCreations creator;
-    @Mock private ImpliedTransfersMarshal impliedTransfersMarshal;
-    @Mock private FeeCalculator feeCalculator;
-    @Mock private StateView stateView;
-    @Mock private CryptoTransferTransactionBody cryptoTransferTransactionBody;
-    @Mock private ImpliedTransfersMeta impliedTransfersMeta;
-    @Mock private ImpliedTransfers impliedTransfers;
-    @Mock private TransferLogic transferLogic;
-    @Mock private HederaTokenStore hederaTokenStore;
-    @Mock private FeeObject mockFeeObject;
-    @Mock private ContractAliases aliases;
-    @Mock private UsagePricesProvider resourceCosts;
-    @Mock private BlockValues blockValues;
-    @Mock private InfrastructureFactory infrastructureFactory;
-    @Mock private ApproveAllowanceChecks allowanceChecks;
-    @Mock private DeleteAllowanceChecks deleteAllowanceChecks;
-    @Mock private CryptoApproveAllowanceTransactionBody cryptoApproveAllowanceTransactionBody;
-    @Mock private AccountStore accountStore;
-    @Mock private TypedTokenStore tokenStore;
-    @Mock private ApproveAllowanceLogic approveAllowanceLogic;
-    @Mock private AssetsLoader assetLoader;
-    @Mock private HbarCentExchange exchange;
-    @Mock private ExchangeRate exchangeRate;
-    @Mock private AccessorFactory accessorFactory;
-    @Mock private Account account;
-    @Mock private EvmHTSPrecompiledContract evmHTSPrecompiledContract;
+    @Mock
+    private Iterator<MessageFrame> dequeIterator;
+
+    @Mock
+    private GlobalDynamicProperties dynamicProperties;
+
+    @Mock
+    private GasCalculator gasCalculator;
+
+    @Mock
+    private MessageFrame frame;
+
+    @Mock(strictness = LENIENT)
+    private TxnAwareEvmSigsVerifier sigsVerifier;
+
+    @Mock
+    private RecordsHistorian recordsHistorian;
+
+    @Mock
+    private EncodingFacade encoder;
+
+    @Mock
+    private EvmEncodingFacade evmEncoder;
+
+    @Mock
+    private SideEffectsTracker sideEffects;
+
+    @Mock
+    private TransactionBody.Builder mockSynthBodyBuilder;
+
+    @Mock
+    private ExpirableTxnRecord.Builder mockRecordBuilder;
+
+    @Mock
+    private SyntheticTxnFactory syntheticTxnFactory;
+
+    @Mock
+    private HederaStackedWorldStateUpdater worldUpdater;
+
+    @Mock
+    private WorldLedgers wrappedLedgers;
+
+    @Mock
+    private TransactionalLedger<NftId, NftProperty, UniqueTokenAdapter> nfts;
+
+    @Mock
+    private TransactionalLedger<Pair<AccountID, TokenID>, TokenRelProperty, HederaTokenRel> tokenRels;
+
+    @Mock
+    private TransactionalLedger<AccountID, AccountProperty, HederaAccount> accounts;
+
+    @Mock
+    private TransactionalLedger<TokenID, TokenProperty, MerkleToken> tokens;
+
+    @Mock
+    private ExpiringCreations creator;
+
+    @Mock
+    private ImpliedTransfersMarshal impliedTransfersMarshal;
+
+    @Mock
+    private FeeCalculator feeCalculator;
+
+    @Mock
+    private StateView stateView;
+
+    @Mock
+    private CryptoTransferTransactionBody cryptoTransferTransactionBody;
+
+    @Mock
+    private ImpliedTransfersMeta impliedTransfersMeta;
+
+    @Mock
+    private ImpliedTransfers impliedTransfers;
+
+    @Mock
+    private TransferLogic transferLogic;
+
+    @Mock
+    private HederaTokenStore hederaTokenStore;
+
+    @Mock
+    private FeeObject mockFeeObject;
+
+    @Mock
+    private ContractAliases aliases;
+
+    @Mock
+    private UsagePricesProvider resourceCosts;
+
+    @Mock
+    private BlockValues blockValues;
+
+    @Mock
+    private InfrastructureFactory infrastructureFactory;
+
+    @Mock
+    private ApproveAllowanceChecks allowanceChecks;
+
+    @Mock
+    private DeleteAllowanceChecks deleteAllowanceChecks;
+
+    @Mock
+    private CryptoApproveAllowanceTransactionBody cryptoApproveAllowanceTransactionBody;
+
+    @Mock
+    private AccountStore accountStore;
+
+    @Mock
+    private TypedTokenStore tokenStore;
+
+    @Mock
+    private ApproveAllowanceLogic approveAllowanceLogic;
+
+    @Mock
+    private AssetsLoader assetLoader;
+
+    @Mock
+    private HbarCentExchange exchange;
+
+    @Mock
+    private ExchangeRate exchangeRate;
+
+    @Mock
+    private AccessorFactory accessorFactory;
+
+    @Mock
+    private Account account;
+
+    @Mock
+    private EvmHTSPrecompiledContract evmHTSPrecompiledContract;
 
     private static final int CENTS_RATE = 12;
     private static final int HBAR_RATE = 1;
+
+    private enum WithHapiBlockLimit {
+        LOW,
+        HIGH
+    };
+
+    private static final Map<WithHapiBlockLimit, Consumer<GlobalDynamicProperties>> setHapiBlockLimitGivens = Map.of(
+            WithHapiBlockLimit.LOW,
+            props -> {
+                given(props.maxNumWithHapiSigsAccess()).willReturn(0L);
+            },
+            WithHapiBlockLimit.HIGH,
+            props -> {
+                given(props.maxNumWithHapiSigsAccess()).willReturn(Long.MAX_VALUE);
+                given(props.systemContractsWithTopLevelSigsAccess()).willReturn(Set.of(CryptoTransfer));
+            });
 
     private HTSPrecompiledContract subject;
     private MockedStatic<EntityIdUtils> entityIdUtils;
@@ -243,46 +360,34 @@ class ERC20PrecompilesTest {
         type.put(SubType.TOKEN_NON_FUNGIBLE_UNIQUE, BigDecimal.valueOf(0));
         canonicalPrices.put(HederaFunctionality.CryptoTransfer, type);
         given(assetLoader.loadCanonicalPrices()).willReturn(canonicalPrices);
-        final PrecompilePricingUtils precompilePricingUtils =
-                new PrecompilePricingUtils(
-                        assetLoader,
-                        exchange,
-                        () -> feeCalculator,
-                        resourceCosts,
-                        stateView,
-                        accessorFactory);
-        subject =
-                new HTSPrecompiledContract(
-                        dynamicProperties,
-                        gasCalculator,
-                        recordsHistorian,
-                        sigsVerifier,
-                        encoder,
-                        evmEncoder,
-                        syntheticTxnFactory,
-                        creator,
-                        () -> feeCalculator,
-                        stateView,
-                        precompilePricingUtils,
-                        infrastructureFactory,
-                        evmHTSPrecompiledContract);
+        final PrecompilePricingUtils precompilePricingUtils = new PrecompilePricingUtils(
+                assetLoader, exchange, () -> feeCalculator, resourceCosts, stateView, accessorFactory);
+        subject = new HTSPrecompiledContract(
+                dynamicProperties,
+                gasCalculator,
+                recordsHistorian,
+                sigsVerifier,
+                encoder,
+                evmEncoder,
+                syntheticTxnFactory,
+                creator,
+                () -> feeCalculator,
+                stateView,
+                precompilePricingUtils,
+                infrastructureFactory,
+                evmHTSPrecompiledContract);
         given(infrastructureFactory.newSideEffects()).willReturn(sideEffects);
         entityIdUtils = Mockito.mockStatic(EntityIdUtils.class);
         entityIdUtils
                 .when(() -> EntityIdUtils.accountIdFromEvmAddress(senderAddress))
                 .thenReturn(sender);
         entityIdUtils
-                .when(
-                        () ->
-                                EntityIdUtils.contractIdFromEvmAddress(
-                                        Address.fromHexString(HTS_PRECOMPILED_CONTRACT_ADDRESS)
-                                                .toArray()))
+                .when(() -> EntityIdUtils.contractIdFromEvmAddress(
+                        Address.fromHexString(HTS_PRECOMPILED_CONTRACT_ADDRESS).toArray()))
                 .thenReturn(precompiledContract);
         entityIdUtils.when(() -> EntityIdUtils.asTypedEvmAddress(sender)).thenReturn(senderAddress);
         entityIdUtils.when(() -> EntityIdUtils.asTypedEvmAddress(token)).thenReturn(tokenAddress);
-        entityIdUtils
-                .when(() -> EntityIdUtils.asTypedEvmAddress(receiver))
-                .thenReturn(recipientAddress);
+        entityIdUtils.when(() -> EntityIdUtils.asTypedEvmAddress(receiver)).thenReturn(recipientAddress);
         entityIdUtils
                 .when(() -> EntityIdUtils.tokenIdFromEvmAddress(fungibleTokenAddr.toArray()))
                 .thenReturn(token);
@@ -312,24 +417,21 @@ class ERC20PrecompilesTest {
         given(frame.getWorldUpdater()).willReturn(worldUpdater);
 
         given(worldUpdater.wrappedTrackingLedgers(any())).willReturn(wrappedLedgers);
-        final Bytes pretendArgumentsApprove =
-                Bytes.concatenate(
-                        Bytes.of(Integers.toBytes(ABI_ID_REDIRECT_FOR_TOKEN)),
-                        fungibleTokenAddr,
-                        Bytes.of(Integers.toBytes(ABI_ID_ERC_APPROVE)));
+        final Bytes pretendArgumentsApprove = Bytes.concatenate(
+                Bytes.of(Integers.toBytes(ABI_ID_REDIRECT_FOR_TOKEN)),
+                fungibleTokenAddr,
+                Bytes.of(Integers.toBytes(ABI_ID_ERC_APPROVE)));
 
         // when:
         subject.prepareFields(frame);
 
         assertThrows(
-                InvalidTransactionException.class,
-                () -> subject.prepareComputation(pretendArgumentsApprove, a -> a));
+                InvalidTransactionException.class, () -> subject.prepareComputation(pretendArgumentsApprove, a -> a));
 
-        final Bytes pretendArgumentsTransferFrom =
-                Bytes.concatenate(
-                        Bytes.of(Integers.toBytes(ABI_ID_REDIRECT_FOR_TOKEN)),
-                        fungibleTokenAddr,
-                        Bytes.of(Integers.toBytes(ABI_ID_ERC_TRANSFER_FROM)));
+        final Bytes pretendArgumentsTransferFrom = Bytes.concatenate(
+                Bytes.of(Integers.toBytes(ABI_ID_REDIRECT_FOR_TOKEN)),
+                fungibleTokenAddr,
+                Bytes.of(Integers.toBytes(ABI_ID_ERC_TRANSFER_FROM)));
 
         // when:
         subject.prepareFields(frame);
@@ -338,24 +440,21 @@ class ERC20PrecompilesTest {
                 InvalidTransactionException.class,
                 () -> subject.prepareComputation(pretendArgumentsTransferFrom, a -> a));
 
-        final Bytes pretendArgumentsAllowance =
-                Bytes.concatenate(
-                        Bytes.of(Integers.toBytes(ABI_ID_REDIRECT_FOR_TOKEN)),
-                        fungibleTokenAddr,
-                        Bytes.of(Integers.toBytes(ABI_ID_ERC_ALLOWANCE)));
+        final Bytes pretendArgumentsAllowance = Bytes.concatenate(
+                Bytes.of(Integers.toBytes(ABI_ID_REDIRECT_FOR_TOKEN)),
+                fungibleTokenAddr,
+                Bytes.of(Integers.toBytes(ABI_ID_ERC_ALLOWANCE)));
 
         // when:
         subject.prepareFields(frame);
 
         assertThrows(
-                InvalidTransactionException.class,
-                () -> subject.prepareComputation(pretendArgumentsAllowance, a -> a));
+                InvalidTransactionException.class, () -> subject.prepareComputation(pretendArgumentsAllowance, a -> a));
 
-        final Bytes pretendArgumentsApproveForAll =
-                Bytes.concatenate(
-                        Bytes.of(Integers.toBytes(ABI_ID_REDIRECT_FOR_TOKEN)),
-                        fungibleTokenAddr,
-                        Bytes.of(Integers.toBytes(ABI_ID_ERC_SET_APPROVAL_FOR_ALL)));
+        final Bytes pretendArgumentsApproveForAll = Bytes.concatenate(
+                Bytes.of(Integers.toBytes(ABI_ID_REDIRECT_FOR_TOKEN)),
+                fungibleTokenAddr,
+                Bytes.of(Integers.toBytes(ABI_ID_ERC_SET_APPROVAL_FOR_ALL)));
 
         // when:
         subject.prepareFields(frame);
@@ -364,11 +463,10 @@ class ERC20PrecompilesTest {
                 InvalidTransactionException.class,
                 () -> subject.prepareComputation(pretendArgumentsApproveForAll, a -> a));
 
-        final Bytes pretendArgumentsGetApproved =
-                Bytes.concatenate(
-                        Bytes.of(Integers.toBytes(ABI_ID_REDIRECT_FOR_TOKEN)),
-                        fungibleTokenAddr,
-                        Bytes.of(Integers.toBytes(ABI_ID_ERC_GET_APPROVED)));
+        final Bytes pretendArgumentsGetApproved = Bytes.concatenate(
+                Bytes.of(Integers.toBytes(ABI_ID_REDIRECT_FOR_TOKEN)),
+                fungibleTokenAddr,
+                Bytes.of(Integers.toBytes(ABI_ID_ERC_GET_APPROVED)));
 
         // when:
         subject.prepareFields(frame);
@@ -377,11 +475,10 @@ class ERC20PrecompilesTest {
                 InvalidTransactionException.class,
                 () -> subject.prepareComputation(pretendArgumentsGetApproved, a -> a));
 
-        final Bytes pretendArgumentsApprovedForAll =
-                Bytes.concatenate(
-                        Bytes.of(Integers.toBytes(ABI_ID_REDIRECT_FOR_TOKEN)),
-                        fungibleTokenAddr,
-                        Bytes.of(Integers.toBytes(ABI_ID_ERC_IS_APPROVED_FOR_ALL)));
+        final Bytes pretendArgumentsApprovedForAll = Bytes.concatenate(
+                Bytes.of(Integers.toBytes(ABI_ID_REDIRECT_FOR_TOKEN)),
+                fungibleTokenAddr,
+                Bytes.of(Integers.toBytes(ABI_ID_ERC_IS_APPROVED_FOR_ALL)));
 
         // when:
         subject.prepareFields(frame);
@@ -397,25 +494,21 @@ class ERC20PrecompilesTest {
         given(frame.getWorldUpdater()).willReturn(worldUpdater);
 
         given(worldUpdater.wrappedTrackingLedgers(any())).willReturn(wrappedLedgers);
-        final Bytes pretendArgumentsApprove =
-                Bytes.concatenate(Bytes.of(Integers.toBytes(ABI_ID_APPROVE)));
+        final Bytes pretendArgumentsApprove = Bytes.concatenate(Bytes.of(Integers.toBytes(ABI_ID_APPROVE)));
 
         // when:
         subject.prepareFields(frame);
 
         assertThrows(
-                InvalidTransactionException.class,
-                () -> subject.prepareComputation(pretendArgumentsApprove, a -> a));
+                InvalidTransactionException.class, () -> subject.prepareComputation(pretendArgumentsApprove, a -> a));
 
-        final Bytes pretendArgumentsAllowance =
-                Bytes.concatenate(Bytes.of(Integers.toBytes(ABI_ID_ALLOWANCE)));
+        final Bytes pretendArgumentsAllowance = Bytes.concatenate(Bytes.of(Integers.toBytes(ABI_ID_ALLOWANCE)));
 
         // when:
         subject.prepareFields(frame);
 
         assertThrows(
-                InvalidTransactionException.class,
-                () -> subject.prepareComputation(pretendArgumentsAllowance, a -> a));
+                InvalidTransactionException.class, () -> subject.prepareComputation(pretendArgumentsAllowance, a -> a));
 
         final Bytes pretendArgumentsApproveForAll =
                 Bytes.concatenate(Bytes.of(Integers.toBytes(ABI_ID_SET_APPROVAL_FOR_ALL)));
@@ -427,8 +520,7 @@ class ERC20PrecompilesTest {
                 InvalidTransactionException.class,
                 () -> subject.prepareComputation(pretendArgumentsApproveForAll, a -> a));
 
-        final Bytes pretendArgumentsGetApproved =
-                Bytes.concatenate(Bytes.of(Integers.toBytes(ABI_ID_GET_APPROVED)));
+        final Bytes pretendArgumentsGetApproved = Bytes.concatenate(Bytes.of(Integers.toBytes(ABI_ID_GET_APPROVED)));
 
         // when:
         subject.prepareFields(frame);
@@ -451,13 +543,13 @@ class ERC20PrecompilesTest {
     @Test
     void invalidNestedFunctionSelector() {
         final Bytes nestedPretendArguments = Bytes.of(0, 0, 0, 0);
-        final Bytes pretendArguments =
-                givenMinimalFrameContextWithoutParentUpdater(nestedPretendArguments);
+        final Bytes pretendArguments = givenMinimalFrameContextWithoutParentUpdater(nestedPretendArguments);
 
         given(wrappedLedgers.typeOf(token)).willReturn(TokenType.FUNGIBLE_COMMON);
 
         subject.prepareFields(frame);
         subject.prepareComputation(pretendArguments, a -> a);
+        givenIfDelegateCall();
         final var result = subject.computePrecompile(pretendArguments, frame);
         assertNull(result.getOutput());
     }
@@ -467,21 +559,15 @@ class ERC20PrecompilesTest {
         final Bytes nestedPretendArguments = Bytes.of(Integers.toBytes(ABI_ID_ERC_NAME));
         final Bytes pretendArguments = givenMinimalFrameContext(nestedPretendArguments);
 
-        given(syntheticTxnFactory.createTransactionCall(1L, pretendArguments))
-                .willReturn(mockSynthBodyBuilder);
-        given(
-                        creator.createSuccessfulSyntheticRecord(
-                                Collections.emptyList(), sideEffects, EMPTY_MEMO))
+        given(syntheticTxnFactory.createTransactionCall(1L, pretendArguments)).willReturn(mockSynthBodyBuilder);
+        given(creator.createSuccessfulSyntheticRecord(Collections.emptyList(), sideEffects, EMPTY_MEMO))
                 .willReturn(mockRecordBuilder);
-        given(feeCalculator.estimatePayment(any(), any(), any(), any(), any()))
-                .willReturn(mockFeeObject);
-        given(
-                        feeCalculator.estimatedGasPriceInTinybars(
-                                HederaFunctionality.ContractCall, timestamp))
+        given(feeCalculator.estimatePayment(any(), any(), any(), any(), any())).willReturn(mockFeeObject);
+        given(feeCalculator.estimatedGasPriceInTinybars(HederaFunctionality.ContractCall, timestamp))
                 .willReturn(1L);
-        given(mockFeeObject.getNodeFee()).willReturn(1L);
-        given(mockFeeObject.getNetworkFee()).willReturn(1L);
-        given(mockFeeObject.getServiceFee()).willReturn(1L);
+        given(mockFeeObject.nodeFee()).willReturn(1L);
+        given(mockFeeObject.networkFee()).willReturn(1L);
+        given(mockFeeObject.serviceFee()).willReturn(1L);
         given(evmEncoder.encodeName(any())).willReturn(successResult);
         given(wrappedLedgers.typeOf(token)).willReturn(TokenType.FUNGIBLE_COMMON);
         given(frame.getBlockValues()).willReturn(blockValues);
@@ -490,14 +576,14 @@ class ERC20PrecompilesTest {
         subject.prepareFields(frame);
         subject.prepareComputation(pretendArguments, a -> a);
         subject.getPrecompile().getGasRequirement(TEST_CONSENSUS_TIME);
+        givenIfDelegateCall();
         final var result = subject.compute(pretendArguments, frame);
 
         // then:
         assertEquals(successResult, result);
         // and:
         verify(wrappedLedgers).commit();
-        verify(worldUpdater)
-                .manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
+        verify(worldUpdater).manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
     }
 
     @Test
@@ -508,57 +594,42 @@ class ERC20PrecompilesTest {
         givenPricingUtilsContext();
 
         given(frame.getContractAddress()).willReturn(contractAddr);
-        given(
-                        syntheticTxnFactory.createCryptoTransfer(
-                                Collections.singletonList(tokensTransferList)))
+        given(syntheticTxnFactory.createCryptoTransfer(Collections.singletonList(tokensTransferList)))
                 .willReturn(mockSynthBodyBuilder);
         given(mockSynthBodyBuilder.getCryptoTransfer()).willReturn(cryptoTransferTransactionBody);
         given(impliedTransfersMarshal.validityWithCurrentProps(cryptoTransferTransactionBody))
                 .willReturn(OK);
-        given(sigsVerifier.hasActiveKey(anyBoolean(), any(), any(), any())).willReturn(true);
-        given(sigsVerifier.hasActiveKeyOrNoReceiverSigReq(anyBoolean(), any(), any(), any()))
+        given(sigsVerifier.hasActiveKey(anyBoolean(), any(), any(), any(), eq(CryptoTransfer)))
+                .willReturn(true);
+        given(sigsVerifier.hasActiveKeyOrNoReceiverSigReq(anyBoolean(), any(), any(), any(), eq(CryptoTransfer)))
                 .willReturn(true, true);
-        given(infrastructureFactory.newImpliedTransfersMarshal(any()))
-                .willReturn(impliedTransfersMarshal);
+        given(infrastructureFactory.newImpliedTransfersMarshal(any())).willReturn(impliedTransfersMarshal);
         given(infrastructureFactory.newHederaTokenStore(sideEffects, tokens, nfts, tokenRels))
                 .willReturn(hederaTokenStore);
 
-        given(
-                        infrastructureFactory.newTransferLogic(
-                                hederaTokenStore, sideEffects, nfts, accounts, tokenRels))
+        given(infrastructureFactory.newTransferLogic(hederaTokenStore, sideEffects, nfts, accounts, tokenRels))
                 .willReturn(transferLogic);
-        given(
-                        feeCalculator.estimatedGasPriceInTinybars(
-                                HederaFunctionality.ContractCall, timestamp))
+        given(feeCalculator.estimatedGasPriceInTinybars(HederaFunctionality.ContractCall, timestamp))
                 .willReturn(1L);
         given(mockSynthBodyBuilder.build())
-                .willReturn(
-                        TransactionBody.newBuilder()
-                                .setCryptoTransfer(cryptoTransferTransactionBody)
-                                .build());
-        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class)))
-                .willReturn(mockSynthBodyBuilder);
+                .willReturn(TransactionBody.newBuilder()
+                        .setCryptoTransfer(cryptoTransferTransactionBody)
+                        .build());
+        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class))).willReturn(mockSynthBodyBuilder);
         given(feeCalculator.computeFee(any(), any(), any(), any())).willReturn(mockFeeObject);
-        given(mockFeeObject.getServiceFee()).willReturn(1L);
-        given(
-                        creator.createSuccessfulSyntheticRecord(
-                                Collections.emptyList(), sideEffects, EMPTY_MEMO))
+        given(mockFeeObject.serviceFee()).willReturn(1L);
+        given(creator.createSuccessfulSyntheticRecord(Collections.emptyList(), sideEffects, EMPTY_MEMO))
                 .willReturn(mockRecordBuilder);
-        given(
-                        impliedTransfersMarshal.assessCustomFeesAndValidate(
-                                anyInt(), anyInt(), anyInt(), any(), any(), any()))
+        given(impliedTransfersMarshal.assessCustomFeesAndValidate(anyInt(), anyInt(), anyInt(), any(), any(), any()))
                 .willReturn(impliedTransfers);
         given(impliedTransfers.getAllBalanceChanges()).willReturn(tokenTransferChanges);
         given(impliedTransfers.getMeta()).willReturn(impliedTransfersMeta);
         given(impliedTransfersMeta.code()).willReturn(OK);
         ercTransferPrecompile
-                .when(
-                        () ->
-                                ERCTransferPrecompile.decodeERCTransfer(
-                                        eq(nestedPretendArguments), any(), any(), any(), any()))
+                .when(() ->
+                        ERCTransferPrecompile.decodeERCTransfer(eq(nestedPretendArguments), any(), any(), any(), any()))
                 .thenReturn(CRYPTO_TRANSFER_FUNGIBLE_WRAPPER);
-        given(aliases.resolveForEvm(any()))
-                .willAnswer(invocationOnMock -> invocationOnMock.getArgument(0));
+        given(aliases.resolveForEvm(any())).willAnswer(invocationOnMock -> invocationOnMock.getArgument(0));
         given(worldUpdater.aliases()).willReturn(aliases);
         given(wrappedLedgers.typeOf(token)).willReturn(TokenType.FUNGIBLE_COMMON);
         given(encoder.encodeEcFungibleTransfer(true)).willReturn(successResult);
@@ -566,6 +637,7 @@ class ERC20PrecompilesTest {
         given(blockValues.getTimestamp()).willReturn(TEST_CONSENSUS_TIME);
         when(accessorFactory.uncheckedSpecializedAccessor(any())).thenCallRealMethod();
         when(accessorFactory.constructSpecializedAccessor(any())).thenCallRealMethod();
+        givenIfDelegateCall();
         // when:
         subject.prepareFields(frame);
         subject.prepareComputation(pretendArguments, a -> a);
@@ -577,8 +649,7 @@ class ERC20PrecompilesTest {
         // and:
         verify(transferLogic).doZeroSum(tokenTransferChanges);
         verify(wrappedLedgers).commit();
-        verify(worldUpdater)
-                .manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
+        verify(worldUpdater).manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
     }
 
     @Test
@@ -586,21 +657,15 @@ class ERC20PrecompilesTest {
         final Bytes nestedPretendArguments = Bytes.of(Integers.toBytes(ABI_ID_ERC_NAME));
         final Bytes pretendArguments = givenMinimalFrameContext(nestedPretendArguments);
 
-        given(syntheticTxnFactory.createTransactionCall(1L, pretendArguments))
-                .willReturn(mockSynthBodyBuilder);
-        given(
-                        creator.createSuccessfulSyntheticRecord(
-                                Collections.emptyList(), sideEffects, EMPTY_MEMO))
+        given(syntheticTxnFactory.createTransactionCall(1L, pretendArguments)).willReturn(mockSynthBodyBuilder);
+        given(creator.createSuccessfulSyntheticRecord(Collections.emptyList(), sideEffects, EMPTY_MEMO))
                 .willReturn(mockRecordBuilder);
-        given(
-                        feeCalculator.estimatedGasPriceInTinybars(
-                                HederaFunctionality.ContractCall, timestamp))
+        given(feeCalculator.estimatedGasPriceInTinybars(HederaFunctionality.ContractCall, timestamp))
                 .willReturn(1L);
-        given(feeCalculator.estimatePayment(any(), any(), any(), any(), any()))
-                .willReturn(mockFeeObject);
-        given(mockFeeObject.getNodeFee()).willReturn(1L);
-        given(mockFeeObject.getNetworkFee()).willReturn(1L);
-        given(mockFeeObject.getServiceFee()).willReturn(1L);
+        given(feeCalculator.estimatePayment(any(), any(), any(), any(), any())).willReturn(mockFeeObject);
+        given(mockFeeObject.nodeFee()).willReturn(1L);
+        given(mockFeeObject.networkFee()).willReturn(1L);
+        given(mockFeeObject.serviceFee()).willReturn(1L);
         given(evmEncoder.encodeName(any())).willReturn(successResult);
         given(wrappedLedgers.typeOf(token)).willReturn(TokenType.FUNGIBLE_COMMON);
         given(dynamicProperties.shouldExportPrecompileResults()).willReturn(true);
@@ -615,8 +680,7 @@ class ERC20PrecompilesTest {
         assertEquals(successResult, result);
         // and:
         verify(wrappedLedgers).commit();
-        verify(worldUpdater)
-                .manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
+        verify(worldUpdater).manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
         final ArgumentCaptor<EvmFnResult> captor = ArgumentCaptor.forClass(EvmFnResult.class);
         verify(mockRecordBuilder).setContractCallResult(captor.capture());
         assertEquals(0L, captor.getValue().getGas());
@@ -629,22 +693,16 @@ class ERC20PrecompilesTest {
         final Bytes nestedPretendArguments = Bytes.of(Integers.toBytes(ABI_ID_ERC_SYMBOL));
         final Bytes pretendArguments = givenMinimalFrameContext(nestedPretendArguments);
 
-        given(syntheticTxnFactory.createTransactionCall(1L, pretendArguments))
-                .willReturn(mockSynthBodyBuilder);
-        given(
-                        creator.createSuccessfulSyntheticRecord(
-                                Collections.emptyList(), sideEffects, EMPTY_MEMO))
+        given(syntheticTxnFactory.createTransactionCall(1L, pretendArguments)).willReturn(mockSynthBodyBuilder);
+        given(creator.createSuccessfulSyntheticRecord(Collections.emptyList(), sideEffects, EMPTY_MEMO))
                 .willReturn(mockRecordBuilder);
 
-        given(
-                        feeCalculator.estimatedGasPriceInTinybars(
-                                HederaFunctionality.ContractCall, timestamp))
+        given(feeCalculator.estimatedGasPriceInTinybars(HederaFunctionality.ContractCall, timestamp))
                 .willReturn(1L);
-        given(feeCalculator.estimatePayment(any(), any(), any(), any(), any()))
-                .willReturn(mockFeeObject);
-        given(mockFeeObject.getNodeFee()).willReturn(1L);
-        given(mockFeeObject.getNetworkFee()).willReturn(1L);
-        given(mockFeeObject.getServiceFee()).willReturn(1L);
+        given(feeCalculator.estimatePayment(any(), any(), any(), any(), any())).willReturn(mockFeeObject);
+        given(mockFeeObject.nodeFee()).willReturn(1L);
+        given(mockFeeObject.networkFee()).willReturn(1L);
+        given(mockFeeObject.serviceFee()).willReturn(1L);
         given(evmEncoder.encodeSymbol(any())).willReturn(successResult);
         given(wrappedLedgers.typeOf(token)).willReturn(TokenType.FUNGIBLE_COMMON);
 
@@ -658,8 +716,7 @@ class ERC20PrecompilesTest {
         assertEquals(successResult, result);
         // and:
         verify(wrappedLedgers).commit();
-        verify(worldUpdater)
-                .manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
+        verify(worldUpdater).manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
     }
 
     @Test
@@ -667,22 +724,16 @@ class ERC20PrecompilesTest {
         final Bytes nestedPretendArguments = Bytes.of(Integers.toBytes(ABI_ID_ERC_DECIMALS));
         final Bytes pretendArguments = givenMinimalFrameContext(nestedPretendArguments);
 
-        given(syntheticTxnFactory.createTransactionCall(1L, pretendArguments))
-                .willReturn(mockSynthBodyBuilder);
-        given(
-                        creator.createSuccessfulSyntheticRecord(
-                                Collections.emptyList(), sideEffects, EMPTY_MEMO))
+        given(syntheticTxnFactory.createTransactionCall(1L, pretendArguments)).willReturn(mockSynthBodyBuilder);
+        given(creator.createSuccessfulSyntheticRecord(Collections.emptyList(), sideEffects, EMPTY_MEMO))
                 .willReturn(mockRecordBuilder);
 
-        given(
-                        feeCalculator.estimatedGasPriceInTinybars(
-                                HederaFunctionality.ContractCall, timestamp))
+        given(feeCalculator.estimatedGasPriceInTinybars(HederaFunctionality.ContractCall, timestamp))
                 .willReturn(1L);
-        given(feeCalculator.estimatePayment(any(), any(), any(), any(), any()))
-                .willReturn(mockFeeObject);
-        given(mockFeeObject.getNodeFee()).willReturn(1L);
-        given(mockFeeObject.getNetworkFee()).willReturn(1L);
-        given(mockFeeObject.getServiceFee()).willReturn(1L);
+        given(feeCalculator.estimatePayment(any(), any(), any(), any(), any())).willReturn(mockFeeObject);
+        given(mockFeeObject.nodeFee()).willReturn(1L);
+        given(mockFeeObject.networkFee()).willReturn(1L);
+        given(mockFeeObject.serviceFee()).willReturn(1L);
 
         given(wrappedLedgers.decimalsOf(token)).willReturn(10);
         given(evmEncoder.encodeDecimals(10)).willReturn(successResult);
@@ -698,31 +749,23 @@ class ERC20PrecompilesTest {
         assertEquals(successResult, result);
         // and:
         verify(wrappedLedgers).commit();
-        verify(worldUpdater)
-                .manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
+        verify(worldUpdater).manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
     }
 
     @Test
     void totalSupply() {
-        final Bytes nestedPretendArguments =
-                Bytes.of(Integers.toBytes(ABI_ID_ERC_TOTAL_SUPPLY_TOKEN));
+        final Bytes nestedPretendArguments = Bytes.of(Integers.toBytes(ABI_ID_ERC_TOTAL_SUPPLY_TOKEN));
         final Bytes pretendArguments = givenMinimalFrameContext(nestedPretendArguments);
-        given(syntheticTxnFactory.createTransactionCall(1L, pretendArguments))
-                .willReturn(mockSynthBodyBuilder);
-        given(
-                        creator.createSuccessfulSyntheticRecord(
-                                Collections.emptyList(), sideEffects, EMPTY_MEMO))
+        given(syntheticTxnFactory.createTransactionCall(1L, pretendArguments)).willReturn(mockSynthBodyBuilder);
+        given(creator.createSuccessfulSyntheticRecord(Collections.emptyList(), sideEffects, EMPTY_MEMO))
                 .willReturn(mockRecordBuilder);
 
-        given(
-                        feeCalculator.estimatedGasPriceInTinybars(
-                                HederaFunctionality.ContractCall, timestamp))
+        given(feeCalculator.estimatedGasPriceInTinybars(HederaFunctionality.ContractCall, timestamp))
                 .willReturn(1L);
-        given(feeCalculator.estimatePayment(any(), any(), any(), any(), any()))
-                .willReturn(mockFeeObject);
-        given(mockFeeObject.getNodeFee()).willReturn(1L);
-        given(mockFeeObject.getNetworkFee()).willReturn(1L);
-        given(mockFeeObject.getServiceFee()).willReturn(1L);
+        given(feeCalculator.estimatePayment(any(), any(), any(), any(), any())).willReturn(mockFeeObject);
+        given(mockFeeObject.nodeFee()).willReturn(1L);
+        given(mockFeeObject.networkFee()).willReturn(1L);
+        given(mockFeeObject.serviceFee()).willReturn(1L);
 
         given(wrappedLedgers.totalSupplyOf(token)).willReturn(10L);
         given(evmEncoder.encodeTotalSupply(10L)).willReturn(successResult);
@@ -738,8 +781,7 @@ class ERC20PrecompilesTest {
         assertEquals(successResult, result);
         // and:
         verify(wrappedLedgers).commit();
-        verify(worldUpdater)
-                .manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
+        verify(worldUpdater).manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
     }
 
     @Test
@@ -747,30 +789,23 @@ class ERC20PrecompilesTest {
         final TreeMap<FcTokenAllowanceId, Long> allowances = new TreeMap<>();
         allowances.put(
                 FcTokenAllowanceId.from(
-                        EntityNum.fromLong(token.getTokenNum()),
-                        EntityNum.fromLong(receiver.getAccountNum())),
+                        EntityNum.fromLong(token.getTokenNum()), EntityNum.fromLong(receiver.getAccountNum())),
                 10L);
 
         final Bytes nestedPretendArguments = Bytes.of(Integers.toBytes(ABI_ID_ERC_ALLOWANCE));
         final Bytes pretendArguments = givenMinimalFrameContext(nestedPretendArguments);
         given(wrappedLedgers.accounts()).willReturn(accounts);
         given(dynamicProperties.areAllowancesEnabled()).willReturn(true);
-        given(syntheticTxnFactory.createTransactionCall(1L, pretendArguments))
-                .willReturn(mockSynthBodyBuilder);
-        given(
-                        creator.createSuccessfulSyntheticRecord(
-                                Collections.emptyList(), sideEffects, EMPTY_MEMO))
+        given(syntheticTxnFactory.createTransactionCall(1L, pretendArguments)).willReturn(mockSynthBodyBuilder);
+        given(creator.createSuccessfulSyntheticRecord(Collections.emptyList(), sideEffects, EMPTY_MEMO))
                 .willReturn(mockRecordBuilder);
 
-        given(
-                        feeCalculator.estimatedGasPriceInTinybars(
-                                HederaFunctionality.ContractCall, timestamp))
+        given(feeCalculator.estimatedGasPriceInTinybars(HederaFunctionality.ContractCall, timestamp))
                 .willReturn(1L);
-        given(feeCalculator.estimatePayment(any(), any(), any(), any(), any()))
-                .willReturn(mockFeeObject);
-        given(mockFeeObject.getNodeFee()).willReturn(1L);
-        given(mockFeeObject.getNetworkFee()).willReturn(1L);
-        given(mockFeeObject.getServiceFee()).willReturn(1L);
+        given(feeCalculator.estimatePayment(any(), any(), any(), any(), any())).willReturn(mockFeeObject);
+        given(mockFeeObject.nodeFee()).willReturn(1L);
+        given(mockFeeObject.networkFee()).willReturn(1L);
+        given(mockFeeObject.serviceFee()).willReturn(1L);
 
         given(accounts.contains(any())).willReturn(true);
         allowancePrecompile
@@ -790,8 +825,7 @@ class ERC20PrecompilesTest {
         assertEquals(successResult, result);
         // and:
         verify(wrappedLedgers).commit();
-        verify(worldUpdater)
-                .manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
+        verify(worldUpdater).manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
     }
 
     @Test
@@ -799,37 +833,27 @@ class ERC20PrecompilesTest {
         final TreeMap<FcTokenAllowanceId, Long> alowances = new TreeMap<>();
         alowances.put(
                 FcTokenAllowanceId.from(
-                        EntityNum.fromLong(token.getTokenNum()),
-                        EntityNum.fromLong(receiver.getAccountNum())),
+                        EntityNum.fromLong(token.getTokenNum()), EntityNum.fromLong(receiver.getAccountNum())),
                 10L);
 
         final Bytes pretendArguments = Bytes.of(Integers.toBytes(ABI_ID_ALLOWANCE));
         givenMinimalFrameContext(pretendArguments);
         given(wrappedLedgers.accounts()).willReturn(accounts);
         given(dynamicProperties.areAllowancesEnabled()).willReturn(true);
-        given(syntheticTxnFactory.createTransactionCall(1L, pretendArguments))
-                .willReturn(mockSynthBodyBuilder);
-        given(
-                        creator.createSuccessfulSyntheticRecord(
-                                Collections.emptyList(), sideEffects, EMPTY_MEMO))
+        given(syntheticTxnFactory.createTransactionCall(1L, pretendArguments)).willReturn(mockSynthBodyBuilder);
+        given(creator.createSuccessfulSyntheticRecord(Collections.emptyList(), sideEffects, EMPTY_MEMO))
                 .willReturn(mockRecordBuilder);
 
-        given(
-                        feeCalculator.estimatedGasPriceInTinybars(
-                                HederaFunctionality.ContractCall, timestamp))
+        given(feeCalculator.estimatedGasPriceInTinybars(HederaFunctionality.ContractCall, timestamp))
                 .willReturn(1L);
-        given(feeCalculator.estimatePayment(any(), any(), any(), any(), any()))
-                .willReturn(mockFeeObject);
-        given(mockFeeObject.getNodeFee()).willReturn(1L);
-        given(mockFeeObject.getNetworkFee()).willReturn(1L);
-        given(mockFeeObject.getServiceFee()).willReturn(1L);
+        given(feeCalculator.estimatePayment(any(), any(), any(), any(), any())).willReturn(mockFeeObject);
+        given(mockFeeObject.nodeFee()).willReturn(1L);
+        given(mockFeeObject.networkFee()).willReturn(1L);
+        given(mockFeeObject.serviceFee()).willReturn(1L);
 
         given(accounts.contains(any())).willReturn(true);
         allowancePrecompile
-                .when(
-                        () ->
-                                AllowancePrecompile.decodeTokenAllowance(
-                                        eq(pretendArguments), any(), any()))
+                .when(() -> AllowancePrecompile.decodeTokenAllowance(eq(pretendArguments), any(), any()))
                 .thenReturn(ALLOWANCE_WRAPPER);
         given(accounts.get(any(), any())).willReturn(alowances);
         given(encoder.encodeAllowance(SUCCESS.getNumber(), 10L)).willReturn(successResult);
@@ -844,32 +868,24 @@ class ERC20PrecompilesTest {
         assertEquals(successResult, result);
         // and:
         verify(wrappedLedgers).commit();
-        verify(worldUpdater)
-                .manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
+        verify(worldUpdater).manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
     }
 
     @Test
     void balanceOf() {
-        final Bytes nestedPretendArguments =
-                Bytes.of(Integers.toBytes(ABI_ID_ERC_BALANCE_OF_TOKEN));
+        final Bytes nestedPretendArguments = Bytes.of(Integers.toBytes(ABI_ID_ERC_BALANCE_OF_TOKEN));
         final Bytes pretendArguments = givenMinimalFrameContext(nestedPretendArguments);
 
-        given(syntheticTxnFactory.createTransactionCall(1L, pretendArguments))
-                .willReturn(mockSynthBodyBuilder);
-        given(
-                        creator.createSuccessfulSyntheticRecord(
-                                Collections.emptyList(), sideEffects, EMPTY_MEMO))
+        given(syntheticTxnFactory.createTransactionCall(1L, pretendArguments)).willReturn(mockSynthBodyBuilder);
+        given(creator.createSuccessfulSyntheticRecord(Collections.emptyList(), sideEffects, EMPTY_MEMO))
                 .willReturn(mockRecordBuilder);
 
-        given(
-                        feeCalculator.estimatedGasPriceInTinybars(
-                                HederaFunctionality.ContractCall, timestamp))
+        given(feeCalculator.estimatedGasPriceInTinybars(HederaFunctionality.ContractCall, timestamp))
                 .willReturn(1L);
-        given(feeCalculator.estimatePayment(any(), any(), any(), any(), any()))
-                .willReturn(mockFeeObject);
-        given(mockFeeObject.getNodeFee()).willReturn(1L);
-        given(mockFeeObject.getNetworkFee()).willReturn(1L);
-        given(mockFeeObject.getServiceFee()).willReturn(1L);
+        given(feeCalculator.estimatePayment(any(), any(), any(), any(), any())).willReturn(mockFeeObject);
+        given(mockFeeObject.nodeFee()).willReturn(1L);
+        given(mockFeeObject.networkFee()).willReturn(1L);
+        given(mockFeeObject.serviceFee()).willReturn(1L);
 
         balanceOfPrecompile
                 .when(() -> BalanceOfPrecompile.decodeBalanceOf(eq(nestedPretendArguments), any()))
@@ -881,11 +897,8 @@ class ERC20PrecompilesTest {
                 .when(() -> EntityIdUtils.tokenIdFromEvmAddress(fungibleTokenAddr.toArray()))
                 .thenReturn(token);
         entityIdUtils
-                .when(
-                        () ->
-                                EntityIdUtils.contractIdFromEvmAddress(
-                                        Address.fromHexString(HTS_PRECOMPILED_CONTRACT_ADDRESS)
-                                                .toArray()))
+                .when(() -> EntityIdUtils.contractIdFromEvmAddress(
+                        Address.fromHexString(HTS_PRECOMPILED_CONTRACT_ADDRESS).toArray()))
                 .thenReturn(precompiledContract);
 
         // when:
@@ -898,8 +911,7 @@ class ERC20PrecompilesTest {
         assertEquals(successResult, result);
         // and:
         verify(wrappedLedgers).commit();
-        verify(worldUpdater)
-                .manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
+        verify(worldUpdater).manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
     }
 
     @Test
@@ -909,29 +921,21 @@ class ERC20PrecompilesTest {
         final Bytes nestedPretendArguments = Bytes.of(Integers.toBytes(ABI_ID_ERC_APPROVE));
         final Bytes pretendArguments = givenMinimalFrameContext(nestedPretendArguments);
 
-        given(
-                        feeCalculator.estimatedGasPriceInTinybars(
-                                HederaFunctionality.ContractCall, timestamp))
+        given(feeCalculator.estimatedGasPriceInTinybars(HederaFunctionality.ContractCall, timestamp))
                 .willReturn(1L);
         given(feeCalculator.computeFee(any(), any(), any(), any())).willReturn(mockFeeObject);
-        given(mockFeeObject.getServiceFee()).willReturn(1L);
+        given(mockFeeObject.serviceFee()).willReturn(1L);
 
-        given(syntheticTxnFactory.createFungibleApproval(APPROVE_WRAPPER))
+        given(syntheticTxnFactory.createFungibleApproval(APPROVE_WRAPPER, new EntityId(0, 0, 7)))
                 .willReturn(mockSynthBodyBuilder);
-        given(mockSynthBodyBuilder.build()).willReturn(TransactionBody.newBuilder().build());
-        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class)))
-                .willReturn(mockSynthBodyBuilder);
+        given(mockSynthBodyBuilder.build())
+                .willReturn(TransactionBody.newBuilder().build());
+        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class))).willReturn(mockSynthBodyBuilder);
         given(EntityIdUtils.accountIdFromEvmAddress((Address) any())).willReturn(sender);
 
         approvePrecompile
-                .when(
-                        () ->
-                                ApprovePrecompile.decodeTokenApprove(
-                                        eq(nestedPretendArguments),
-                                        eq(token),
-                                        eq(true),
-                                        any(),
-                                        any()))
+                .when(() -> ApprovePrecompile.decodeTokenApprove(
+                        eq(nestedPretendArguments), eq(token), eq(true), any(), any()))
                 .thenReturn(APPROVE_WRAPPER);
         given(wrappedLedgers.typeOf(token)).willReturn(TokenType.FUNGIBLE_COMMON);
         given(dynamicProperties.areAllowancesEnabled()).willReturn(true);
@@ -959,30 +963,23 @@ class ERC20PrecompilesTest {
 
         given(wrappedLedgers.tokens()).willReturn(tokens);
         given(wrappedLedgers.accounts()).willReturn(accounts);
-        given(
-                        creator.createSuccessfulSyntheticRecord(
-                                Collections.emptyList(), sideEffects, EMPTY_MEMO))
+        given(creator.createSuccessfulSyntheticRecord(Collections.emptyList(), sideEffects, EMPTY_MEMO))
                 .willReturn(mockRecordBuilder);
 
-        given(
-                        feeCalculator.estimatedGasPriceInTinybars(
-                                HederaFunctionality.ContractCall, timestamp))
+        given(feeCalculator.estimatedGasPriceInTinybars(HederaFunctionality.ContractCall, timestamp))
                 .willReturn(1L);
         given(feeCalculator.computeFee(any(), any(), any(), any())).willReturn(mockFeeObject);
-        given(mockFeeObject.getServiceFee()).willReturn(1L);
+        given(mockFeeObject.serviceFee()).willReturn(1L);
 
-        given(syntheticTxnFactory.createFungibleApproval(APPROVE_WRAPPER))
+        given(syntheticTxnFactory.createFungibleApproval(eq(APPROVE_WRAPPER), any()))
                 .willReturn(mockSynthBodyBuilder);
-        given(mockSynthBodyBuilder.build()).willReturn(TransactionBody.newBuilder().build());
-        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class)))
-                .willReturn(mockSynthBodyBuilder);
-        given(mockSynthBodyBuilder.getCryptoApproveAllowance())
-                .willReturn(cryptoApproveAllowanceTransactionBody);
+        given(mockSynthBodyBuilder.build())
+                .willReturn(TransactionBody.newBuilder().build());
+        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class))).willReturn(mockSynthBodyBuilder);
+        given(mockSynthBodyBuilder.getCryptoApproveAllowance()).willReturn(cryptoApproveAllowanceTransactionBody);
 
         given(infrastructureFactory.newAccountStore(accounts)).willReturn(accountStore);
-        given(
-                        infrastructureFactory.newTokenStore(
-                                accountStore, sideEffects, tokens, nfts, tokenRels))
+        given(infrastructureFactory.newTokenStore(accountStore, sideEffects, tokens, nfts, tokenRels))
                 .willReturn(tokenStore);
         given(infrastructureFactory.newApproveAllowanceLogic(accountStore, tokenStore))
                 .willReturn(approveAllowanceLogic);
@@ -991,25 +988,13 @@ class ERC20PrecompilesTest {
         given(infrastructureFactory.newApproveAllowanceChecks()).willReturn(allowanceChecks);
         given(infrastructureFactory.newDeleteAllowanceChecks()).willReturn(deleteAllowanceChecks);
 
-        given(
-                        allowanceChecks.allowancesValidation(
-                                cryptoAllowances,
-                                tokenAllowances,
-                                nftAllowances,
-                                account,
-                                accountStore,
-                                tokenStore))
+        given(allowanceChecks.allowancesValidation(
+                        cryptoAllowances, tokenAllowances, nftAllowances, account, accountStore, tokenStore))
                 .willReturn(OK);
 
         approvePrecompile
-                .when(
-                        () ->
-                                ApprovePrecompile.decodeTokenApprove(
-                                        eq(nestedPretendArguments),
-                                        eq(token),
-                                        eq(true),
-                                        any(),
-                                        any()))
+                .when(() -> ApprovePrecompile.decodeTokenApprove(
+                        eq(nestedPretendArguments), eq(token), eq(true), any(), any()))
                 .thenReturn(APPROVE_WRAPPER);
         given(wrappedLedgers.typeOf(token)).willReturn(TokenType.FUNGIBLE_COMMON);
         given(dynamicProperties.areAllowancesEnabled()).willReturn(true);
@@ -1024,8 +1009,7 @@ class ERC20PrecompilesTest {
         // then:
         assertEquals(successResult, result);
         verify(wrappedLedgers).commit();
-        verify(worldUpdater)
-                .manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
+        verify(worldUpdater).manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
     }
 
     @Test
@@ -1041,30 +1025,23 @@ class ERC20PrecompilesTest {
 
         given(wrappedLedgers.tokens()).willReturn(tokens);
         given(wrappedLedgers.accounts()).willReturn(accounts);
-        given(
-                        creator.createSuccessfulSyntheticRecord(
-                                Collections.emptyList(), sideEffects, EMPTY_MEMO))
+        given(creator.createSuccessfulSyntheticRecord(Collections.emptyList(), sideEffects, EMPTY_MEMO))
                 .willReturn(mockRecordBuilder);
 
-        given(
-                        feeCalculator.estimatedGasPriceInTinybars(
-                                HederaFunctionality.ContractCall, timestamp))
+        given(feeCalculator.estimatedGasPriceInTinybars(HederaFunctionality.ContractCall, timestamp))
                 .willReturn(1L);
         given(feeCalculator.computeFee(any(), any(), any(), any())).willReturn(mockFeeObject);
-        given(mockFeeObject.getServiceFee()).willReturn(1L);
+        given(mockFeeObject.serviceFee()).willReturn(1L);
 
-        given(syntheticTxnFactory.createFungibleApproval(APPROVE_WRAPPER))
+        given(syntheticTxnFactory.createFungibleApproval(eq(APPROVE_WRAPPER), any()))
                 .willReturn(mockSynthBodyBuilder);
-        given(mockSynthBodyBuilder.build()).willReturn(TransactionBody.newBuilder().build());
-        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class)))
-                .willReturn(mockSynthBodyBuilder);
-        given(mockSynthBodyBuilder.getCryptoApproveAllowance())
-                .willReturn(cryptoApproveAllowanceTransactionBody);
+        given(mockSynthBodyBuilder.build())
+                .willReturn(TransactionBody.newBuilder().build());
+        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class))).willReturn(mockSynthBodyBuilder);
+        given(mockSynthBodyBuilder.getCryptoApproveAllowance()).willReturn(cryptoApproveAllowanceTransactionBody);
 
         given(infrastructureFactory.newAccountStore(accounts)).willReturn(accountStore);
-        given(
-                        infrastructureFactory.newTokenStore(
-                                accountStore, sideEffects, tokens, nfts, tokenRels))
+        given(infrastructureFactory.newTokenStore(accountStore, sideEffects, tokens, nfts, tokenRels))
                 .willReturn(tokenStore);
         given(infrastructureFactory.newApproveAllowanceLogic(accountStore, tokenStore))
                 .willReturn(approveAllowanceLogic);
@@ -1073,21 +1050,13 @@ class ERC20PrecompilesTest {
         given(infrastructureFactory.newApproveAllowanceChecks()).willReturn(allowanceChecks);
         given(infrastructureFactory.newDeleteAllowanceChecks()).willReturn(deleteAllowanceChecks);
 
-        given(
-                        allowanceChecks.allowancesValidation(
-                                cryptoAllowances,
-                                tokenAllowances,
-                                nftAllowances,
-                                account,
-                                accountStore,
-                                tokenStore))
+        given(allowanceChecks.allowancesValidation(
+                        cryptoAllowances, tokenAllowances, nftAllowances, account, accountStore, tokenStore))
                 .willReturn(OK);
 
         approvePrecompile
-                .when(
-                        () ->
-                                ApprovePrecompile.decodeTokenApprove(
-                                        eq(pretendArguments), eq(null), eq(true), any(), any()))
+                .when(() ->
+                        ApprovePrecompile.decodeTokenApprove(eq(pretendArguments), eq(null), eq(true), any(), any()))
                 .thenReturn(APPROVE_WRAPPER);
         given(dynamicProperties.areAllowancesEnabled()).willReturn(true);
         given(encoder.encodeApprove(SUCCESS.getNumber(), true)).willReturn(successResult);
@@ -1103,17 +1072,15 @@ class ERC20PrecompilesTest {
         // then:
         assertEquals(successResult, result);
         verify(wrappedLedgers).commit();
-        verify(worldUpdater)
-                .manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
+        verify(worldUpdater).manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
         verify(frame)
-                .addLog(
-                        EncodingFacade.LogBuilder.logBuilder()
-                                .forLogger(tokenAddress)
-                                .forEventSignature(AbiConstants.APPROVAL_EVENT)
-                                .forIndexedArgument(senderAddress)
-                                .forIndexedArgument(recipientAddress)
-                                .forDataItem(APPROVE_WRAPPER.amount())
-                                .build());
+                .addLog(EncodingFacade.LogBuilder.logBuilder()
+                        .forLogger(tokenAddress)
+                        .forEventSignature(AbiConstants.APPROVAL_EVENT)
+                        .forIndexedArgument(senderAddress)
+                        .forIndexedArgument(recipientAddress)
+                        .forDataItem(APPROVE_WRAPPER.amount())
+                        .build());
     }
 
     @Test
@@ -1129,30 +1096,23 @@ class ERC20PrecompilesTest {
 
         given(wrappedLedgers.tokens()).willReturn(tokens);
         given(wrappedLedgers.accounts()).willReturn(accounts);
-        given(
-                        creator.createSuccessfulSyntheticRecord(
-                                Collections.emptyList(), sideEffects, EMPTY_MEMO))
+        given(creator.createSuccessfulSyntheticRecord(Collections.emptyList(), sideEffects, EMPTY_MEMO))
                 .willReturn(mockRecordBuilder);
 
-        given(
-                        feeCalculator.estimatedGasPriceInTinybars(
-                                HederaFunctionality.ContractCall, timestamp))
+        given(feeCalculator.estimatedGasPriceInTinybars(HederaFunctionality.ContractCall, timestamp))
                 .willReturn(1L);
         given(feeCalculator.computeFee(any(), any(), any(), any())).willReturn(mockFeeObject);
-        given(mockFeeObject.getServiceFee()).willReturn(1L);
+        given(mockFeeObject.serviceFee()).willReturn(1L);
 
         given(syntheticTxnFactory.createNonfungibleApproval(eq(APPROVE_NFT_WRAPPER), any(), any()))
                 .willReturn(mockSynthBodyBuilder);
-        given(mockSynthBodyBuilder.build()).willReturn(TransactionBody.newBuilder().build());
-        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class)))
-                .willReturn(mockSynthBodyBuilder);
-        given(mockSynthBodyBuilder.getCryptoApproveAllowance())
-                .willReturn(cryptoApproveAllowanceTransactionBody);
+        given(mockSynthBodyBuilder.build())
+                .willReturn(TransactionBody.newBuilder().build());
+        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class))).willReturn(mockSynthBodyBuilder);
+        given(mockSynthBodyBuilder.getCryptoApproveAllowance()).willReturn(cryptoApproveAllowanceTransactionBody);
 
         given(infrastructureFactory.newAccountStore(accounts)).willReturn(accountStore);
-        given(
-                        infrastructureFactory.newTokenStore(
-                                accountStore, sideEffects, tokens, nfts, tokenRels))
+        given(infrastructureFactory.newTokenStore(accountStore, sideEffects, tokens, nfts, tokenRels))
                 .willReturn(tokenStore);
         given(infrastructureFactory.newApproveAllowanceLogic(accountStore, tokenStore))
                 .willReturn(approveAllowanceLogic);
@@ -1162,21 +1122,13 @@ class ERC20PrecompilesTest {
         given(infrastructureFactory.newDeleteAllowanceChecks()).willReturn(deleteAllowanceChecks);
 
         given(wrappedLedgers.ownerIfPresent(any())).willReturn(ownerEntity);
-        given(
-                        allowanceChecks.allowancesValidation(
-                                cryptoAllowances,
-                                tokenAllowances,
-                                nftAllowances,
-                                account,
-                                accountStore,
-                                tokenStore))
+        given(allowanceChecks.allowancesValidation(
+                        cryptoAllowances, tokenAllowances, nftAllowances, account, accountStore, tokenStore))
                 .willReturn(OK);
 
         approvePrecompile
-                .when(
-                        () ->
-                                ApprovePrecompile.decodeTokenApprove(
-                                        eq(pretendArguments), eq(null), eq(false), any(), any()))
+                .when(() ->
+                        ApprovePrecompile.decodeTokenApprove(eq(pretendArguments), eq(null), eq(false), any(), any()))
                 .thenReturn(APPROVE_NFT_WRAPPER);
         given(dynamicProperties.areAllowancesEnabled()).willReturn(true);
         given(encoder.encodeApproveNFT(SUCCESS.getNumber())).willReturn(successResult);
@@ -1192,17 +1144,15 @@ class ERC20PrecompilesTest {
         // then:
         assertEquals(successResult, result);
         verify(wrappedLedgers).commit();
-        verify(worldUpdater)
-                .manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
+        verify(worldUpdater).manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
         verify(frame)
-                .addLog(
-                        EncodingFacade.LogBuilder.logBuilder()
-                                .forLogger(tokenAddress)
-                                .forEventSignature(AbiConstants.APPROVAL_EVENT)
-                                .forIndexedArgument(senderAddress)
-                                .forIndexedArgument(recipientAddress)
-                                .forIndexedArgument(APPROVE_NFT_WRAPPER.serialNumber())
-                                .build());
+                .addLog(EncodingFacade.LogBuilder.logBuilder()
+                        .forLogger(tokenAddress)
+                        .forEventSignature(AbiConstants.APPROVAL_EVENT)
+                        .forIndexedArgument(senderAddress)
+                        .forIndexedArgument(recipientAddress)
+                        .forIndexedArgument(APPROVE_NFT_WRAPPER.serialNumber())
+                        .build());
     }
 
     @Test
@@ -1211,60 +1161,48 @@ class ERC20PrecompilesTest {
         final Bytes pretendArguments = givenMinimalFrameContext(nestedPretendArguments);
         givenLedgers();
         givenPricingUtilsContext();
+        final var special = Address.fromHexString("0x0000000000000000000000000000000000000007");
+        given(dynamicProperties.contractsWithSpecialHapiSigsAccess()).willReturn(Set.of(special));
+        given(dynamicProperties.systemContractsWithTopLevelSigsAccess()).willReturn(Set.of(CryptoTransfer));
 
         given(frame.getContractAddress()).willReturn(contractAddr);
-        given(
-                        syntheticTxnFactory.createCryptoTransfer(
-                                Collections.singletonList(tokensTransferList)))
+        given(syntheticTxnFactory.createCryptoTransfer(Collections.singletonList(tokensTransferList)))
                 .willReturn(mockSynthBodyBuilder);
         given(mockSynthBodyBuilder.getCryptoTransfer()).willReturn(cryptoTransferTransactionBody);
         given(impliedTransfersMarshal.validityWithCurrentProps(cryptoTransferTransactionBody))
                 .willReturn(OK);
-        given(sigsVerifier.hasActiveKey(anyBoolean(), any(), any(), any())).willReturn(true);
-        given(sigsVerifier.hasActiveKeyOrNoReceiverSigReq(anyBoolean(), any(), any(), any()))
+        given(sigsVerifier.hasActiveKey(anyBoolean(), any(), any(), any(), eq(CryptoTransfer)))
+                .willReturn(true);
+        given(sigsVerifier.hasActiveKeyOrNoReceiverSigReq(anyBoolean(), any(), any(), any(), eq(CryptoTransfer)))
                 .willReturn(true, true);
-        given(infrastructureFactory.newImpliedTransfersMarshal(any()))
-                .willReturn(impliedTransfersMarshal);
+        given(infrastructureFactory.newImpliedTransfersMarshal(any())).willReturn(impliedTransfersMarshal);
         given(infrastructureFactory.newHederaTokenStore(sideEffects, tokens, nfts, tokenRels))
                 .willReturn(hederaTokenStore);
 
-        given(
-                        infrastructureFactory.newTransferLogic(
-                                hederaTokenStore, sideEffects, nfts, accounts, tokenRels))
+        given(infrastructureFactory.newTransferLogic(hederaTokenStore, sideEffects, nfts, accounts, tokenRels))
                 .willReturn(transferLogic);
-        given(
-                        feeCalculator.estimatedGasPriceInTinybars(
-                                HederaFunctionality.ContractCall, timestamp))
+        given(feeCalculator.estimatedGasPriceInTinybars(HederaFunctionality.ContractCall, timestamp))
                 .willReturn(1L);
         given(mockSynthBodyBuilder.build())
-                .willReturn(
-                        TransactionBody.newBuilder()
-                                .setCryptoTransfer(cryptoTransferTransactionBody)
-                                .build());
-        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class)))
-                .willReturn(mockSynthBodyBuilder);
+                .willReturn(TransactionBody.newBuilder()
+                        .setCryptoTransfer(cryptoTransferTransactionBody)
+                        .build());
+        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class))).willReturn(mockSynthBodyBuilder);
         given(feeCalculator.computeFee(any(), any(), any(), any())).willReturn(mockFeeObject);
-        given(mockFeeObject.getServiceFee()).willReturn(1L);
-        given(
-                        creator.createSuccessfulSyntheticRecord(
-                                Collections.emptyList(), sideEffects, EMPTY_MEMO))
+        given(mockFeeObject.serviceFee()).willReturn(1L);
+        given(creator.createSuccessfulSyntheticRecord(Collections.emptyList(), sideEffects, EMPTY_MEMO))
                 .willReturn(mockRecordBuilder);
-        given(
-                        impliedTransfersMarshal.assessCustomFeesAndValidate(
-                                anyInt(), anyInt(), anyInt(), any(), any(), any()))
+        given(impliedTransfersMarshal.assessCustomFeesAndValidate(anyInt(), anyInt(), anyInt(), any(), any(), any()))
                 .willReturn(impliedTransfers);
         given(impliedTransfers.getAllBalanceChanges()).willReturn(tokenTransferChanges);
         given(impliedTransfers.getMeta()).willReturn(impliedTransfersMeta);
         given(impliedTransfersMeta.code()).willReturn(OK);
         ercTransferPrecompile
-                .when(
-                        () ->
-                                ERCTransferPrecompile.decodeERCTransfer(
-                                        eq(nestedPretendArguments), any(), any(), any(), any()))
+                .when(() ->
+                        ERCTransferPrecompile.decodeERCTransfer(eq(nestedPretendArguments), any(), any(), any(), any()))
                 .thenReturn(CRYPTO_TRANSFER_FUNGIBLE_WRAPPER);
 
-        given(aliases.resolveForEvm(any()))
-                .willAnswer(invocationOnMock -> invocationOnMock.getArgument(0));
+        given(aliases.resolveForEvm(any())).willAnswer(invocationOnMock -> invocationOnMock.getArgument(0));
         given(worldUpdater.aliases()).willReturn(aliases);
         given(wrappedLedgers.typeOf(token)).willReturn(TokenType.FUNGIBLE_COMMON);
         given(wrappedLedgers.canonicalAddress(recipientAddress)).willReturn(recipientAddress);
@@ -1272,14 +1210,13 @@ class ERC20PrecompilesTest {
         given(encoder.encodeEcFungibleTransfer(true)).willReturn(successResult);
         when(accessorFactory.uncheckedSpecializedAccessor(any())).thenCallRealMethod();
         when(accessorFactory.constructSpecializedAccessor(any())).thenCallRealMethod();
-        final var log =
-                EncodingFacade.LogBuilder.logBuilder()
-                        .forLogger(tokenAddress)
-                        .forEventSignature(AbiConstants.TRANSFER_EVENT)
-                        .forIndexedArgument(senderAddress)
-                        .forIndexedArgument(recipientAddress)
-                        .forDataItem(AMOUNT)
-                        .build();
+        final var log = EncodingFacade.LogBuilder.logBuilder()
+                .forLogger(tokenAddress)
+                .forEventSignature(AbiConstants.TRANSFER_EVENT)
+                .forIndexedArgument(senderAddress)
+                .forIndexedArgument(recipientAddress)
+                .forDataItem(AMOUNT)
+                .build();
         // when:
         subject.prepareFields(frame);
         subject.prepareComputation(pretendArguments, a -> a);
@@ -1291,8 +1228,7 @@ class ERC20PrecompilesTest {
         // and:
         verify(transferLogic).doZeroSum(tokenTransferChanges);
         verify(wrappedLedgers).commit();
-        verify(worldUpdater)
-                .manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
+        verify(worldUpdater).manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
         verify(frame).addLog(log);
     }
 
@@ -1304,66 +1240,45 @@ class ERC20PrecompilesTest {
         givenPricingUtilsContext();
 
         given(frame.getContractAddress()).willReturn(contractAddr);
-        given(
-                        syntheticTxnFactory.createCryptoTransfer(
-                                Collections.singletonList(TOKEN_TRANSFER_FROM_WRAPPER)))
+        given(syntheticTxnFactory.createCryptoTransfer(Collections.singletonList(TOKEN_TRANSFER_FROM_WRAPPER)))
                 .willReturn(mockSynthBodyBuilder);
         given(mockSynthBodyBuilder.getCryptoTransfer()).willReturn(cryptoTransferTransactionBody);
         given(impliedTransfersMarshal.validityWithCurrentProps(cryptoTransferTransactionBody))
                 .willReturn(OK);
-        given(sigsVerifier.hasActiveKey(anyBoolean(), any(), any(), any())).willReturn(true);
-        given(sigsVerifier.hasActiveKeyOrNoReceiverSigReq(anyBoolean(), any(), any(), any()))
+        given(sigsVerifier.hasActiveKey(anyBoolean(), any(), any(), any(), eq(CryptoTransfer)))
+                .willReturn(true);
+        given(sigsVerifier.hasActiveKeyOrNoReceiverSigReq(anyBoolean(), any(), any(), any(), eq(CryptoTransfer)))
                 .willReturn(true, true);
 
-        given(infrastructureFactory.newImpliedTransfersMarshal(any()))
-                .willReturn(impliedTransfersMarshal);
+        given(infrastructureFactory.newImpliedTransfersMarshal(any())).willReturn(impliedTransfersMarshal);
         given(infrastructureFactory.newHederaTokenStore(sideEffects, tokens, nfts, tokenRels))
                 .willReturn(hederaTokenStore);
 
-        given(
-                        infrastructureFactory.newTransferLogic(
-                                hederaTokenStore, sideEffects, nfts, accounts, tokenRels))
+        given(infrastructureFactory.newTransferLogic(hederaTokenStore, sideEffects, nfts, accounts, tokenRels))
                 .willReturn(transferLogic);
-        given(
-                        feeCalculator.estimatedGasPriceInTinybars(
-                                HederaFunctionality.ContractCall, timestamp))
+        given(feeCalculator.estimatedGasPriceInTinybars(HederaFunctionality.ContractCall, timestamp))
                 .willReturn(1L);
         given(mockSynthBodyBuilder.build())
-                .willReturn(
-                        TransactionBody.newBuilder()
-                                .setCryptoTransfer(cryptoTransferTransactionBody)
-                                .build());
-        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class)))
-                .willReturn(mockSynthBodyBuilder);
+                .willReturn(TransactionBody.newBuilder()
+                        .setCryptoTransfer(cryptoTransferTransactionBody)
+                        .build());
+        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class))).willReturn(mockSynthBodyBuilder);
         given(feeCalculator.computeFee(any(), any(), any(), any())).willReturn(mockFeeObject);
-        given(mockFeeObject.getServiceFee()).willReturn(1L);
-        given(
-                        creator.createSuccessfulSyntheticRecord(
-                                Collections.emptyList(), sideEffects, EMPTY_MEMO))
+        given(mockFeeObject.serviceFee()).willReturn(1L);
+        given(creator.createSuccessfulSyntheticRecord(Collections.emptyList(), sideEffects, EMPTY_MEMO))
                 .willReturn(mockRecordBuilder);
-        given(
-                        impliedTransfersMarshal.assessCustomFeesAndValidate(
-                                anyInt(), anyInt(), anyInt(), any(), any(), any()))
+        given(impliedTransfersMarshal.assessCustomFeesAndValidate(anyInt(), anyInt(), anyInt(), any(), any(), any()))
                 .willReturn(impliedTransfers);
         given(impliedTransfers.getAllBalanceChanges()).willReturn(tokenTransferChanges);
         given(impliedTransfers.getMeta()).willReturn(impliedTransfersMeta);
         given(impliedTransfersMeta.code()).willReturn(OK);
 
         ercTransferPrecompile
-                .when(
-                        () ->
-                                ERCTransferPrecompile.decodeERCTransferFrom(
-                                        eq(nestedPretendArguments),
-                                        any(),
-                                        eq(true),
-                                        any(),
-                                        any(),
-                                        any(),
-                                        any()))
+                .when(() -> ERCTransferPrecompile.decodeERCTransferFrom(
+                        eq(nestedPretendArguments), any(), eq(true), any(), any(), any(), any()))
                 .thenReturn(CRYPTO_TRANSFER_TOKEN_FROM_WRAPPER);
 
-        given(aliases.resolveForEvm(any()))
-                .willAnswer(invocationOnMock -> invocationOnMock.getArgument(0));
+        given(aliases.resolveForEvm(any())).willAnswer(invocationOnMock -> invocationOnMock.getArgument(0));
         given(worldUpdater.aliases()).willReturn(aliases);
         given(wrappedLedgers.typeOf(token)).willReturn(TokenType.FUNGIBLE_COMMON);
         given(dynamicProperties.areAllowancesEnabled()).willReturn(true);
@@ -1381,77 +1296,56 @@ class ERC20PrecompilesTest {
         // and:
         verify(transferLogic).doZeroSum(tokenTransferChanges);
         verify(wrappedLedgers).commit();
-        verify(worldUpdater)
-                .manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
+        verify(worldUpdater).manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
     }
 
-    @Test
-    void transferFromHapiFungible() throws InvalidProtocolBufferException {
+    @ParameterizedTest
+    @EnumSource
+    void transferFromHapiFungible(final WithHapiBlockLimit limit) throws InvalidProtocolBufferException {
         final var pretendArguments = Bytes.of(Integers.toBytes(ABI_ID_TRANSFER_FROM));
         givenMinimalFrameContext(Bytes.EMPTY);
         givenLedgers();
         givenPricingUtilsContext();
-
+        setHapiBlockLimitGivens.get(limit).accept(dynamicProperties);
         given(frame.getContractAddress()).willReturn(contractAddr);
-        given(
-                        syntheticTxnFactory.createCryptoTransfer(
-                                Collections.singletonList(TOKEN_TRANSFER_FROM_WRAPPER)))
+        given(syntheticTxnFactory.createCryptoTransfer(Collections.singletonList(TOKEN_TRANSFER_FROM_WRAPPER)))
                 .willReturn(mockSynthBodyBuilder);
         given(mockSynthBodyBuilder.getCryptoTransfer()).willReturn(cryptoTransferTransactionBody);
         given(impliedTransfersMarshal.validityWithCurrentProps(cryptoTransferTransactionBody))
                 .willReturn(OK);
-        given(sigsVerifier.hasActiveKey(anyBoolean(), any(), any(), any())).willReturn(true);
-        given(sigsVerifier.hasActiveKeyOrNoReceiverSigReq(anyBoolean(), any(), any(), any()))
+        given(sigsVerifier.hasActiveKey(anyBoolean(), any(), any(), any(), eq(CryptoTransfer)))
+                .willReturn(true);
+        given(sigsVerifier.hasActiveKeyOrNoReceiverSigReq(anyBoolean(), any(), any(), any(), eq(CryptoTransfer)))
                 .willReturn(true, true);
-        given(infrastructureFactory.newImpliedTransfersMarshal(any()))
-                .willReturn(impliedTransfersMarshal);
+        given(infrastructureFactory.newImpliedTransfersMarshal(any())).willReturn(impliedTransfersMarshal);
         given(infrastructureFactory.newHederaTokenStore(sideEffects, tokens, nfts, tokenRels))
                 .willReturn(hederaTokenStore);
 
-        given(
-                        infrastructureFactory.newTransferLogic(
-                                hederaTokenStore, sideEffects, nfts, accounts, tokenRels))
+        given(infrastructureFactory.newTransferLogic(hederaTokenStore, sideEffects, nfts, accounts, tokenRels))
                 .willReturn(transferLogic);
-        given(
-                        feeCalculator.estimatedGasPriceInTinybars(
-                                HederaFunctionality.ContractCall, timestamp))
+        given(feeCalculator.estimatedGasPriceInTinybars(HederaFunctionality.ContractCall, timestamp))
                 .willReturn(1L);
         given(mockSynthBodyBuilder.build())
-                .willReturn(
-                        TransactionBody.newBuilder()
-                                .setCryptoTransfer(cryptoTransferTransactionBody)
-                                .build());
-        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class)))
-                .willReturn(mockSynthBodyBuilder);
+                .willReturn(TransactionBody.newBuilder()
+                        .setCryptoTransfer(cryptoTransferTransactionBody)
+                        .build());
+        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class))).willReturn(mockSynthBodyBuilder);
         given(feeCalculator.computeFee(any(), any(), any(), any())).willReturn(mockFeeObject);
-        given(mockFeeObject.getServiceFee()).willReturn(1L);
-        given(
-                        creator.createSuccessfulSyntheticRecord(
-                                Collections.emptyList(), sideEffects, EMPTY_MEMO))
+        given(mockFeeObject.serviceFee()).willReturn(1L);
+        given(creator.createSuccessfulSyntheticRecord(Collections.emptyList(), sideEffects, EMPTY_MEMO))
                 .willReturn(mockRecordBuilder);
-        given(
-                        impliedTransfersMarshal.assessCustomFeesAndValidate(
-                                anyInt(), anyInt(), anyInt(), any(), any(), any()))
+        given(impliedTransfersMarshal.assessCustomFeesAndValidate(anyInt(), anyInt(), anyInt(), any(), any(), any()))
                 .willReturn(impliedTransfers);
         given(impliedTransfers.getAllBalanceChanges()).willReturn(tokenTransferChanges);
         given(impliedTransfers.getMeta()).willReturn(impliedTransfersMeta);
         given(impliedTransfersMeta.code()).willReturn(OK);
 
         ercTransferPrecompile
-                .when(
-                        () ->
-                                ERCTransferPrecompile.decodeERCTransferFrom(
-                                        eq(pretendArguments),
-                                        eq(null),
-                                        eq(true),
-                                        any(),
-                                        any(),
-                                        any(),
-                                        any()))
+                .when(() -> ERCTransferPrecompile.decodeERCTransferFrom(
+                        eq(pretendArguments), eq(null), eq(true), any(), any(), any(), any()))
                 .thenReturn(CRYPTO_TRANSFER_TOKEN_FROM_WRAPPER);
 
-        given(aliases.resolveForEvm(any()))
-                .willAnswer(invocationOnMock -> invocationOnMock.getArgument(0));
+        given(aliases.resolveForEvm(any())).willAnswer(invocationOnMock -> invocationOnMock.getArgument(0));
         given(worldUpdater.aliases()).willReturn(aliases);
         given(dynamicProperties.areAllowancesEnabled()).willReturn(true);
         when(accessorFactory.uncheckedSpecializedAccessor(any())).thenCallRealMethod();
@@ -1467,66 +1361,54 @@ class ERC20PrecompilesTest {
         // and:
         verify(transferLogic).doZeroSum(tokenTransferChanges);
         verify(wrappedLedgers).commit();
-        verify(worldUpdater)
-                .manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
+        verify(worldUpdater).manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
         verify(frame)
-                .addLog(
-                        EncodingFacade.LogBuilder.logBuilder()
-                                .forLogger(EntityIdUtils.asTypedEvmAddress(token))
-                                .forEventSignature(AbiConstants.TRANSFER_EVENT)
-                                .forIndexedArgument(sender)
-                                .forIndexedArgument(receiver)
-                                .forDataItem(AMOUNT)
-                                .build());
+                .addLog(EncodingFacade.LogBuilder.logBuilder()
+                        .forLogger(EntityIdUtils.asTypedEvmAddress(token))
+                        .forEventSignature(AbiConstants.TRANSFER_EVENT)
+                        .forIndexedArgument(sender)
+                        .forIndexedArgument(receiver)
+                        .forDataItem(AMOUNT)
+                        .build());
     }
 
-    @Test
-    void transferFromNFTHapi() throws InvalidProtocolBufferException {
+    @ParameterizedTest
+    @EnumSource
+    void transferFromNFTHapi(final WithHapiBlockLimit limit) throws InvalidProtocolBufferException {
         final var pretendArguments = Bytes.of(Integers.toBytes(ABI_ID_TRANSFER_FROM_NFT));
+        setHapiBlockLimitGivens.get(limit).accept(dynamicProperties);
         givenMinimalFrameContext(Bytes.EMPTY);
         givenLedgers();
         givenPricingUtilsContext();
 
         given(frame.getContractAddress()).willReturn(contractAddr);
-        given(
-                        syntheticTxnFactory.createCryptoTransfer(
-                                Collections.singletonList(TOKEN_TRANSFER_FROM_NFT_WRAPPER)))
+        given(syntheticTxnFactory.createCryptoTransfer(Collections.singletonList(TOKEN_TRANSFER_FROM_NFT_WRAPPER)))
                 .willReturn(mockSynthBodyBuilder);
         given(mockSynthBodyBuilder.getCryptoTransfer()).willReturn(cryptoTransferTransactionBody);
         given(impliedTransfersMarshal.validityWithCurrentProps(cryptoTransferTransactionBody))
                 .willReturn(OK);
-        given(sigsVerifier.hasActiveKey(anyBoolean(), any(), any(), any())).willReturn(true);
-        given(sigsVerifier.hasActiveKeyOrNoReceiverSigReq(anyBoolean(), any(), any(), any()))
+        given(sigsVerifier.hasActiveKey(anyBoolean(), any(), any(), any(), eq(CryptoTransfer)))
                 .willReturn(true);
-        given(infrastructureFactory.newImpliedTransfersMarshal(any()))
-                .willReturn(impliedTransfersMarshal);
+        given(sigsVerifier.hasActiveKeyOrNoReceiverSigReq(anyBoolean(), any(), any(), any(), eq(CryptoTransfer)))
+                .willReturn(true);
+        given(infrastructureFactory.newImpliedTransfersMarshal(any())).willReturn(impliedTransfersMarshal);
         given(infrastructureFactory.newHederaTokenStore(sideEffects, tokens, nfts, tokenRels))
                 .willReturn(hederaTokenStore);
 
-        given(
-                        infrastructureFactory.newTransferLogic(
-                                hederaTokenStore, sideEffects, nfts, accounts, tokenRels))
+        given(infrastructureFactory.newTransferLogic(hederaTokenStore, sideEffects, nfts, accounts, tokenRels))
                 .willReturn(transferLogic);
-        given(
-                        feeCalculator.estimatedGasPriceInTinybars(
-                                HederaFunctionality.ContractCall, timestamp))
+        given(feeCalculator.estimatedGasPriceInTinybars(HederaFunctionality.ContractCall, timestamp))
                 .willReturn(1L);
         given(mockSynthBodyBuilder.build())
-                .willReturn(
-                        TransactionBody.newBuilder()
-                                .setCryptoTransfer(cryptoTransferTransactionBody)
-                                .build());
-        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class)))
-                .willReturn(mockSynthBodyBuilder);
+                .willReturn(TransactionBody.newBuilder()
+                        .setCryptoTransfer(cryptoTransferTransactionBody)
+                        .build());
+        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class))).willReturn(mockSynthBodyBuilder);
         given(feeCalculator.computeFee(any(), any(), any(), any())).willReturn(mockFeeObject);
-        given(mockFeeObject.getServiceFee()).willReturn(1L);
-        given(
-                        creator.createSuccessfulSyntheticRecord(
-                                Collections.emptyList(), sideEffects, EMPTY_MEMO))
+        given(mockFeeObject.serviceFee()).willReturn(1L);
+        given(creator.createSuccessfulSyntheticRecord(Collections.emptyList(), sideEffects, EMPTY_MEMO))
                 .willReturn(mockRecordBuilder);
-        given(
-                        impliedTransfersMarshal.assessCustomFeesAndValidate(
-                                anyInt(), anyInt(), anyInt(), any(), any(), any()))
+        given(impliedTransfersMarshal.assessCustomFeesAndValidate(anyInt(), anyInt(), anyInt(), any(), any(), any()))
                 .willReturn(impliedTransfers);
         given(impliedTransfers.getAllBalanceChanges()).willReturn(tokenTransferChanges);
         given(impliedTransfers.getMeta()).willReturn(impliedTransfersMeta);
@@ -1535,20 +1417,11 @@ class ERC20PrecompilesTest {
         given(nfts.contains(NftId.fromGrpc(token, serialNumber))).willReturn(true);
 
         ercTransferPrecompile
-                .when(
-                        () ->
-                                ERCTransferPrecompile.decodeERCTransferFrom(
-                                        eq(pretendArguments),
-                                        eq(null),
-                                        eq(false),
-                                        any(),
-                                        any(),
-                                        any(),
-                                        any()))
+                .when(() -> ERCTransferPrecompile.decodeERCTransferFrom(
+                        eq(pretendArguments), eq(null), eq(false), any(), any(), any(), any()))
                 .thenReturn(CRYPTO_TRANSFER_TOKEN_FROM_NFT_WRAPPER);
 
-        given(aliases.resolveForEvm(any()))
-                .willAnswer(invocationOnMock -> invocationOnMock.getArgument(0));
+        given(aliases.resolveForEvm(any())).willAnswer(invocationOnMock -> invocationOnMock.getArgument(0));
         given(worldUpdater.aliases()).willReturn(aliases);
         given(dynamicProperties.areAllowancesEnabled()).willReturn(true);
         when(accessorFactory.uncheckedSpecializedAccessor(any())).thenCallRealMethod();
@@ -1564,17 +1437,15 @@ class ERC20PrecompilesTest {
         // and:
         verify(transferLogic).doZeroSum(tokenTransferChanges);
         verify(wrappedLedgers).commit();
-        verify(worldUpdater)
-                .manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
+        verify(worldUpdater).manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
         verify(frame)
-                .addLog(
-                        EncodingFacade.LogBuilder.logBuilder()
-                                .forLogger(EntityIdUtils.asTypedEvmAddress(token))
-                                .forEventSignature(AbiConstants.TRANSFER_EVENT)
-                                .forIndexedArgument(sender)
-                                .forIndexedArgument(receiver)
-                                .forIndexedArgument(serialNumber)
-                                .build());
+                .addLog(EncodingFacade.LogBuilder.logBuilder()
+                        .forLogger(EntityIdUtils.asTypedEvmAddress(token))
+                        .forEventSignature(AbiConstants.TRANSFER_EVENT)
+                        .forIndexedArgument(sender)
+                        .forIndexedArgument(receiver)
+                        .forIndexedArgument(serialNumber)
+                        .build());
     }
 
     @Test
@@ -1585,52 +1456,97 @@ class ERC20PrecompilesTest {
         givenPricingUtilsContext();
 
         given(frame.getContractAddress()).willReturn(contractAddr);
-        given(
-                        syntheticTxnFactory.createCryptoTransfer(
-                                Collections.singletonList(tokensTransferList)))
+        given(syntheticTxnFactory.createCryptoTransfer(Collections.singletonList(tokensTransferList)))
                 .willReturn(mockSynthBodyBuilder);
         given(mockSynthBodyBuilder.getCryptoTransfer()).willReturn(cryptoTransferTransactionBody);
         given(impliedTransfersMarshal.validityWithCurrentProps(cryptoTransferTransactionBody))
                 .willReturn(OK);
-        given(sigsVerifier.hasActiveKey(anyBoolean(), any(), any(), any())).willReturn(false);
-        given(infrastructureFactory.newImpliedTransfersMarshal(any()))
-                .willReturn(impliedTransfersMarshal);
+        given(sigsVerifier.hasActiveKey(anyBoolean(), any(), any(), any(), eq(CryptoTransfer)))
+                .willReturn(false);
+        given(infrastructureFactory.newImpliedTransfersMarshal(any())).willReturn(impliedTransfersMarshal);
         given(infrastructureFactory.newHederaTokenStore(sideEffects, tokens, nfts, tokenRels))
                 .willReturn(hederaTokenStore);
 
-        given(
-                        creator.createUnsuccessfulSyntheticRecord(
-                                INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE))
+        given(creator.createUnsuccessfulSyntheticRecord(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE))
                 .willReturn(mockRecordBuilder);
-        given(
-                        feeCalculator.estimatedGasPriceInTinybars(
-                                HederaFunctionality.ContractCall, timestamp))
+        given(feeCalculator.estimatedGasPriceInTinybars(HederaFunctionality.ContractCall, timestamp))
                 .willReturn(1L);
         given(mockSynthBodyBuilder.build())
-                .willReturn(
-                        TransactionBody.newBuilder()
-                                .setCryptoTransfer(cryptoTransferTransactionBody)
-                                .build());
-        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class)))
-                .willReturn(mockSynthBodyBuilder);
+                .willReturn(TransactionBody.newBuilder()
+                        .setCryptoTransfer(cryptoTransferTransactionBody)
+                        .build());
+        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class))).willReturn(mockSynthBodyBuilder);
         given(feeCalculator.computeFee(any(), any(), any(), any())).willReturn(mockFeeObject);
-        given(mockFeeObject.getServiceFee()).willReturn(1L);
-        given(
-                        impliedTransfersMarshal.assessCustomFeesAndValidate(
-                                anyInt(), anyInt(), anyInt(), any(), any(), any()))
+        given(mockFeeObject.serviceFee()).willReturn(1L);
+        given(impliedTransfersMarshal.assessCustomFeesAndValidate(anyInt(), anyInt(), anyInt(), any(), any(), any()))
                 .willReturn(impliedTransfers);
         given(impliedTransfers.getAllBalanceChanges()).willReturn(tokenTransferChanges);
         given(impliedTransfers.getMeta()).willReturn(impliedTransfersMeta);
         given(impliedTransfersMeta.code()).willReturn(OK);
         ercTransferPrecompile
-                .when(
-                        () ->
-                                ERCTransferPrecompile.decodeERCTransfer(
-                                        eq(nestedPretendArguments), any(), any(), any(), any()))
+                .when(() ->
+                        ERCTransferPrecompile.decodeERCTransfer(eq(nestedPretendArguments), any(), any(), any(), any()))
                 .thenReturn(CRYPTO_TRANSFER_FUNGIBLE_WRAPPER);
 
-        given(aliases.resolveForEvm(any()))
-                .willAnswer(invocationOnMock -> invocationOnMock.getArgument(0));
+        given(aliases.resolveForEvm(any())).willAnswer(invocationOnMock -> invocationOnMock.getArgument(0));
+        given(worldUpdater.aliases()).willReturn(aliases);
+        given(wrappedLedgers.typeOf(token)).willReturn(TokenType.FUNGIBLE_COMMON);
+        when(accessorFactory.uncheckedSpecializedAccessor(any())).thenCallRealMethod();
+        when(accessorFactory.constructSpecializedAccessor(any())).thenCallRealMethod();
+        // when:
+        subject.prepareFields(frame);
+        subject.prepareComputation(pretendArguments, a -> a);
+        subject.getPrecompile().getGasRequirement(TEST_CONSENSUS_TIME);
+        final var result = subject.computeInternal(frame);
+
+        // then:
+        assertEquals(invalidFullPrefix, result);
+    }
+
+    @ParameterizedTest
+    @EnumSource
+    void onlyFallsBackToApprovalWithoutTopLevelSigs(final WithHapiBlockLimit limit)
+            throws InvalidProtocolBufferException {
+        final Bytes nestedPretendArguments = Bytes.of(Integers.toBytes(ABI_ID_ERC_TRANSFER));
+        final Bytes pretendArguments = givenMinimalFrameContext(nestedPretendArguments);
+        setHapiBlockLimitGivens.get(limit).accept(dynamicProperties);
+        givenLedgers();
+        givenPricingUtilsContext();
+
+        given(frame.getContractAddress()).willReturn(contractAddr);
+        given(syntheticTxnFactory.createCryptoTransfer(Collections.singletonList(tokensTransferList)))
+                .willReturn(mockSynthBodyBuilder);
+        given(mockSynthBodyBuilder.getCryptoTransfer()).willReturn(cryptoTransferTransactionBody);
+        given(impliedTransfersMarshal.validityWithCurrentProps(cryptoTransferTransactionBody))
+                .willReturn(OK);
+        given(sigsVerifier.hasActiveKey(anyBoolean(), any(), any(), any(), eq(CryptoTransfer)))
+                .willReturn(false);
+        given(infrastructureFactory.newImpliedTransfersMarshal(any())).willReturn(impliedTransfersMarshal);
+        given(infrastructureFactory.newHederaTokenStore(sideEffects, tokens, nfts, tokenRels))
+                .willReturn(hederaTokenStore);
+
+        given(creator.createUnsuccessfulSyntheticRecord(INVALID_FULL_PREFIX_SIGNATURE_FOR_PRECOMPILE))
+                .willReturn(mockRecordBuilder);
+        given(feeCalculator.estimatedGasPriceInTinybars(HederaFunctionality.ContractCall, timestamp))
+                .willReturn(1L);
+        given(mockSynthBodyBuilder.build())
+                .willReturn(TransactionBody.newBuilder()
+                        .setCryptoTransfer(cryptoTransferTransactionBody)
+                        .build());
+        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class))).willReturn(mockSynthBodyBuilder);
+        given(feeCalculator.computeFee(any(), any(), any(), any())).willReturn(mockFeeObject);
+        given(mockFeeObject.serviceFee()).willReturn(1L);
+        given(impliedTransfersMarshal.assessCustomFeesAndValidate(anyInt(), anyInt(), anyInt(), any(), any(), any()))
+                .willReturn(impliedTransfers);
+        given(impliedTransfers.getAllBalanceChanges()).willReturn(tokenTransferChanges);
+        given(impliedTransfers.getMeta()).willReturn(impliedTransfersMeta);
+        given(impliedTransfersMeta.code()).willReturn(OK);
+        ercTransferPrecompile
+                .when(() ->
+                        ERCTransferPrecompile.decodeERCTransfer(eq(nestedPretendArguments), any(), any(), any(), any()))
+                .thenReturn(CRYPTO_TRANSFER_FUNGIBLE_WRAPPER);
+
+        given(aliases.resolveForEvm(any())).willAnswer(invocationOnMock -> invocationOnMock.getArgument(0));
         given(worldUpdater.aliases()).willReturn(aliases);
         given(wrappedLedgers.typeOf(token)).willReturn(TokenType.FUNGIBLE_COMMON);
         when(accessorFactory.uncheckedSpecializedAccessor(any())).thenCallRealMethod();
@@ -1646,34 +1562,104 @@ class ERC20PrecompilesTest {
     }
 
     @Test
+    void withoutTopLevelSigsOrActiveSigFallsBackToApproval() throws InvalidProtocolBufferException {
+        final var pretendArguments = Bytes.of(Integers.toBytes(ABI_ID_TRANSFER_FROM_NFT));
+        givenMinimalFrameContext(Bytes.EMPTY);
+        givenLedgers();
+        givenPricingUtilsContext();
+
+        given(frame.getContractAddress()).willReturn(contractAddr);
+        given(syntheticTxnFactory.createCryptoTransfer(Collections.singletonList(TOKEN_TRANSFER_FROM_NFT_WRAPPER)))
+                .willReturn(mockSynthBodyBuilder);
+        given(mockSynthBodyBuilder.getCryptoTransfer()).willReturn(cryptoTransferTransactionBody);
+        given(impliedTransfersMarshal.validityWithCurrentProps(cryptoTransferTransactionBody))
+                .willReturn(OK);
+        given(sigsVerifier.hasActiveKey(anyBoolean(), any(), any(), any(), eq(CryptoTransfer)))
+                .willReturn(false);
+        given(sigsVerifier.hasActiveKeyOrNoReceiverSigReq(anyBoolean(), any(), any(), any(), eq(CryptoTransfer)))
+                .willReturn(true);
+        given(infrastructureFactory.newImpliedTransfersMarshal(any())).willReturn(impliedTransfersMarshal);
+        given(infrastructureFactory.newHederaTokenStore(sideEffects, tokens, nfts, tokenRels))
+                .willReturn(hederaTokenStore);
+
+        given(infrastructureFactory.newTransferLogic(hederaTokenStore, sideEffects, nfts, accounts, tokenRels))
+                .willReturn(transferLogic);
+        given(feeCalculator.estimatedGasPriceInTinybars(HederaFunctionality.ContractCall, timestamp))
+                .willReturn(1L);
+        given(mockSynthBodyBuilder.build())
+                .willReturn(TransactionBody.newBuilder()
+                        .setCryptoTransfer(cryptoTransferTransactionBody)
+                        .build());
+        given(mockSynthBodyBuilder.setTransactionID(any(TransactionID.class))).willReturn(mockSynthBodyBuilder);
+        given(mockSynthBodyBuilder.getCryptoTransferBuilder()).willReturn(CryptoTransferTransactionBody.newBuilder());
+        given(feeCalculator.computeFee(any(), any(), any(), any())).willReturn(mockFeeObject);
+        given(mockFeeObject.serviceFee()).willReturn(1L);
+        given(creator.createSuccessfulSyntheticRecord(Collections.emptyList(), sideEffects, EMPTY_MEMO))
+                .willReturn(mockRecordBuilder);
+        given(impliedTransfersMarshal.assessCustomFeesAndValidate(anyInt(), anyInt(), anyInt(), any(), any(), any()))
+                .willReturn(impliedTransfers);
+        given(impliedTransfers.getAllBalanceChanges()).willReturn(tokenTransferChanges);
+        given(impliedTransfers.getMeta()).willReturn(impliedTransfersMeta);
+        given(impliedTransfersMeta.code()).willReturn(OK);
+        given(wrappedLedgers.nfts()).willReturn(nfts);
+        given(nfts.contains(NftId.fromGrpc(token, serialNumber))).willReturn(true);
+
+        ercTransferPrecompile
+                .when(() -> ERCTransferPrecompile.decodeERCTransferFrom(
+                        eq(pretendArguments), eq(null), eq(false), any(), any(), any(), any()))
+                .thenReturn(CRYPTO_TRANSFER_TOKEN_FROM_NFT_WRAPPER);
+
+        given(aliases.resolveForEvm(any())).willAnswer(invocationOnMock -> invocationOnMock.getArgument(0));
+        given(worldUpdater.aliases()).willReturn(aliases);
+        given(dynamicProperties.areAllowancesEnabled()).willReturn(true);
+        when(accessorFactory.uncheckedSpecializedAccessor(any())).thenCallRealMethod();
+        when(accessorFactory.constructSpecializedAccessor(any())).thenCallRealMethod();
+        // when:
+        subject.prepareFields(frame);
+        subject.prepareComputation(pretendArguments, a -> a);
+        subject.getPrecompile().getGasRequirement(TEST_CONSENSUS_TIME);
+        ((TransferPrecompile) subject.getPrecompile()).setCanFallbackToApprovals(true);
+        final var result = subject.computeInternal(frame);
+
+        // then:
+        assertEquals(successResult, result);
+        // and:
+        verify(transferLogic).doZeroSum(tokenTransferChanges);
+        verify(wrappedLedgers).commit();
+        verify(worldUpdater).manageInProgressRecord(recordsHistorian, mockRecordBuilder, mockSynthBodyBuilder);
+        verify(frame)
+                .addLog(EncodingFacade.LogBuilder.logBuilder()
+                        .forLogger(EntityIdUtils.asTypedEvmAddress(token))
+                        .forEventSignature(AbiConstants.TRANSFER_EVENT)
+                        .forIndexedArgument(sender)
+                        .forIndexedArgument(receiver)
+                        .forIndexedArgument(serialNumber)
+                        .build());
+    }
+
+    @Test
     void ownerOfNotSupported() {
         final Bytes nestedPretendArguments = Bytes.of(Integers.toBytes(ABI_ID_ERC_OWNER_OF_NFT));
-        final Bytes pretendArguments =
-                givenMinimalFrameContextWithoutParentUpdater(nestedPretendArguments);
+        final Bytes pretendArguments = givenMinimalFrameContextWithoutParentUpdater(nestedPretendArguments);
 
         given(wrappedLedgers.typeOf(token)).willReturn(TokenType.FUNGIBLE_COMMON);
         subject.prepareFields(frame);
 
-        final var exception =
-                assertThrows(
-                        InvalidTransactionException.class,
-                        () -> subject.prepareComputation(pretendArguments, a -> a));
+        final var exception = assertThrows(
+                InvalidTransactionException.class, () -> subject.prepareComputation(pretendArguments, a -> a));
         assertEquals(NOT_SUPPORTED_FUNGIBLE_OPERATION_REASON, exception.getMessage());
     }
 
     @Test
     void tokenURINotSupported() {
         final Bytes nestedPretendArguments = Bytes.of(Integers.toBytes(ABI_ID_ERC_TOKEN_URI_NFT));
-        final Bytes pretendArguments =
-                givenMinimalFrameContextWithoutParentUpdater(nestedPretendArguments);
+        final Bytes pretendArguments = givenMinimalFrameContextWithoutParentUpdater(nestedPretendArguments);
 
         given(wrappedLedgers.typeOf(token)).willReturn(TokenType.FUNGIBLE_COMMON);
         subject.prepareFields(frame);
 
-        final var exception =
-                assertThrows(
-                        InvalidTransactionException.class,
-                        () -> subject.prepareComputation(pretendArguments, a -> a));
+        final var exception = assertThrows(
+                InvalidTransactionException.class, () -> subject.prepareComputation(pretendArguments, a -> a));
         assertEquals(NOT_SUPPORTED_FUNGIBLE_OPERATION_REASON, exception.getMessage());
     }
 
@@ -1685,20 +1671,14 @@ class ERC20PrecompilesTest {
         final Optional<WorldUpdater> parent = Optional.of(worldUpdater);
         given(worldUpdater.parentUpdater()).willReturn(parent);
         given(worldUpdater.wrappedTrackingLedgers(any())).willReturn(wrappedLedgers);
-        return Bytes.concatenate(
-                Bytes.of(Integers.toBytes(ABI_ID_REDIRECT_FOR_TOKEN)),
-                fungibleTokenAddr,
-                nestedArg);
+        return Bytes.concatenate(Bytes.of(Integers.toBytes(ABI_ID_REDIRECT_FOR_TOKEN)), fungibleTokenAddr, nestedArg);
     }
 
     private Bytes givenMinimalFrameContextWithoutParentUpdater(final Bytes nestedArg) {
         given(frame.getSenderAddress()).willReturn(contractAddress);
         given(frame.getWorldUpdater()).willReturn(worldUpdater);
         given(worldUpdater.wrappedTrackingLedgers(any())).willReturn(wrappedLedgers);
-        return Bytes.concatenate(
-                Bytes.of(Integers.toBytes(ABI_ID_REDIRECT_FOR_TOKEN)),
-                fungibleTokenAddr,
-                nestedArg);
+        return Bytes.concatenate(Bytes.of(Integers.toBytes(ABI_ID_REDIRECT_FOR_TOKEN)), fungibleTokenAddr, nestedArg);
     }
 
     private void givenLedgers() {
@@ -1714,39 +1694,37 @@ class ERC20PrecompilesTest {
         given(exchangeRate.getHbarEquiv()).willReturn(HBAR_RATE);
     }
 
-    public static final BalanceOfWrapper<AccountID> BALANCE_OF_WRAPPER =
-            new BalanceOfWrapper<>(sender);
+    public static final BalanceOfWrapper<AccountID> BALANCE_OF_WRAPPER = new BalanceOfWrapper<>(sender);
 
     public static final TokenAllowanceWrapper<TokenID, AccountID, AccountID> ALLOWANCE_WRAPPER =
             new TokenAllowanceWrapper<>(token, sender, receiver);
 
-    public static final TokenTransferWrapper TOKEN_TRANSFER_FROM_WRAPPER =
-            new TokenTransferWrapper(
-                    new ArrayList<>() {},
-                    List.of(
-                            new SyntheticTxnFactory.FungibleTokenTransfer(
-                                    AMOUNT, true, token, null, receiver),
-                            new SyntheticTxnFactory.FungibleTokenTransfer(
-                                    -AMOUNT, true, token, sender, null)));
+    public static final TokenTransferWrapper TOKEN_TRANSFER_FROM_WRAPPER = new TokenTransferWrapper(
+            new ArrayList<>() {},
+            List.of(
+                    new SyntheticTxnFactory.FungibleTokenTransfer(AMOUNT, true, token, null, receiver),
+                    new SyntheticTxnFactory.FungibleTokenTransfer(-AMOUNT, true, token, sender, null)));
 
-    public static final CryptoTransferWrapper CRYPTO_TRANSFER_TOKEN_FROM_WRAPPER =
-            new CryptoTransferWrapper(
-                    new TransferWrapper(Collections.emptyList()),
-                    Collections.singletonList(TOKEN_TRANSFER_FROM_WRAPPER));
-    public static final TokenTransferWrapper TOKEN_TRANSFER_FROM_NFT_WRAPPER =
-            new TokenTransferWrapper(
-                    List.of(
-                            SyntheticTxnFactory.NftExchange.fromApproval(
-                                    serialNumber, token, sender, receiver)),
-                    new ArrayList<>() {});
-    public static final CryptoTransferWrapper CRYPTO_TRANSFER_TOKEN_FROM_NFT_WRAPPER =
-            new CryptoTransferWrapper(
-                    new TransferWrapper(Collections.emptyList()),
-                    Collections.singletonList(TOKEN_TRANSFER_FROM_NFT_WRAPPER));
+    public static final CryptoTransferWrapper CRYPTO_TRANSFER_TOKEN_FROM_WRAPPER = new CryptoTransferWrapper(
+            new TransferWrapper(Collections.emptyList()), Collections.singletonList(TOKEN_TRANSFER_FROM_WRAPPER));
+    public static final TokenTransferWrapper TOKEN_TRANSFER_FROM_NFT_WRAPPER = new TokenTransferWrapper(
+            List.of(SyntheticTxnFactory.NftExchange.fromApproval(serialNumber, token, sender, receiver)),
+            new ArrayList<>() {});
+    public static final CryptoTransferWrapper CRYPTO_TRANSFER_TOKEN_FROM_NFT_WRAPPER = new CryptoTransferWrapper(
+            new TransferWrapper(Collections.emptyList()), Collections.singletonList(TOKEN_TRANSFER_FROM_NFT_WRAPPER));
 
     public static final ApproveWrapper APPROVE_WRAPPER =
             new ApproveWrapper(token, receiver, BigInteger.ONE, BigInteger.ZERO, true);
 
     public static final ApproveWrapper APPROVE_NFT_WRAPPER =
             new ApproveWrapper(token, receiver, BigInteger.ONE, BigInteger.ZERO, false);
+
+    private void givenIfDelegateCall() {
+        given(frame.getContractAddress()).willReturn(contractAddress);
+        given(frame.getRecipientAddress()).willReturn(recipientAddress);
+        given(worldUpdater.get(recipientAddress)).willReturn(acc);
+        given(acc.getNonce()).willReturn(-1L);
+        given(frame.getMessageFrameStack()).willReturn(stack);
+        given(frame.getMessageFrameStack().iterator()).willReturn(dequeIterator);
+    }
 }

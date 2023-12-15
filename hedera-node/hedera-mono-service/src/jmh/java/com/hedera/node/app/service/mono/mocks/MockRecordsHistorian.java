@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.mocks;
 
 import com.hedera.node.app.service.mono.records.InProgressChildRecord;
@@ -79,6 +80,11 @@ public class MockRecordsHistorian implements RecordsHistorian {
     }
 
     @Override
+    public boolean hasThrottleCapacityForChildTransactions() {
+        return true;
+    }
+
+    @Override
     public int nextChildRecordSourceId() {
         throw new UnsupportedOperationException();
     }
@@ -93,20 +99,18 @@ public class MockRecordsHistorian implements RecordsHistorian {
     }
 
     @Override
+    public boolean canTrackPrecedingChildRecords(int n) {
+        return false;
+    }
+
+    @Override
     public void trackPrecedingChildRecord(
-            final int sourceId,
-            final Builder syntheticBody,
-            final ExpirableTxnRecord.Builder recordSoFar) {
+            final int sourceId, final Builder syntheticBody, final ExpirableTxnRecord.Builder recordSoFar) {
         // No-op
     }
 
     @Override
     public void revertChildRecordsFromSource(final int sourceId) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void noteNewExpirationEvents() {
         throw new UnsupportedOperationException();
     }
 
@@ -117,8 +121,7 @@ public class MockRecordsHistorian implements RecordsHistorian {
 
     @Override
     public void customizeSuccessor(
-            final Predicate<InProgressChildRecord> matcher,
-            final Consumer<InProgressChildRecord> customizer) {
+            final Predicate<InProgressChildRecord> matcher, final Consumer<InProgressChildRecord> customizer) {
         throw new UnsupportedOperationException();
     }
 

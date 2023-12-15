@@ -13,9 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.migration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -23,6 +25,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import com.hedera.node.app.service.mono.state.adapters.MerkleMapLike;
 import com.hedera.node.app.service.mono.state.merkle.MerkleAccount;
 import com.hedera.node.app.service.mono.state.merkle.MerklePayerRecords;
 import com.hedera.node.app.service.mono.state.submerkle.ExpirableTxnRecord;
@@ -31,6 +34,10 @@ import com.hedera.test.utils.SeededPropertySource;
 import com.swirlds.fcqueue.FCQueue;
 import com.swirlds.merkle.map.MerkleMap;
 import edu.umd.cs.findbugs.annotations.Nullable;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Queue;
 import java.util.function.BiConsumer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,11 +49,26 @@ class RecordsStorageAdapterTest {
     private static final EntityNum SOME_NUM = EntityNum.fromInt(1234);
     private static final EntityNum SOME_MISSING_NUM = EntityNum.fromInt(4321);
 
-    @Mock private @Nullable MerkleMap<EntityNum, MerkleAccount> accounts;
-    @Mock private @Nullable MerkleMap<EntityNum, MerklePayerRecords> payerRecords;
-    @Mock private MerkleAccount account;
-    @Mock private MerklePayerRecords accountRecords;
-    @Mock private BiConsumer<EntityNum, FCQueue<ExpirableTxnRecord>> observer;
+    @Mock
+    private FCQueue<ExpirableTxnRecord> consolidatedRecords;
+
+    @Mock
+    private Map<EntityNum, Queue<ExpirableTxnRecord>> queryableRecords;
+
+    @Mock
+    private @Nullable MerkleMap<EntityNum, MerkleAccount> accounts;
+
+    @Mock
+    private @Nullable MerkleMap<EntityNum, MerklePayerRecords> payerRecords;
+
+    @Mock
+    private MerkleAccount account;
+
+    @Mock
+    private MerklePayerRecords accountRecords;
+
+    @Mock
+    private BiConsumer<EntityNum, Queue<ExpirableTxnRecord>> observer;
 
     private RecordsStorageAdapter subject;
 
@@ -65,6 +87,13 @@ class RecordsStorageAdapterTest {
     }
 
     @Test
+    void removingConsolidatedPayerRequiresWork() {
+        withConsolidatedSubject();
+        subject.forgetPayer(SOME_NUM);
+        verify(queryableRecords).remove(SOME_NUM);
+    }
+
+    @Test
     void creatingLegacyPayerIsNoop() {
         withLegacySubject();
         subject.prepForPayer(SOME_NUM);
@@ -79,6 +108,13 @@ class RecordsStorageAdapterTest {
     }
 
     @Test
+    void creatingConsolidatedPayerRequiresWork() {
+        withConsolidatedSubject();
+        subject.prepForPayer(SOME_NUM);
+        verify(queryableRecords).put(eq(SOME_NUM), any());
+    }
+
+    @Test
     void addingWithDedicatedPayerWorks() {
         withDedicatedSubject();
         given(payerRecords.getForModify(SOME_NUM)).willReturn(accountRecords);
@@ -90,6 +126,33 @@ class RecordsStorageAdapterTest {
     }
 
     @Test
+    void addingWithLegacyPayerWorks() {
+        withLegacySubject();
+        final FCQueue<ExpirableTxnRecord> records = new FCQueue<>();
+        given(accounts.getForModify(SOME_NUM)).willReturn(account);
+        given(account.records()).willReturn(records);
+
+        final var aRecord = SeededPropertySource.forSerdeTest(11, 1).nextRecord();
+        subject.addPayerRecord(SOME_NUM, aRecord);
+
+        final var added = records.poll();
+        assertSame(aRecord, added);
+    }
+
+    @Test
+    void addingWithConsolidatedFcqWorksWithExistingPayerRecords() {
+        withConsolidatedSubject();
+        final Queue<ExpirableTxnRecord> someQueryableRecords = new LinkedList<>();
+        given(queryableRecords.computeIfAbsent(eq(SOME_NUM), any())).willReturn(someQueryableRecords);
+
+        final var aRecord = SeededPropertySource.forSerdeTest(11, 1).nextRecord();
+        subject.addPayerRecord(SOME_NUM, aRecord);
+
+        verify(consolidatedRecords).offer(aRecord);
+        assertEquals(List.of(aRecord), someQueryableRecords);
+    }
+
+    @Test
     void gettingMutableWithDedicatedPayerWorks() {
         withDedicatedSubject();
         final FCQueue<ExpirableTxnRecord> records = new FCQueue<>();
@@ -97,6 +160,13 @@ class RecordsStorageAdapterTest {
         given(accountRecords.mutableQueue()).willReturn(records);
 
         assertSame(records, subject.getMutablePayerRecords(SOME_NUM));
+    }
+
+    @Test
+    void gettingMutableWithConsolidatedPayerWorks() {
+        withConsolidatedSubject();
+
+        assertSame(consolidatedRecords, subject.getMutablePayerRecords(SOME_NUM));
     }
 
     @Test
@@ -120,9 +190,30 @@ class RecordsStorageAdapterTest {
         given(accountRecords.asQueryableRecords()).willReturn(queryable);
 
         assertSame(queryable, subject.getReadOnlyPayerRecords(SOME_NUM));
-        assertSame(
-                QueryableRecords.NO_QUERYABLE_RECORDS,
-                subject.getReadOnlyPayerRecords(SOME_MISSING_NUM));
+        assertSame(QueryableRecords.NO_QUERYABLE_RECORDS, subject.getReadOnlyPayerRecords(SOME_MISSING_NUM));
+    }
+
+    @Test
+    void gettingReadOnlyWithConsolidatedPayerWorks() {
+        withConsolidatedSubject();
+        final var aRecord = SeededPropertySource.forSerdeTest(11, 1).nextRecord();
+        final Queue<ExpirableTxnRecord> records = new LinkedList<>();
+        records.add(aRecord);
+        given(queryableRecords.get(SOME_NUM)).willReturn(records);
+
+        final var queryable = subject.getReadOnlyPayerRecords(SOME_NUM);
+
+        final var nextRecord = queryable.iterator().next();
+
+        assertEquals(aRecord, nextRecord);
+        assertFalse(queryable.iterator().hasNext());
+    }
+
+    @Test
+    void gettingReadOnlyForNoQueryableWithConsolidatedPayerWorks() {
+        withConsolidatedSubject();
+        final var queryable = subject.getReadOnlyPayerRecords(SOME_NUM);
+        assertSame(QueryableRecords.NO_QUERYABLE_RECORDS, queryable);
     }
 
     @Test
@@ -136,23 +227,7 @@ class RecordsStorageAdapterTest {
 
         final var queryable = subject.getReadOnlyPayerRecords(SOME_NUM);
         assertEquals(1, queryable.expectedSize());
-        assertSame(
-                QueryableRecords.NO_QUERYABLE_RECORDS,
-                subject.getReadOnlyPayerRecords(SOME_MISSING_NUM));
-    }
-
-    @Test
-    void addingWithLegacyPayerWorks() {
-        withLegacySubject();
-        final FCQueue<ExpirableTxnRecord> records = new FCQueue<>();
-        given(accounts.getForModify(SOME_NUM)).willReturn(account);
-        given(account.records()).willReturn(records);
-
-        final var aRecord = SeededPropertySource.forSerdeTest(11, 1).nextRecord();
-        subject.addPayerRecord(SOME_NUM, aRecord);
-
-        final var added = records.poll();
-        assertSame(aRecord, added);
+        assertSame(QueryableRecords.NO_QUERYABLE_RECORDS, subject.getReadOnlyPayerRecords(SOME_MISSING_NUM));
     }
 
     @Test
@@ -170,6 +245,15 @@ class RecordsStorageAdapterTest {
     }
 
     @Test
+    void canReviewConsolidateRecords() {
+        withConsolidatedSubject();
+
+        subject.doForEach(observer);
+
+        verify(queryableRecords).forEach(observer);
+    }
+
+    @Test
     void canReviewLegacy() {
         accounts = new MerkleMap<>();
         withLegacySubject();
@@ -184,10 +268,14 @@ class RecordsStorageAdapterTest {
     }
 
     private void withLegacySubject() {
-        subject = RecordsStorageAdapter.fromLegacy(accounts);
+        subject = RecordsStorageAdapter.fromLegacy(MerkleMapLike.from(accounts));
     }
 
     private void withDedicatedSubject() {
-        subject = RecordsStorageAdapter.fromDedicated(payerRecords);
+        subject = RecordsStorageAdapter.fromDedicated(MerkleMapLike.from(payerRecords));
+    }
+
+    private void withConsolidatedSubject() {
+        subject = RecordsStorageAdapter.fromConsolidated(consolidatedRecords, queryableRecords);
     }
 }

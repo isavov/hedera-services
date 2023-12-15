@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.token;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -32,6 +33,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 public class TokenMiscOps extends HapiSuite {
+
     private static final Logger log = LogManager.getLogger(TokenMiscOps.class);
 
     public static void main(String... args) {
@@ -40,14 +42,12 @@ public class TokenMiscOps extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return allOf(
-                List.of(
-                        new HapiSpec[] {
-                            //								wellKnownAccountsHaveTokens(),
-                            //								someLowNumAccountsHaveTokens(),
-                            //								someInfoQueries(),
-                            theCreation(),
-                        }));
+        return allOf(List.of(new HapiSpec[] {
+            //								wellKnownAccountsHaveTokens(),
+            //								someLowNumAccountsHaveTokens(),
+            //								someInfoQueries(),
+            theCreation(),
+        }));
     }
 
     public HapiSpec someLowNumAccountsHaveTokens() {

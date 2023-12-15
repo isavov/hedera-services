@@ -13,10 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.throttling;
 
 import static com.hederahashgraph.api.proto.java.HederaFunctionality.ContractCallLocal;
+import static com.hederahashgraph.api.proto.java.HederaFunctionality.CryptoCreate;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -25,6 +28,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 
 import com.hedera.node.app.hapi.utils.sysfiles.domain.throttling.ThrottleDefinitions;
+import com.hedera.node.app.hapi.utils.throttles.DeterministicThrottle;
 import com.hedera.node.app.hapi.utils.throttles.GasLimitDeterministicThrottle;
 import com.hedera.node.app.service.mono.utils.accessors.SignedTxnAccessor;
 import com.hederahashgraph.api.proto.java.Query;
@@ -38,8 +42,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class HapiThrottlingTest {
-    @Mock private TimedFunctionalityThrottling delegate;
-    @Mock private Query query;
+    @Mock
+    private TimedFunctionalityThrottling delegate;
+
+    @Mock
+    private Query query;
 
     private HapiThrottling subject;
 
@@ -62,6 +69,12 @@ class HapiThrottlingTest {
     }
 
     @Test
+    void delegatesCapacityLeak() {
+        subject.leakCapacityForNOfUnscaled(2, CryptoCreate);
+        verify(delegate).leakCapacityForNOfUnscaled(2, CryptoCreate);
+    }
+
+    @Test
     void delegatesTxnWithSomeInstant() {
         // setup:
         final var accessor = SignedTxnAccessor.uncheckedFrom(Transaction.getDefaultInstance());
@@ -75,6 +88,16 @@ class HapiThrottlingTest {
         assertTrue(ans);
         // and:
         verify(delegate).shouldThrottleTxn(eq(accessor), any());
+    }
+
+    @Test
+    void delegatesSnapshotActions() {
+        final List<DeterministicThrottle.UsageSnapshot> pretend = List.of();
+        given(delegate.getUsageSnapshots()).willReturn(pretend);
+        assertSame(pretend, subject.getUsageSnapshots());
+
+        subject.resetUsageThrottlesTo(pretend);
+        verify(delegate).resetUsageThrottlesTo(pretend);
     }
 
     @Test

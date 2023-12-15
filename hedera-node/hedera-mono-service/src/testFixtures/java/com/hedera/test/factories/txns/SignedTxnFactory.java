@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.test.factories.txns;
 
 import static com.hedera.test.factories.keys.NodeFactory.ed25519;
@@ -22,6 +23,7 @@ import static java.util.Collections.EMPTY_LIST;
 import static java.util.stream.Collectors.toList;
 
 import com.google.protobuf.ByteString;
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.hedera.node.app.hapi.utils.fee.FeeBuilder;
 import com.hedera.test.factories.keys.KeyFactory;
 import com.hedera.test.factories.keys.KeyTree;
@@ -33,6 +35,9 @@ import com.hederahashgraph.api.proto.java.Timestamp;
 import com.hederahashgraph.api.proto.java.Transaction;
 import com.hederahashgraph.api.proto.java.TransactionBody;
 import com.hederahashgraph.api.proto.java.TransactionID;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+import java.security.SignatureException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -45,7 +50,9 @@ public abstract class SignedTxnFactory<T extends SignedTxnFactory<T>> {
     public static final AccountID DEFAULT_NODE = asAccount(DEFAULT_NODE_ID);
     public static final String DEFAULT_PAYER_ID = "0.0.13257";
     public static final String MASTER_PAYER_ID = "0.0.50";
+    public static final AccountID MASTER_PAYER = asAccount(MASTER_PAYER_ID);
     public static final String TREASURY_PAYER_ID = "0.0.2";
+    public static final AccountID TREASURY_PAYER = asAccount(TREASURY_PAYER_ID);
     public static final AccountID DEFAULT_PAYER = asAccount(DEFAULT_PAYER_ID);
     public static final String STAKING_FUND_ID = "0.0.800";
     public static final AccountID STAKING_FUND = asAccount("0.0.800");
@@ -75,11 +82,10 @@ public abstract class SignedTxnFactory<T extends SignedTxnFactory<T>> {
 
     protected abstract void customizeTxn(TransactionBody.Builder txn);
 
-    public Transaction get() throws Throwable {
+    public Transaction get()
+            throws InvalidProtocolBufferException, SignatureException, NoSuchAlgorithmException, InvalidKeyException {
         final Transaction provisional = signed(signableTxn(customFee.orElse(0L)));
-        return customFee.isPresent()
-                ? provisional
-                : signed(signableTxn(feeFor(provisional, payerKt.numLeaves())));
+        return customFee.isPresent() ? provisional : signed(signableTxn(feeFor(provisional, payerKt.numLeaves())));
     }
 
     private Transaction.Builder signableTxn(final long fee) {
@@ -90,25 +96,23 @@ public abstract class SignedTxnFactory<T extends SignedTxnFactory<T>> {
                 .setBodyBytes(ByteString.copyFrom(txn.build().toByteArray()));
     }
 
-    private Transaction signed(final Transaction.Builder txnWithSigs) throws Throwable {
+    private Transaction signed(final Transaction.Builder txnWithSigs)
+            throws InvalidProtocolBufferException, SignatureException, NoSuchAlgorithmException, InvalidKeyException {
         final List<KeyTree> signers = allKts();
         return sigFactory.signWithSigMap(txnWithSigs, signers, keyFactory);
     }
 
     private List<KeyTree> allKts() {
-        return Stream.of(
-                        skipPayerSig ? Stream.<KeyTree>empty() : Stream.of(payerKt),
-                        otherKts.stream())
+        return Stream.of(skipPayerSig ? Stream.<KeyTree>empty() : Stream.of(payerKt), otherKts.stream())
                 .flatMap(Function.identity())
                 .collect(toList());
     }
 
     private TransactionBody.Builder baseTxn() {
-        final TransactionBody.Builder txn =
-                TransactionBody.newBuilder()
-                        .setNodeAccountID(asAccount(node))
-                        .setTransactionValidDuration(validDuration())
-                        .setMemo(memo);
+        final TransactionBody.Builder txn = TransactionBody.newBuilder()
+                .setNodeAccountID(asAccount(node))
+                .setTransactionValidDuration(validDuration())
+                .setMemo(memo);
         if (!skipTxnId) {
             txn.setTransactionID(txnId());
         }

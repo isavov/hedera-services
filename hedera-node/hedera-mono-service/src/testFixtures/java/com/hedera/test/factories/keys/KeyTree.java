@@ -13,14 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.test.factories.keys;
 
 import com.hedera.node.app.service.mono.legacy.core.jproto.JKey;
+import com.hedera.node.app.service.mono.pbj.PbjConverter;
 import com.hedera.node.app.service.mono.utils.MiscUtils;
 import com.hederahashgraph.api.proto.java.Key;
+import java.security.InvalidKeyException;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
-import org.apache.commons.codec.DecoderException;
 
 public class KeyTree {
     private final KeyTreeNode root;
@@ -46,12 +48,11 @@ public class KeyTree {
         traverse(node -> node instanceof KeyTreeLeaf, node -> visitor.accept((KeyTreeLeaf) node));
     }
 
-    public void traverse(
-            final Predicate<KeyTreeNode> shouldVisit, final Consumer<KeyTreeNode> visitor) {
+    public void traverse(final Predicate<KeyTreeNode> shouldVisit, final Consumer<KeyTreeNode> visitor) {
         root.traverse(shouldVisit, visitor);
     }
 
-    public JKey asJKey() throws DecoderException {
+    public JKey asJKey() throws InvalidKeyException {
         return JKey.mapKey(asKey());
     }
 
@@ -61,6 +62,10 @@ public class KeyTree {
 
     public Key asKey() {
         return asKey(KeyFactory.getDefaultInstance());
+    }
+
+    public com.hedera.hapi.node.base.Key asPbjKey() {
+        return PbjConverter.protoToPbj(asKey(), com.hedera.hapi.node.base.Key.class);
     }
 
     public Key asKey(final KeyFactory factoryToUse) {

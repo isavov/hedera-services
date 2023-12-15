@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.queries.crypto;
 
 import static com.hederahashgraph.api.proto.java.HederaFunctionality.CryptoGetInfo;
@@ -21,7 +22,6 @@ import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.OK;
 import static com.hederahashgraph.api.proto.java.ResponseType.COST_ANSWER;
 
 import com.hedera.node.app.service.mono.context.primitives.StateView;
-import com.hedera.node.app.service.mono.context.properties.GlobalDynamicProperties;
 import com.hedera.node.app.service.mono.ledger.accounts.AliasManager;
 import com.hedera.node.app.service.mono.ledger.accounts.staking.RewardCalculator;
 import com.hedera.node.app.service.mono.queries.AnswerService;
@@ -43,22 +43,23 @@ import java.util.Optional;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
+/**
+ * Implements the {@link HederaFunctionality#CryptoGetInfo} query handler.
+ * This does not return token relationships anymore, since the field is deprecated.
+ */
 @Singleton
 public class GetAccountInfoAnswer implements AnswerService {
     private final OptionValidator optionValidator;
     private final AliasManager aliasManager;
-    private final GlobalDynamicProperties dynamicProperties;
     private final RewardCalculator rewardCalculator;
 
     @Inject
     public GetAccountInfoAnswer(
             final OptionValidator optionValidator,
             final AliasManager aliasManager,
-            final GlobalDynamicProperties dynamicProperties,
             final RewardCalculator rewardCalculator) {
         this.optionValidator = optionValidator;
         this.aliasManager = aliasManager;
-        this.dynamicProperties = dynamicProperties;
         this.rewardCalculator = rewardCalculator;
     }
 
@@ -66,18 +67,13 @@ public class GetAccountInfoAnswer implements AnswerService {
     public ResponseCodeEnum checkValidity(final Query query, final StateView view) {
         final AccountID id = query.getCryptoGetInfo().getAccountID();
         final var entityNum =
-                id.getAlias().isEmpty()
-                        ? EntityNum.fromAccountId(id)
-                        : aliasManager.lookupIdBy(id.getAlias());
+                id.getAlias().isEmpty() ? EntityNum.fromAccountId(id) : aliasManager.lookupIdBy(id.getAlias());
         return optionValidator.queryableAccountStatus(entityNum, view.accounts());
     }
 
     @Override
     public Response responseGiven(
-            final Query query,
-            final @Nullable StateView view,
-            final ResponseCodeEnum validity,
-            final long cost) {
+            final Query query, final @Nullable StateView view, final ResponseCodeEnum validity, final long cost) {
         final CryptoGetInfoQuery op = query.getCryptoGetInfo();
         final CryptoGetInfoResponse.Builder response = CryptoGetInfoResponse.newBuilder();
 
@@ -90,12 +86,7 @@ public class GetAccountInfoAnswer implements AnswerService {
             } else {
                 final AccountID id = op.getAccountID();
                 final var optionalInfo =
-                        Objects.requireNonNull(view)
-                                .infoForAccount(
-                                        id,
-                                        aliasManager,
-                                        dynamicProperties.maxTokensRelsPerInfoQuery(),
-                                        rewardCalculator);
+                        Objects.requireNonNull(view).infoForAccount(id, aliasManager, rewardCalculator);
                 if (optionalInfo.isPresent()) {
                     response.setHeader(answerOnlyHeader(OK));
                     response.setAccountInfo(optionalInfo.get());

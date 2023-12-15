@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.submerkle;
 
 import static com.hedera.node.app.service.mono.state.merkle.internals.BitPackUtils.codeFromNum;
@@ -43,6 +44,7 @@ import org.hyperledger.besu.datatypes.Address;
 public class EntityId implements SelfSerializable {
     private static final long DEFAULT_SHARD = 0L;
     private static final long DEFAULT_REALM = 0L;
+    public static final int NUM_LONG_ZEROS = 12;
 
     static final int MERKLE_VERSION = 1;
     static final long RUNTIME_CONSTRUCTABLE_ID = 0xf35ba643324efa37L;
@@ -115,8 +117,7 @@ public class EntityId implements SelfSerializable {
     }
 
     @Override
-    public void deserialize(final SerializableDataInputStream in, final int version)
-            throws IOException {
+    public void deserialize(final SerializableDataInputStream in, final int version) throws IOException {
         shard = in.readLong();
         realm = in.readLong();
         num = in.readLong();
@@ -143,9 +144,7 @@ public class EntityId implements SelfSerializable {
     }
 
     public boolean matches(final AccountID aId) {
-        return shard == aId.getShardNum()
-                && realm == aId.getRealmNum()
-                && num == aId.getAccountNum();
+        return shard == aId.getShardNum() && realm == aId.getRealmNum() && num == aId.getAccountNum();
     }
 
     public boolean matches(final Id id) {
@@ -198,6 +197,13 @@ public class EntityId implements SelfSerializable {
         return new EntityId(id.getShardNum(), id.getRealmNum(), id.getAccountNum());
     }
 
+    public static EntityId fromPbjAccountId(final com.hedera.hapi.node.base.AccountID id) {
+        if (id == null) {
+            return MISSING_ENTITY_ID;
+        }
+        return new EntityId(id.shardNum(), id.realmNum(), id.accountNum());
+    }
+
     public static EntityId fromGrpcFileId(final FileID id) {
         if (id == null) {
             return MISSING_ENTITY_ID;
@@ -235,6 +241,10 @@ public class EntityId implements SelfSerializable {
 
     public static EntityId fromAddress(final Address address) {
         final var evmAddress = address.toArrayUnsafe();
+        if (!isLongZeroAddress(evmAddress)) {
+            throw new IllegalArgumentException(
+                    "Only addresses in the long-zero subspace can be converted to entity ids");
+        }
         return new EntityId(
                 Ints.fromByteArray(Arrays.copyOfRange(evmAddress, 0, 4)),
                 Longs.fromByteArray(Arrays.copyOfRange(evmAddress, 4, 12)),
@@ -250,7 +260,11 @@ public class EntityId implements SelfSerializable {
     }
 
     public TokenID toGrpcTokenId() {
-        return TokenID.newBuilder().setShardNum(shard).setRealmNum(realm).setTokenNum(num).build();
+        return TokenID.newBuilder()
+                .setShardNum(shard)
+                .setRealmNum(realm)
+                .setTokenNum(num)
+                .build();
     }
 
     public ScheduleID toGrpcScheduleId() {
@@ -269,6 +283,14 @@ public class EntityId implements SelfSerializable {
                 .build();
     }
 
+    public com.hedera.hapi.node.base.AccountID toPbjAccountId() {
+        return com.hedera.hapi.node.base.AccountID.newBuilder()
+                .shardNum(shard)
+                .realmNum(realm)
+                .accountNum(num)
+                .build();
+    }
+
     public EntityNum asNum() {
         return EntityNum.fromLong(num);
     }
@@ -278,7 +300,16 @@ public class EntityId implements SelfSerializable {
     }
 
     public Address toEvmAddress() {
-        final var evmAddress = asEvmAddress((int) shard, realm, num);
+        final var evmAddress = asEvmAddress(num);
         return Address.wrap(Bytes.wrap(evmAddress));
+    }
+
+    private static boolean isLongZeroAddress(final byte[] explicit) {
+        for (int i = 0; i < NUM_LONG_ZEROS; i++) {
+            if (explicit[i] != 0) {
+                return false;
+            }
+        }
+        return true;
     }
 }

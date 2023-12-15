@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.store.contracts;
 
 import static com.hedera.node.app.service.mono.ledger.properties.AccountProperty.BALANCE;
@@ -28,6 +29,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.hedera.node.app.service.evm.store.contracts.WorldStateAccount;
+import com.hedera.node.app.service.evm.store.models.UpdateTrackingAccount;
 import com.hedera.node.app.service.mono.ledger.TransactionalLedger;
 import com.hedera.node.app.service.mono.ledger.accounts.ContractAliases;
 import com.hedera.node.app.service.mono.ledger.accounts.ContractCustomizer;
@@ -64,16 +66,38 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class AbstractStackedLedgerUpdaterTest {
-    @Mock private CodeCache codeCache;
-    @Mock private EntityAccess entityAccess;
-    @Mock private ContractAliases aliases;
-    @Mock private HederaWorldState worldState;
-    @Mock private ContractCustomizer customizer;
-    @Mock private RecordsHistorian recordsHistorian;
+    private static final AccountID aAccount = IdUtils.asAccount("0.0.12345");
+    private static final Address aAddress = EntityIdUtils.asTypedEvmAddress(aAccount);
+    private static final Address bAddress = EntityNum.fromLong(54321).toEvmAddress();
+    private static final long aBalance = 1_000L;
+    private static final long aNonce = 1L;
+    private static final long aExpiry = 1_234_567L;
+    private static final long aAutoRenew = 7776000L;
+    private static final byte[] rawNonMirrorAddress = unhex("abcdefabcdefabcdefbabcdefabcdefabcdefbbb");
+    private static final Address nonMirrorAddress = Address.wrap(Bytes.wrap(rawNonMirrorAddress));
+    private static final byte[] otherRawNonMirrorAddress = unhex("abcdecabcdecabcdecbabcdecabcdecabcdecbbb");
+    private static final Address otherNonMirrorAddress = Address.wrap(Bytes.wrap(otherRawNonMirrorAddress));
+
+    @Mock
+    private CodeCache codeCache;
+
+    @Mock
+    private EntityAccess entityAccess;
+
+    @Mock
+    private ContractAliases aliases;
+
+    @Mock
+    private HederaWorldState worldState;
+
+    @Mock
+    private ContractCustomizer customizer;
+
+    @Mock
+    private RecordsHistorian recordsHistorian;
 
     private WorldLedgers ledgers;
     private MockLedgerWorldUpdater wrapped;
-
     private AbstractStackedLedgerUpdater<HederaWorldState, Account> subject;
 
     @BeforeEach
@@ -97,7 +121,8 @@ class AbstractStackedLedgerUpdaterTest {
     void getForMutationReturnsTrackingAccountIfPresentInParent() {
         wrapped.createAccount(aAddress, aNonce, Wei.of(aBalance));
 
-        assertSame(subject.getForMutation(aAddress), wrapped.updatedAccounts.get(aAddress));
+        assertSame(
+                subject.getForMutation(aAddress), wrapped.getUpdatedAccounts().get(aAddress));
     }
 
     @Test
@@ -115,8 +140,7 @@ class AbstractStackedLedgerUpdaterTest {
 
     @Test
     void getForMutationWrapsParentMutable() {
-        final var account =
-                new WorldStateAccount(aAddress, Wei.of(aBalance), codeCache, entityAccess);
+        final var account = new WorldStateAccount(aAddress, Wei.of(aBalance), codeCache, entityAccess);
         given(worldState.get(aAddress)).willReturn(account);
 
         final var mutableAccount = subject.getForMutation(aAddress);
@@ -142,7 +166,7 @@ class AbstractStackedLedgerUpdaterTest {
         assertEquals(aBalance, wrapped.trackingLedgers().accounts().get(aAccount, BALANCE));
 
         final var wrappedMutableAccount = wrapped.getAccount(aAddress);
-        wrappedMutableAccount.getMutable().decrementBalance(Wei.of(1));
+        wrappedMutableAccount.decrementBalance(Wei.of(1));
 
         wrapped.commit();
         assertEquals(aBalance - 1, ledgers.accounts().get(aAccount, BALANCE));
@@ -151,10 +175,11 @@ class AbstractStackedLedgerUpdaterTest {
     @Test
     @SuppressWarnings("unchecked")
     void doesntAdjustBalanceOfProxyTokenAccountWrapper() {
-        final var proxyAccountWrapper = mock(UpdateTrackingLedgerAccount.class);
+        final var proxyAccountWrapper = mock(UpdateTrackingAccount.class);
+        ledgers.accounts().create(aAccount);
         given(proxyAccountWrapper.wrappedAccountIsTokenProxy()).willReturn(true);
         given(proxyAccountWrapper.getAddress()).willReturn(aAddress);
-        subject.updatedAccounts.put(aAddress, proxyAccountWrapper);
+        subject.getUpdatedAccounts().put(aAddress, proxyAccountWrapper);
 
         assertDoesNotThrow(subject::commit);
 
@@ -189,25 +214,22 @@ class AbstractStackedLedgerUpdaterTest {
 
         subject.commit();
 
-        assertEquals(
-                List.of(mySourceId, firstChildId, secondChildId),
-                wrapped.getCommittedRecordSourceIds());
+        assertEquals(List.of(mySourceId, firstChildId, secondChildId), wrapped.getCommittedRecordSourceIds());
         assertSame(recordsHistorian, wrapped.getRecordsHistorian());
     }
 
     @Test
     void commitsNewlyModifiedAccountAsExpected() {
         final var mockCode = Bytes.ofUnsignedLong(1_234L);
-        final var account =
-                new WorldStateAccount(aAddress, Wei.of(aBalance), codeCache, entityAccess);
+        final var account = new WorldStateAccount(aAddress, Wei.of(aBalance), codeCache, entityAccess);
         given(worldState.get(aAddress)).willReturn(account);
         ledgers.accounts().create(aAccount);
         ledgers.accounts().set(aAccount, BALANCE, aBalance);
 
         final var mutableAccount = subject.getAccount(aAddress);
-        mutableAccount.getMutable().decrementBalance(Wei.of(1));
-        mutableAccount.getMutable().setCode(mockCode);
-        mutableAccount.getMutable().clearStorage();
+        mutableAccount.decrementBalance(Wei.of(1));
+        mutableAccount.setCode(mockCode);
+        mutableAccount.clearStorage();
         subject.trackingLedgers().aliases().link(nonMirrorAddress, aAddress);
         subject.trackingLedgers().aliases().link(otherNonMirrorAddress, bAddress);
 
@@ -215,7 +237,7 @@ class AbstractStackedLedgerUpdaterTest {
 
         final var wrappedMutableAccount = wrapped.getAccount(aAddress);
         assertEquals(mockCode, wrappedMutableAccount.getCode());
-        wrappedMutableAccount.getMutable().decrementBalance(Wei.of(1));
+        wrappedMutableAccount.decrementBalance(Wei.of(1));
         assertEquals(aBalance, ledgers.accounts().get(aAccount, BALANCE));
 
         wrapped.commit();
@@ -240,52 +262,25 @@ class AbstractStackedLedgerUpdaterTest {
     }
 
     private void setupLedgers() {
-        final var tokenRelsLedger =
-                new TransactionalLedger<>(
-                        TokenRelProperty.class,
-                        MerkleTokenRelStatus::new,
-                        new HashMapBackingTokenRels(),
-                        new ChangeSummaryManager<>());
-        final var accountsLedger =
-                new TransactionalLedger<>(
-                        AccountProperty.class,
-                        MerkleAccount::new,
-                        new HashMapBackingAccounts(),
-                        new ChangeSummaryManager<>());
-        final var nftsLedger =
-                new TransactionalLedger<>(
-                        NftProperty.class,
-                        UniqueTokenAdapter::newEmptyMerkleToken,
-                        new HashMapBackingNfts(),
-                        new ChangeSummaryManager<>());
-        final var tokensLedger =
-                new TransactionalLedger<>(
-                        TokenProperty.class,
-                        MerkleToken::new,
-                        new HashMapBackingTokens(),
-                        new ChangeSummaryManager<>());
+        final var tokenRelsLedger = new TransactionalLedger<>(
+                TokenRelProperty.class,
+                MerkleTokenRelStatus::new,
+                new HashMapBackingTokenRels(),
+                new ChangeSummaryManager<>());
+        final var accountsLedger = new TransactionalLedger<>(
+                AccountProperty.class, MerkleAccount::new, new HashMapBackingAccounts(), new ChangeSummaryManager<>());
+        final var nftsLedger = new TransactionalLedger<>(
+                NftProperty.class,
+                UniqueTokenAdapter::newEmptyMerkleToken,
+                new HashMapBackingNfts(),
+                new ChangeSummaryManager<>());
+        final var tokensLedger = new TransactionalLedger<>(
+                TokenProperty.class, MerkleToken::new, new HashMapBackingTokens(), new ChangeSummaryManager<>());
 
         tokenRelsLedger.begin();
         accountsLedger.begin();
         nftsLedger.begin();
 
-        ledgers =
-                new WorldLedgers(
-                        aliases, tokenRelsLedger, accountsLedger, nftsLedger, tokensLedger);
+        ledgers = new WorldLedgers(aliases, tokenRelsLedger, accountsLedger, nftsLedger, tokensLedger);
     }
-
-    private static final AccountID aAccount = IdUtils.asAccount("0.0.12345");
-    private static final Address aAddress = EntityIdUtils.asTypedEvmAddress(aAccount);
-    private static final Address bAddress = EntityNum.fromLong(54321).toEvmAddress();
-    private static final long aBalance = 1_000L;
-    private static final long aNonce = 1L;
-    private static final long aExpiry = 1_234_567L;
-    private static final long aAutoRenew = 7776000L;
-    private static final byte[] rawNonMirrorAddress =
-            unhex("abcdefabcdefabcdefbabcdefabcdefabcdefbbb");
-    private static final Address nonMirrorAddress = Address.wrap(Bytes.wrap(rawNonMirrorAddress));
-    private static final byte[] otherRawNonMirrorAddress =
-            unhex("abcdecabcdecabcdecbabcdecabcdecabcdecbbb");
-    private static final Address otherNonMirrorAddress =
-            Address.wrap(Bytes.wrap(otherRawNonMirrorAddress));
 }

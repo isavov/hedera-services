@@ -13,22 +13,28 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.txns.submission;
 
 import static com.hedera.node.app.service.mono.txns.submission.StructuralPrecheck.HISTORICAL_MAX_PROTO_MESSAGE_DEPTH;
 
 import com.hedera.node.app.service.mono.txns.submission.annotations.MaxProtoMsgDepth;
 import com.hedera.node.app.service.mono.txns.submission.annotations.MaxSignedTxnSize;
-import com.swirlds.common.system.Platform;
+import com.swirlds.common.config.TransactionConfig;
+import com.swirlds.platform.system.Platform;
 import dagger.Module;
 import dagger.Provides;
+import edu.umd.cs.findbugs.annotations.NonNull;
 
 @Module
 public final class SubmissionModule {
     @Provides
     @MaxSignedTxnSize
-    static int provideMaxSignedTxnSize() {
-        return Platform.getTransactionMaxBytes();
+    static int provideMaxSignedTxnSize(@NonNull final Platform platform) {
+        return platform.getContext()
+                .getConfiguration()
+                .getConfigData(TransactionConfig.class)
+                .transactionMaxBytes();
     }
 
     @Provides

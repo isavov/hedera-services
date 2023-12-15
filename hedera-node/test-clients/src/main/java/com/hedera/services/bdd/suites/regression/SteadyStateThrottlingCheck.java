@@ -13,8 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.regression;
 
+import static com.hedera.services.bdd.junit.TestTags.TIME_CONSUMING;
 import static com.hedera.services.bdd.spec.HapiSpec.customHapiSpec;
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
 import static com.hedera.services.bdd.spec.queries.QueryVerbs.getAccountBalance;
@@ -40,6 +42,8 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 
 import com.google.common.base.Stopwatch;
 import com.google.protobuf.ByteString;
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.HapiSpecOperation;
 import com.hedera.services.bdd.spec.HapiSpecSetup;
@@ -59,13 +63,19 @@ import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.MethodOrderer.OrderAnnotation;
+import org.junit.jupiter.api.Order;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.TestMethodOrder;
 
+@HapiTestSuite
+@TestMethodOrder(OrderAnnotation.class)
+@Tag(TIME_CONSUMING)
 public class SteadyStateThrottlingCheck extends HapiSuite {
 
     private static final Logger LOG = LogManager.getLogger(SteadyStateThrottlingCheck.class);
 
-    private static final String TOKENS_NFTS_MINT_THROTTLE_SCALE_FACTOR =
-            "tokens.nfts.mintThrottleScaleFactor";
+    private static final String TOKENS_NFTS_MINT_THROTTLE_SCALE_FACTOR = "tokens.nfts.mintThrottleScaleFactor";
     private static final String DEFAULT_NFT_SCALING =
             HapiSpecSetup.getDefaultNodeProps().get(TOKENS_NFTS_MINT_THROTTLE_SCALE_FACTOR);
 
@@ -82,10 +92,8 @@ public class SteadyStateThrottlingCheck extends HapiSuite {
 
     private static final int NETWORK_SIZE = REGRESSION_NETWORK_SIZE;
 
-    private static final double EXPECTED_XFER_TPS =
-            THROUGHPUT_LIMITS_XFER_NETWORK_TPS / NETWORK_SIZE;
-    private static final double EXPECTED_FUNGIBLE_MINT_TPS =
-            THROUGHPUT_LIMITS_FUNGIBLE_MINT_NETWORK_TPS / NETWORK_SIZE;
+    private static final double EXPECTED_XFER_TPS = THROUGHPUT_LIMITS_XFER_NETWORK_TPS / NETWORK_SIZE;
+    private static final double EXPECTED_FUNGIBLE_MINT_TPS = THROUGHPUT_LIMITS_FUNGIBLE_MINT_NETWORK_TPS / NETWORK_SIZE;
 
     @SuppressWarnings("java:S1068")
     private static final double EXPECTED_PREVIEWNET_NON_FUNGIBLE_MINT_TPS =
@@ -93,10 +101,8 @@ public class SteadyStateThrottlingCheck extends HapiSuite {
 
     private static final double EXPECTED_CONTRACT_CALL_TPS =
             PRIORITY_RESERVATIONS_CONTRACT_CALL_NETWORK_TPS / NETWORK_SIZE;
-    private static final double EXPECTED_CRYPTO_CREATE_TPS =
-            CREATION_LIMITS_CRYPTO_CREATE_NETWORK_TPS / NETWORK_SIZE;
-    private static final double EXPECTED_GET_BALANCE_QPS =
-            FREE_QUERY_LIMITS_GET_BALANCE_NETWORK_QPS / NETWORK_SIZE;
+    private static final double EXPECTED_CRYPTO_CREATE_TPS = CREATION_LIMITS_CRYPTO_CREATE_NETWORK_TPS / NETWORK_SIZE;
+    private static final double EXPECTED_GET_BALANCE_QPS = FREE_QUERY_LIMITS_GET_BALANCE_NETWORK_QPS / NETWORK_SIZE;
     private static final double TOLERATED_PERCENT_DEVIATION = 5;
     private static final String SUPPLY = "supply";
     private static final String TOKEN = "token";
@@ -122,19 +128,52 @@ public class SteadyStateThrottlingCheck extends HapiSuite {
                 restoreDevLimits());
     }
 
-    private HapiSpec setArtificialLimits() {
+    @HapiTest
+    @Order(1)
+    final HapiSpec setArtificialLimits() {
         var artificialLimits = protoDefsFromResource("testSystemFiles/artificial-limits.json");
 
         return defaultHapiSpec("SetArtificialLimits")
                 .given()
                 .when()
-                .then(
-                        fileUpdate(THROTTLE_DEFS)
-                                .payingWith(EXCHANGE_RATE_CONTROL)
-                                .contents(artificialLimits.toByteArray()));
+                .then(fileUpdate(THROTTLE_DEFS)
+                        .payingWith(EXCHANGE_RATE_CONTROL)
+                        .contents(artificialLimits.toByteArray()));
     }
 
-    private HapiSpec restoreDevLimits() {
+    @HapiTest
+    @Order(2)
+    final HapiSpec checkXfersTps() {
+        return checkTps("Xfers", EXPECTED_XFER_TPS, xferOps());
+    }
+
+    @HapiTest
+    @Order(3)
+    final HapiSpec checkFungibleMintsTps() {
+        return checkTps("FungibleMints", EXPECTED_FUNGIBLE_MINT_TPS, fungibleMintOps());
+    }
+
+    //    @HapiTest - This test fails
+    @Order(4)
+    final HapiSpec checkContractCallsTps() {
+        return checkTps("ContractCalls", EXPECTED_CONTRACT_CALL_TPS, scCallOps());
+    }
+
+    //    @HapiTest - This test fails
+    @Order(5)
+    final HapiSpec checkCryptoCreatesTps() {
+        return checkTps("CryptoCreates", EXPECTED_CRYPTO_CREATE_TPS, cryptoCreateOps());
+    }
+
+    //    @HapiTest - This test hangs
+    @Order(6)
+    final HapiSpec checkBalanceQps() {
+        return checkBalanceQps(1000, EXPECTED_GET_BALANCE_QPS);
+    }
+
+    @HapiTest
+    @Order(7)
+    final HapiSpec restoreDevLimits() {
         var defaultThrottles = protoDefsFromResource("testSystemFiles/throttles-dev.json");
         return defaultHapiSpec("RestoreDevLimits")
                 .given()
@@ -144,15 +183,11 @@ public class SteadyStateThrottlingCheck extends HapiSuite {
                                 .payingWith(EXCHANGE_RATE_CONTROL)
                                 .contents(defaultThrottles.toByteArray()),
                         fileUpdate(APP_PROPERTIES)
-                                .overridingProps(
-                                        Map.of(
-                                                TOKENS_NFTS_MINT_THROTTLE_SCALE_FACTOR,
-                                                DEFAULT_NFT_SCALING))
+                                .overridingProps(Map.of(TOKENS_NFTS_MINT_THROTTLE_SCALE_FACTOR, DEFAULT_NFT_SCALING))
                                 .payingWith(ADDRESS_BOOK_CONTROL));
     }
 
-    private HapiSpec checkTps(
-            String txn, double expectedTps, Function<HapiSpec, OpProvider> provider) {
+    final HapiSpec checkTps(String txn, double expectedTps, Function<HapiSpec, OpProvider> provider) {
         return checkCustomNetworkTps(txn, expectedTps, provider, Collections.emptyMap());
     }
 
@@ -170,252 +205,212 @@ public class SteadyStateThrottlingCheck extends HapiSuite {
      * }</pre>
      */
     @SuppressWarnings("java:S5960")
-    private HapiSpec checkCustomNetworkTps(
-            String txn,
-            double expectedTps,
-            Function<HapiSpec, OpProvider> provider,
-            Map<String, String> custom) {
+    final HapiSpec checkCustomNetworkTps(
+            String txn, double expectedTps, Function<HapiSpec, OpProvider> provider, Map<String, String> custom) {
         final var name = "Throttles" + txn + "AsExpected";
         final var baseSpec =
-                custom.isEmpty()
-                        ? defaultHapiSpec(name)
-                        : customHapiSpec(name).withProperties(custom);
+                custom.isEmpty() ? defaultHapiSpec(name) : customHapiSpec(name).withProperties(custom);
         return baseSpec.given()
-                .when(
-                        runWithProvider(provider)
-                                .lasting(duration::get, unit::get)
-                                .maxOpsPerSec(maxOpsPerSec::get))
-                .then(
-                        withOpContext(
-                                (spec, opLog) -> {
-                                    var actualTps = 1.0 * spec.finalAdhoc() / duration.get();
-                                    var percentDeviation =
-                                            Math.abs(actualTps / expectedTps - 1.0) * 100.0;
-                                    opLog.info(
-                                            "Total ops accepted in {} {} = {} ==> {}tps vs {}tps"
-                                                    + " expected ({}% deviation)",
-                                            duration.get(),
-                                            unit.get(),
-                                            spec.finalAdhoc(),
-                                            String.format("%.3f", actualTps),
-                                            String.format("%.3f", expectedTps),
-                                            String.format("%.3f", percentDeviation));
-                                    Assertions.assertEquals(
-                                            0.0, percentDeviation, TOLERATED_PERCENT_DEVIATION);
-                                }));
+                .when(runWithProvider(provider)
+                        .lasting(duration::get, unit::get)
+                        .maxOpsPerSec(maxOpsPerSec::get))
+                .then(withOpContext((spec, opLog) -> {
+                    var actualTps = 1.0 * spec.finalAdhoc() / duration.get();
+                    var percentDeviation = Math.abs(actualTps / expectedTps - 1.0) * 100.0;
+                    opLog.info(
+                            "Total ops accepted in {} {} = {} ==> {}tps vs {}tps" + " expected ({}% deviation)",
+                            duration.get(),
+                            unit.get(),
+                            spec.finalAdhoc(),
+                            String.format("%.3f", actualTps),
+                            String.format("%.3f", expectedTps),
+                            String.format("%.3f", percentDeviation));
+                    Assertions.assertEquals(0.0, percentDeviation, TOLERATED_PERCENT_DEVIATION);
+                }));
     }
 
-    private HapiSpec checkBalanceQps(int burstSize, double expectedQps) {
+    final HapiSpec checkBalanceQps(int burstSize, double expectedQps) {
         return defaultHapiSpec("CheckBalanceQps")
                 .given(cryptoCreate("curious").payingWith(GENESIS))
                 .when()
-                .then(
-                        withOpContext(
-                                (spec, opLog) -> {
-                                    int numBusy = 0;
-                                    int askedSoFar = 0;
-                                    int secsToRun = (int) duration.get();
-                                    var watch = Stopwatch.createStarted();
-                                    int logScreen = 0;
-                                    while (watch.elapsed(SECONDS) < secsToRun) {
-                                        var subOps =
-                                                IntStream.range(0, burstSize)
-                                                        .mapToObj(
-                                                                ignore ->
-                                                                        getAccountBalance("0.0.2")
-                                                                                .noLogging()
-                                                                                .payingWith(
-                                                                                        "curious")
-                                                                                .hasAnswerOnlyPrecheckFrom(
-                                                                                        BUSY, OK))
-                                                        .toArray(HapiSpecOperation[]::new);
-                                        var burst = inParallel(subOps);
-                                        allRunFor(spec, burst);
-                                        askedSoFar += burstSize;
-                                        for (int i = 0; i < burstSize; i++) {
-                                            var op = (HapiGetAccountBalance) subOps[i];
-                                            if (op.getResponse()
-                                                            .getCryptogetAccountBalance()
-                                                            .getBalance()
-                                                    == 0) {
-                                                numBusy++;
-                                            }
-                                        }
-                                        if (logScreen++ % 100 == 0) {
-                                            opLog.info(
-                                                    "{}/{} queries BUSY so far in {}ms",
-                                                    numBusy,
-                                                    askedSoFar,
-                                                    watch.elapsed(TimeUnit.MILLISECONDS));
-                                        }
-                                    }
-                                    var elapsedMs = watch.elapsed(TimeUnit.MILLISECONDS);
-                                    var numAnswered = askedSoFar - numBusy;
-                                    var actualQps = (1.0 * numAnswered) / elapsedMs * 1000.0;
-                                    var percentDeviation =
-                                            Math.abs(actualQps / expectedQps - 1.0) * 100.0;
-                                    opLog.info(
-                                            "Total ops accepted in {} {} = {} ==> {}qps vs {}qps"
-                                                    + " expected ({}% deviation)",
-                                            elapsedMs,
-                                            "ms",
-                                            numAnswered,
-                                            String.format("%.3f", actualQps),
-                                            String.format("%.3f", expectedQps),
-                                            String.format("%.3f", percentDeviation));
-                                    Assertions.assertEquals(
-                                            0.0, percentDeviation, TOLERATED_PERCENT_DEVIATION);
-                                }));
+                .then(withOpContext((spec, opLog) -> {
+                    int numBusy = 0;
+                    int askedSoFar = 0;
+                    int secsToRun = (int) duration.get();
+                    var watch = Stopwatch.createStarted();
+                    int logScreen = 0;
+                    while (watch.elapsed(SECONDS) < secsToRun) {
+                        var subOps = IntStream.range(0, burstSize)
+                                .mapToObj(ignore -> getAccountBalance("0.0.2")
+                                        .noLogging()
+                                        .payingWith("curious")
+                                        .hasAnswerOnlyPrecheckFrom(BUSY, OK))
+                                .toArray(HapiSpecOperation[]::new);
+                        var burst = inParallel(subOps);
+                        allRunFor(spec, burst);
+                        askedSoFar += burstSize;
+                        for (int i = 0; i < burstSize; i++) {
+                            var op = (HapiGetAccountBalance) subOps[i];
+                            if (op.getResponse().getCryptogetAccountBalance().getBalance() == 0) {
+                                numBusy++;
+                            }
+                        }
+                        if (logScreen++ % 100 == 0) {
+                            opLog.info(
+                                    "{}/{} queries BUSY so far in {}ms",
+                                    numBusy,
+                                    askedSoFar,
+                                    watch.elapsed(TimeUnit.MILLISECONDS));
+                        }
+                    }
+                    var elapsedMs = watch.elapsed(TimeUnit.MILLISECONDS);
+                    var numAnswered = askedSoFar - numBusy;
+                    var actualQps = (1.0 * numAnswered) / elapsedMs * 1000.0;
+                    var percentDeviation = Math.abs(actualQps / expectedQps - 1.0) * 100.0;
+                    opLog.info(
+                            "Total ops accepted in {} {} = {} ==> {}qps vs {}qps" + " expected ({}% deviation)",
+                            elapsedMs,
+                            "ms",
+                            numAnswered,
+                            String.format("%.3f", actualQps),
+                            String.format("%.3f", expectedQps),
+                            String.format("%.3f", percentDeviation));
+                    Assertions.assertEquals(0.0, percentDeviation, TOLERATED_PERCENT_DEVIATION);
+                }));
     }
 
     private Function<HapiSpec, OpProvider> xferOps() {
-        return spec ->
-                new OpProvider() {
-                    @Override
-                    public List<HapiSpecOperation> suggestedInitializers() {
-                        return List.of(
-                                cryptoCreate(CIVILIAN)
-                                        .payingWith(GENESIS)
-                                        .balance(ONE_MILLION_HBARS)
-                                        .withRecharging(),
-                                cryptoCreate("nobody").payingWith(GENESIS).balance(0L));
-                    }
+        return spec -> new OpProvider() {
+            @Override
+            public List<HapiSpecOperation> suggestedInitializers() {
+                return List.of(
+                        cryptoCreate(CIVILIAN)
+                                .payingWith(GENESIS)
+                                .balance(ONE_MILLION_HBARS)
+                                .withRecharging(),
+                        cryptoCreate("nobody").payingWith(GENESIS).balance(0L));
+            }
 
-                    @Override
-                    public Optional<HapiSpecOperation> get() {
-                        var op =
-                                cryptoTransfer(tinyBarsFromTo(CIVILIAN, "nobody", 1))
-                                        .noLogging()
-                                        .deferStatusResolution()
-                                        .payingWith(CIVILIAN)
-                                        .hasPrecheckFrom(OK, BUSY)
-                                        /* In my local environment spec has been flaky with the first few
-                                        operations here...doesn't seem to happen with other specs? */
-                                        .hasKnownStatusFrom(OK, SUCCESS);
-                        return Optional.of(op);
-                    }
-                };
+            @Override
+            public Optional<HapiSpecOperation> get() {
+                var op = cryptoTransfer(tinyBarsFromTo(CIVILIAN, "nobody", 1))
+                        .noLogging()
+                        .deferStatusResolution()
+                        .payingWith(CIVILIAN)
+                        .hasPrecheckFrom(OK, BUSY)
+                        /* In my local environment spec has been flaky with the first few
+                        operations here...doesn't seem to happen with other specs? */
+                        .hasKnownStatusFrom(OK, SUCCESS);
+                return Optional.of(op);
+            }
+        };
     }
 
     private Function<HapiSpec, OpProvider> cryptoCreateOps() {
         var i = new AtomicInteger(0);
 
-        return spec ->
-                new OpProvider() {
-                    @Override
-                    public List<HapiSpecOperation> suggestedInitializers() {
-                        return List.of(
-                                cryptoCreate(CIVILIAN)
-                                        .payingWith(GENESIS)
-                                        .balance(ONE_MILLION_HBARS)
-                                        .withRecharging());
-                    }
+        return spec -> new OpProvider() {
+            @Override
+            public List<HapiSpecOperation> suggestedInitializers() {
+                return List.of(cryptoCreate(CIVILIAN)
+                        .payingWith(GENESIS)
+                        .balance(ONE_MILLION_HBARS)
+                        .withRecharging());
+            }
 
-                    @Override
-                    public Optional<HapiSpecOperation> get() {
-                        var op =
-                                cryptoCreate("w/e" + i.getAndIncrement())
-                                        .noLogging()
-                                        .deferStatusResolution()
-                                        .payingWith(CIVILIAN)
-                                        .hasPrecheckFrom(OK, BUSY);
-                        return Optional.of(op);
-                    }
-                };
+            @Override
+            public Optional<HapiSpecOperation> get() {
+                var op = cryptoCreate("w/e" + i.getAndIncrement())
+                        .noLogging()
+                        .deferStatusResolution()
+                        .payingWith(CIVILIAN)
+                        .hasPrecheckFrom(OK, BUSY);
+                return Optional.of(op);
+            }
+        };
     }
 
     private Function<HapiSpec, OpProvider> scCallOps() {
         final var contract = "Multipurpose";
-        return spec ->
-                new OpProvider() {
-                    @Override
-                    public List<HapiSpecOperation> suggestedInitializers() {
-                        return List.of(
-                                uploadInitCode(contract),
-                                contractCreate(contract).payingWith(GENESIS),
-                                cryptoCreate(CIVILIAN)
-                                        .balance(ONE_MILLION_HBARS)
-                                        .payingWith(GENESIS));
-                    }
+        return spec -> new OpProvider() {
+            @Override
+            public List<HapiSpecOperation> suggestedInitializers() {
+                return List.of(
+                        uploadInitCode(contract),
+                        contractCreate(contract).payingWith(GENESIS),
+                        cryptoCreate(CIVILIAN).balance(ONE_MILLION_HBARS).payingWith(GENESIS));
+            }
 
-                    @Override
-                    public Optional<HapiSpecOperation> get() {
-                        var op =
-                                contractCall("scMulti")
-                                        .noLogging()
-                                        .deferStatusResolution()
-                                        .payingWith(CIVILIAN)
-                                        .sending(ONE_HBAR)
-                                        .hasKnownStatusFrom(SUCCESS)
-                                        .hasPrecheckFrom(OK, BUSY);
-                        return Optional.of(op);
-                    }
-                };
+            @Override
+            public Optional<HapiSpecOperation> get() {
+                var op = contractCall("scMulti")
+                        .noLogging()
+                        .deferStatusResolution()
+                        .payingWith(CIVILIAN)
+                        .sending(ONE_HBAR)
+                        .hasKnownStatusFrom(SUCCESS)
+                        .hasPrecheckFrom(OK, BUSY);
+                return Optional.of(op);
+            }
+        };
     }
 
     private Function<HapiSpec, OpProvider> fungibleMintOps() {
-        return spec ->
-                new OpProvider() {
-                    @Override
-                    public List<HapiSpecOperation> suggestedInitializers() {
-                        return List.of(
-                                newKeyNamed(SUPPLY),
-                                cryptoCreate(TOKEN_TREASURY)
-                                        .payingWith(GENESIS)
-                                        .balance(ONE_MILLION_HBARS),
-                                tokenCreate(TOKEN).treasury(TOKEN_TREASURY).supplyKey(SUPPLY));
-                    }
+        return spec -> new OpProvider() {
+            @Override
+            public List<HapiSpecOperation> suggestedInitializers() {
+                return List.of(
+                        newKeyNamed(SUPPLY),
+                        cryptoCreate(TOKEN_TREASURY).payingWith(GENESIS).balance(ONE_MILLION_HBARS),
+                        tokenCreate(TOKEN).treasury(TOKEN_TREASURY).supplyKey(SUPPLY));
+            }
 
-                    @Override
-                    public Optional<HapiSpecOperation> get() {
-                        var op =
-                                mintToken(TOKEN, 1L)
-                                        .fee(ONE_HBAR)
-                                        .noLogging()
-                                        .rememberingNothing()
-                                        .deferStatusResolution()
-                                        .signedBy(TOKEN_TREASURY, SUPPLY)
-                                        .payingWith(TOKEN_TREASURY)
-                                        .hasKnownStatusFrom(OK, SUCCESS)
-                                        .hasPrecheckFrom(OK, BUSY);
-                        return Optional.of(op);
-                    }
-                };
+            @Override
+            public Optional<HapiSpecOperation> get() {
+                var op = mintToken(TOKEN, 1L)
+                        .fee(ONE_HBAR)
+                        .noLogging()
+                        .rememberingNothing()
+                        .deferStatusResolution()
+                        .signedBy(TOKEN_TREASURY, SUPPLY)
+                        .payingWith(TOKEN_TREASURY)
+                        .hasKnownStatusFrom(OK, SUCCESS)
+                        .hasPrecheckFrom(OK, BUSY);
+                return Optional.of(op);
+            }
+        };
     }
 
     @SuppressWarnings("java:S1144")
     private Function<HapiSpec, OpProvider> nonFungibleMintOps() {
-        final var metadata =
-                "01234567890123456789012345678901234567890123456789"
-                        + "01234567890123456789012345678901234567890123456789";
-        return spec ->
-                new OpProvider() {
-                    @Override
-                    public List<HapiSpecOperation> suggestedInitializers() {
-                        return List.of(
-                                newKeyNamed(SUPPLY),
-                                cryptoCreate(TOKEN_TREASURY).balance(ONE_MILLION_HBARS),
-                                tokenCreate(TOKEN)
-                                        .initialSupply(0)
-                                        .treasury(TOKEN_TREASURY)
-                                        .supplyKey(SUPPLY));
-                    }
+        final var metadata = "01234567890123456789012345678901234567890123456789"
+                + "01234567890123456789012345678901234567890123456789";
+        return spec -> new OpProvider() {
+            @Override
+            public List<HapiSpecOperation> suggestedInitializers() {
+                return List.of(
+                        newKeyNamed(SUPPLY),
+                        cryptoCreate(TOKEN_TREASURY).balance(ONE_MILLION_HBARS),
+                        tokenCreate(TOKEN)
+                                .initialSupply(0)
+                                .treasury(TOKEN_TREASURY)
+                                .supplyKey(SUPPLY));
+            }
 
-                    @Override
-                    public Optional<HapiSpecOperation> get() {
-                        var op =
-                                mintToken(TOKEN, List.of(ByteString.copyFromUtf8(metadata)))
-                                        .fee(ONE_HBAR)
-                                        .noLogging()
-                                        .rememberingNothing()
-                                        .deferStatusResolution()
-                                        .signedBy(TOKEN_TREASURY, SUPPLY)
-                                        .payingWith(TOKEN_TREASURY)
-                                        .hasKnownStatusFrom(OK, SUCCESS)
-                                        .hasPrecheckFrom(OK, BUSY);
-                        return Optional.of(op);
-                    }
-                };
+            @Override
+            public Optional<HapiSpecOperation> get() {
+                var op = mintToken(TOKEN, List.of(ByteString.copyFromUtf8(metadata)))
+                        .fee(ONE_HBAR)
+                        .noLogging()
+                        .rememberingNothing()
+                        .deferStatusResolution()
+                        .signedBy(TOKEN_TREASURY, SUPPLY)
+                        .payingWith(TOKEN_TREASURY)
+                        .hasKnownStatusFrom(OK, SUCCESS)
+                        .hasPrecheckFrom(OK, BUSY);
+                return Optional.of(op);
+            }
+        };
     }
 
     @Override

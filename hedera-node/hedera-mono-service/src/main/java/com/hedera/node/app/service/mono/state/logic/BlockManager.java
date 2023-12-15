@@ -13,19 +13,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.logic;
 
 import static com.hedera.node.app.service.mono.context.properties.PropertyNames.HEDERA_RECORD_STREAM_LOG_EVERY_TRANSACTION;
 import static com.hedera.node.app.service.mono.context.properties.PropertyNames.HEDERA_RECORD_STREAM_LOG_PERIOD;
 import static com.hedera.node.app.service.mono.state.merkle.MerkleNetworkContext.ethHashFrom;
+import static com.swirlds.base.units.UnitConstants.SECONDS_TO_MILLISECONDS;
 import static com.swirlds.common.stream.LinkedObjectStreamUtilities.getPeriod;
 
 import com.hedera.node.app.service.evm.contracts.execution.HederaBlockValues;
 import com.hedera.node.app.service.mono.context.properties.BootstrapProperties;
+import com.hedera.node.app.service.mono.state.DualStateAccessor;
 import com.hedera.node.app.service.mono.state.merkle.MerkleNetworkContext;
 import com.hedera.node.app.service.mono.stream.RecordsRunningHashLeaf;
 import com.swirlds.common.crypto.RunningHash;
-import com.swirlds.common.utility.Units;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.time.Instant;
@@ -44,11 +46,12 @@ import org.apache.logging.log4j.Logger;
  */
 @Singleton
 public class BlockManager {
-    public static final int UNKNOWN_BLOCK_NO = 0;
+    public static final int UNKNOWN_BLOCK_NO = -1;
     private static final Logger log = LogManager.getLogger(BlockManager.class);
 
     private final long blockPeriodMs;
     private final boolean logEveryTransaction;
+    private final DualStateAccessor dualStateAccessor;
     private final Supplier<MerkleNetworkContext> networkCtx;
     private final Supplier<RecordsRunningHashLeaf> runningHashLeaf;
 
@@ -57,20 +60,21 @@ public class BlockManager {
     // Whether the current transaction starts a new block; always false if not yet computed
     private boolean provisionalBlockIsNew = false;
     // The hash of the just-finished block if provisionalBlockIsNew == true; null otherwise
-    @Nullable private org.hyperledger.besu.datatypes.Hash provisionalFinishedBlockHash;
+    @Nullable
+    private org.hyperledger.besu.datatypes.Hash provisionalFinishedBlockHash;
 
     @Inject
     public BlockManager(
             final BootstrapProperties bootstrapProperties,
             final Supplier<MerkleNetworkContext> networkCtx,
-            final Supplier<RecordsRunningHashLeaf> runningHashLeaf) {
+            final Supplier<RecordsRunningHashLeaf> runningHashLeaf,
+            final DualStateAccessor dualStateAccessor) {
         this.networkCtx = networkCtx;
         this.runningHashLeaf = runningHashLeaf;
         this.blockPeriodMs =
-                bootstrapProperties.getLongProperty(HEDERA_RECORD_STREAM_LOG_PERIOD)
-                        * Units.SECONDS_TO_MILLISECONDS;
-        this.logEveryTransaction =
-                bootstrapProperties.getBooleanProperty(HEDERA_RECORD_STREAM_LOG_EVERY_TRANSACTION);
+                bootstrapProperties.getLongProperty(HEDERA_RECORD_STREAM_LOG_PERIOD) * SECONDS_TO_MILLISECONDS;
+        this.logEveryTransaction = bootstrapProperties.getBooleanProperty(HEDERA_RECORD_STREAM_LOG_EVERY_TRANSACTION);
+        this.dualStateAccessor = dualStateAccessor;
     }
 
     /** Clears all provisional block metadata for the current transaction. */
@@ -100,10 +104,9 @@ public class BlockManager {
      */
     public BlockNumberMeta updateAndGetAlignmentBlockNumber(@NonNull final Instant now) {
         ensureProvisionalBlockMeta(now);
-        final var blockNo =
-                provisionalBlockIsNew
-                        ? networkCtx.get().finishBlock(provisionalFinishedBlockHash, now)
-                        : provisionalBlockNo;
+        final var blockNo = provisionalBlockIsNew
+                ? networkCtx.get().finishBlock(provisionalFinishedBlockHash, now)
+                : provisionalBlockNo;
         return new BlockNumberMeta(blockNo, provisionalBlockIsNew);
     }
 
@@ -131,8 +134,7 @@ public class BlockManager {
     public HederaBlockValues computeBlockValues(@NonNull final Instant now, final long gasLimit) {
         ensureProvisionalBlockMeta(now);
         if (provisionalBlockIsNew) {
-            return new HederaBlockValues(
-                    gasLimit, provisionalBlockNo, Instant.ofEpochSecond(now.getEpochSecond()));
+            return new HederaBlockValues(gasLimit, provisionalBlockNo, Instant.ofEpochSecond(now.getEpochSecond()));
         } else {
             return new HederaBlockValues(
                     gasLimit, provisionalBlockNo, networkCtx.get().firstConsTimeOfCurrentBlock());
@@ -177,14 +179,11 @@ public class BlockManager {
         provisionalBlockIsNew = willCreateNewBlock(now);
         if (provisionalBlockIsNew) {
             try {
-                provisionalFinishedBlockHash =
-                        ethHashFrom(runningHashLeaf.get().currentRunningHash());
+                provisionalFinishedBlockHash = ethHashFrom(runningHashLeaf.get().currentRunningHash());
             } catch (final InterruptedException e) {
                 provisionalBlockIsNew = false;
                 // This is almost certainly fatal, hence the ERROR log level
-                log.error(
-                        "Interrupted when computing hash for block #{}",
-                        curNetworkCtx::getAlignmentBlockNo);
+                log.error("Interrupted when computing hash for block #{}", curNetworkCtx::getAlignmentBlockNo);
                 Thread.currentThread().interrupt();
             }
         }
@@ -194,7 +193,15 @@ public class BlockManager {
     private boolean willCreateNewBlock(@NonNull final Instant timestamp) {
         final var curNetworkCtx = networkCtx.get();
         final var firstBlockTime = curNetworkCtx.firstConsTimeOfCurrentBlock();
-        return firstBlockTime == null || !inSamePeriod(firstBlockTime, timestamp);
+        final var dualState = dualStateAccessor.getDualState();
+        final var isFirstTransactionAfterFreezeRestart =
+                dualState.getFreezeTime() != null && dualState.getFreezeTime().equals(dualState.getLastFrozenTime());
+        if (isFirstTransactionAfterFreezeRestart) {
+            dualState.setFreezeTime(null);
+        }
+        return firstBlockTime == null
+                || isFirstTransactionAfterFreezeRestart
+                || !inSamePeriod(firstBlockTime, timestamp);
     }
 
     private boolean inSamePeriod(@NonNull final Instant then, @NonNull final Instant now) {
@@ -203,8 +210,7 @@ public class BlockManager {
 
     private void assertProvisionalValuesAreComputed() {
         if (provisionalBlockNo == UNKNOWN_BLOCK_NO) {
-            throw new IllegalStateException(
-                    "No block information is available until provisional values computed");
+            throw new IllegalStateException("No block information is available until provisional values computed");
         }
     }
 }

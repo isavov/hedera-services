@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.misc;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -61,13 +62,12 @@ public class OneOfEveryTransaction extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return List.of(
-                new HapiSpec[] {
-                    doThings(),
-                });
+        return List.of(new HapiSpec[] {
+            doThings(),
+        });
     }
 
-    private HapiSpec doThings() {
+    final HapiSpec doThings() {
         /* Crypto signing */
         var complex = KeyShape.threshOf(1, KeyShape.listOf(3), KeyShape.threshOf(1, 3));
         /* File signing */
@@ -110,8 +110,7 @@ public class OneOfEveryTransaction extends HapiSuite {
                         fileAppend("fileTbd").content("nopqrstuvwxyz"),
                         fileUpdate("fileTbd").wacl("fileSecondKey"),
                         getFileInfo("fileTbd"),
-                        fileDelete("fileTbd")
-                                .sigControl(ControlForKey.forKey("fileTbd", revocationDeleteSigs)),
+                        fileDelete("fileTbd").sigControl(ControlForKey.forKey("fileTbd", revocationDeleteSigs)),
                         /* Consensus txns */
                         createTopic("topicTbd")
                                 .memo("'Twas brillig, and the slithy toves...")
@@ -123,7 +122,9 @@ public class OneOfEveryTransaction extends HapiSuite {
                         deleteTopic("topicTbd"),
                         /* Contract txns */
                         uploadInitCode("Multipurpose"),
-                        contractCreate("Multipurpose").adminKey("contractFirstKey").balance(1),
+                        contractCreate("Multipurpose")
+                                .adminKey("contractFirstKey")
+                                .balance(1),
                         contractCall("Multipurpose").sending(1L),
                         contractCallLocal("Multipurpose", "pick"),
                         contractUpdate("Multipurpose").newKey("contractSecondKey"),
@@ -133,7 +134,9 @@ public class OneOfEveryTransaction extends HapiSuite {
                                 .payingWith(SYSTEM_DELETE_ADMIN)
                                 .fee(0L)
                                 .updatingExpiry(Instant.now().getEpochSecond() + 1_000_000),
-                        systemFileUndelete("misc").payingWith(SYSTEM_UNDELETE_ADMIN).fee(0L))
+                        systemFileUndelete("misc")
+                                .payingWith(SYSTEM_UNDELETE_ADMIN)
+                                .fee(0L))
                 .then(
                         /* Nothing fails. */
                         );

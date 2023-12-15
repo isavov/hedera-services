@@ -13,12 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.virtual;
 
-import com.swirlds.common.io.streams.SerializableDataInputStream;
-import com.swirlds.common.io.streams.SerializableDataOutputStream;
-import com.swirlds.jasperdb.files.DataFileCommon;
-import com.swirlds.jasperdb.files.hashmap.KeySerializer;
+import com.swirlds.merkledb.serialize.KeySerializer;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Objects;
@@ -38,7 +36,7 @@ public class UniqueTokenKeySerializer implements KeySerializer<UniqueTokenKey> {
 
     @Override
     public int getSerializedSize() {
-        return DataFileCommon.VARIABLE_DATA_SIZE;
+        return VARIABLE_DATA_SIZE;
     }
 
     @Override
@@ -47,8 +45,7 @@ public class UniqueTokenKeySerializer implements KeySerializer<UniqueTokenKey> {
     }
 
     @Override
-    public UniqueTokenKey deserialize(final ByteBuffer buffer, final long dataVersion)
-            throws IOException {
+    public UniqueTokenKey deserialize(final ByteBuffer buffer, final long dataVersion) throws IOException {
         Objects.requireNonNull(buffer);
         final UniqueTokenKey tokenKey = new UniqueTokenKey();
         tokenKey.deserialize(buffer, (int) dataVersion);
@@ -56,12 +53,10 @@ public class UniqueTokenKeySerializer implements KeySerializer<UniqueTokenKey> {
     }
 
     @Override
-    public int serialize(
-            final UniqueTokenKey tokenKey, final SerializableDataOutputStream outputStream)
-            throws IOException {
+    public int serialize(UniqueTokenKey tokenKey, ByteBuffer byteBuffer) throws IOException {
         Objects.requireNonNull(tokenKey);
-        Objects.requireNonNull(outputStream);
-        return tokenKey.serializeTo(outputStream::write);
+        Objects.requireNonNull(byteBuffer);
+        return tokenKey.serializeTo(byteBuffer::put);
     }
 
     @Override
@@ -70,8 +65,7 @@ public class UniqueTokenKeySerializer implements KeySerializer<UniqueTokenKey> {
     }
 
     @Override
-    public boolean equals(
-            final ByteBuffer byteBuffer, final int dataVersion, final UniqueTokenKey uniqueTokenKey)
+    public boolean equals(final ByteBuffer byteBuffer, final int dataVersion, final UniqueTokenKey uniqueTokenKey)
             throws IOException {
         return uniqueTokenKey.equalsTo(byteBuffer);
     }
@@ -79,19 +73,6 @@ public class UniqueTokenKeySerializer implements KeySerializer<UniqueTokenKey> {
     @Override
     public long getClassId() {
         return CLASS_ID;
-    }
-
-    @Override
-    public void deserialize(
-            final SerializableDataInputStream serializableDataInputStream, final int i)
-            throws IOException {
-        /* no state to load, so no-op */
-    }
-
-    @Override
-    public void serialize(final SerializableDataOutputStream serializableDataOutputStream)
-            throws IOException {
-        /* no state to save, so no-op */
     }
 
     @Override

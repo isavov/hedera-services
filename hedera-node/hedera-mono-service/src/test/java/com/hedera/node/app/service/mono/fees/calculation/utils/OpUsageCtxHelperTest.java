@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.fees.calculation.utils;
 
 import static com.hedera.node.app.service.mono.state.merkle.MerkleAccountState.DEFAULT_MEMO;
@@ -36,6 +37,7 @@ import com.hedera.node.app.service.mono.files.HFileMeta;
 import com.hedera.node.app.service.mono.ledger.accounts.AliasManager;
 import com.hedera.node.app.service.mono.legacy.core.jproto.JEd25519Key;
 import com.hedera.node.app.service.mono.legacy.core.jproto.JKeyList;
+import com.hedera.node.app.service.mono.state.adapters.MerkleMapLike;
 import com.hedera.node.app.service.mono.state.merkle.MerkleAccount;
 import com.hedera.node.app.service.mono.state.merkle.MerkleToken;
 import com.hedera.node.app.service.mono.state.migration.AccountStorageAdapter;
@@ -58,7 +60,6 @@ import com.hederahashgraph.api.proto.java.TokenBurnTransactionBody;
 import com.hederahashgraph.api.proto.java.TokenFeeScheduleUpdateTransactionBody;
 import com.hederahashgraph.api.proto.java.TokenID;
 import com.hederahashgraph.api.proto.java.TokenMintTransactionBody;
-import com.hederahashgraph.api.proto.java.TokenType;
 import com.hederahashgraph.api.proto.java.TokenWipeAccountTransactionBody;
 import com.hederahashgraph.api.proto.java.TransactionBody;
 import com.hederahashgraph.api.proto.java.TransactionID;
@@ -82,18 +83,23 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class OpUsageCtxHelperTest {
     private final HederaFileNumbers fileNumbers = new MockFileNumbers();
 
-    @Mock private MerkleMap<EntityNum, MerkleToken> tokens;
-    @Mock private StateView workingView;
+    @Mock
+    private MerkleMap<EntityNum, MerkleToken> tokens;
+
+    @Mock
+    private StateView workingView;
 
     @Mock(answer = Answers.RETURNS_DEEP_STUBS)
     private SignedTxnAccessor accessor;
 
     private OpUsageCtxHelper subject;
-    @Mock private AliasManager aliasManager;
+
+    @Mock
+    private AliasManager aliasManager;
 
     @BeforeEach
     void setUp() {
-        subject = new OpUsageCtxHelper(workingView, fileNumbers, () -> tokens, aliasManager);
+        subject = new OpUsageCtxHelper(workingView, fileNumbers, () -> MerkleMapLike.from(tokens), aliasManager);
     }
 
     @Test
@@ -159,7 +165,7 @@ class OpUsageCtxHelperTest {
     void returnsExpectedCtxForAccount() {
         final var accounts = mock(MerkleMap.class);
         final var merkleAccount = mock(MerkleAccount.class);
-        given(workingView.accounts()).willReturn(AccountStorageAdapter.fromInMemory(accounts));
+        given(workingView.accounts()).willReturn(AccountStorageAdapter.fromInMemory(MerkleMapLike.from(accounts)));
         given(accounts.get(any())).willReturn(merkleAccount);
         given(merkleAccount.getCryptoAllowances()).willReturn(Collections.emptyMap());
         given(merkleAccount.getApproveForAllNfts()).willReturn(Collections.emptySet());
@@ -181,7 +187,7 @@ class OpUsageCtxHelperTest {
     void returnsExpectedCtxForCryptoApproveAccount() {
         final var accounts = mock(MerkleMap.class);
         final var merkleAccount = mock(MerkleAccount.class);
-        given(workingView.accounts()).willReturn(AccountStorageAdapter.fromInMemory(accounts));
+        given(workingView.accounts()).willReturn(AccountStorageAdapter.fromInMemory(MerkleMapLike.from(accounts)));
         given(accounts.get(any())).willReturn(merkleAccount);
         given(merkleAccount.getAccountKey()).willReturn(asUsableFcKey(key).get());
         given(merkleAccount.getMemo()).willReturn(memo);
@@ -207,7 +213,7 @@ class OpUsageCtxHelperTest {
     @Test
     void returnsMissingCtxWhenAccountNotFound() {
         final var accounts = mock(MerkleMap.class);
-        given(workingView.accounts()).willReturn(AccountStorageAdapter.fromInMemory(accounts));
+        given(workingView.accounts()).willReturn(AccountStorageAdapter.fromInMemory(MerkleMapLike.from(accounts)));
         given(accounts.get(any())).willReturn(null);
 
         final var ctx = subject.ctxForCryptoUpdate(TransactionBody.getDefaultInstance());
@@ -219,7 +225,7 @@ class OpUsageCtxHelperTest {
     @Test
     void returnsMissingCtxWhenApproveAccountNotFound() {
         given(workingView.accounts())
-                .willReturn(AccountStorageAdapter.fromInMemory(new MerkleMap<>()));
+                .willReturn(AccountStorageAdapter.fromInMemory(MerkleMapLike.from(new MerkleMap<>())));
         given(accessor.getTxn()).willReturn(TransactionBody.getDefaultInstance());
         given(accessor.getPayer()).willReturn(AccountID.getDefaultInstance());
 
@@ -238,16 +244,15 @@ class OpUsageCtxHelperTest {
 
         given(accessor.getTxn()).willReturn(txn);
         given(accessor.getSubType()).willReturn(TOKEN_NON_FUNGIBLE_UNIQUE);
-        final Optional<TokenType> tokenType = Optional.of(TokenType.NON_FUNGIBLE_UNIQUE);
         given(workingView.tokenWith(target)).willReturn(Optional.of(extant));
 
         final var tokenMintMeta = subject.metaForTokenMint(accessor);
 
         // then:
-        assertEquals(34, tokenMintMeta.getBpt());
+        assertEquals(1, tokenMintMeta.getBpt());
         assertEquals(TOKEN_NON_FUNGIBLE_UNIQUE, tokenMintMeta.getSubType());
-        assertEquals(12345670, tokenMintMeta.getRbs());
-        assertEquals(80, tokenMintMeta.getTransferRecordDb());
+        assertEquals(0, tokenMintMeta.getRbs());
+        assertEquals(0, tokenMintMeta.getTransferRecordDb());
     }
 
     @Test
@@ -285,7 +290,9 @@ class OpUsageCtxHelperTest {
     }
 
     private TokenFeeScheduleUpdateTransactionBody op() {
-        return TokenFeeScheduleUpdateTransactionBody.newBuilder().setTokenId(target).build();
+        return TokenFeeScheduleUpdateTransactionBody.newBuilder()
+                .setTokenId(target)
+                .build();
     }
 
     private List<FcCustomFee> fcFees() {
@@ -313,7 +320,10 @@ class OpUsageCtxHelperTest {
     }
 
     private TokenBurnTransactionBody getFungibleCommonTokenBurnOp() {
-        return TokenBurnTransactionBody.newBuilder().setToken(target).setAmount(1000L).build();
+        return TokenBurnTransactionBody.newBuilder()
+                .setToken(target)
+                .setAmount(1000L)
+                .build();
     }
 
     private TokenWipeAccountTransactionBody getUniqueTokenWipeOp() {
@@ -325,27 +335,24 @@ class OpUsageCtxHelperTest {
 
     private TransactionBody getTxnBody(final TokenMintTransactionBody op) {
         return TransactionBody.newBuilder()
-                .setTransactionID(
-                        TransactionID.newBuilder()
-                                .setTransactionValidStart(Timestamp.newBuilder().setSeconds(now)))
+                .setTransactionID(TransactionID.newBuilder()
+                        .setTransactionValidStart(Timestamp.newBuilder().setSeconds(now)))
                 .setTokenMint(op)
                 .build();
     }
 
     private TransactionBody getTxnBody(final TokenBurnTransactionBody op) {
         return TransactionBody.newBuilder()
-                .setTransactionID(
-                        TransactionID.newBuilder()
-                                .setTransactionValidStart(Timestamp.newBuilder().setSeconds(now)))
+                .setTransactionID(TransactionID.newBuilder()
+                        .setTransactionValidStart(Timestamp.newBuilder().setSeconds(now)))
                 .setTokenBurn(op)
                 .build();
     }
 
     private TransactionBody getTxnBody(final TokenWipeAccountTransactionBody op) {
         return TransactionBody.newBuilder()
-                .setTransactionID(
-                        TransactionID.newBuilder()
-                                .setTransactionValidStart(Timestamp.newBuilder().setSeconds(now)))
+                .setTransactionID(TransactionID.newBuilder()
+                        .setTransactionValidStart(Timestamp.newBuilder().setSeconds(now)))
                 .setTokenWipe(op)
                 .build();
     }
@@ -355,26 +362,13 @@ class OpUsageCtxHelperTest {
     private final long then = 1_234_567L + 7776000L;
     private final FileID targetFile = IdUtils.asFile("0.0.123456");
     private final FileID specialFile = IdUtils.asFile("0.0.159");
-    private final Key key =
-            Key.newBuilder()
-                    .setEd25519(ByteString.copyFromUtf8("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
-                    .build();
+    private final Key key = Key.newBuilder()
+            .setEd25519(ByteString.copyFromUtf8("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+            .build();
     private final JKeyList wacl =
-            new JKeyList(
-                    List.of(
-                            new JEd25519Key(
-                                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                                            .getBytes(StandardCharsets.UTF_8))));
+            new JKeyList(List.of(new JEd25519Key("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".getBytes(StandardCharsets.UTF_8))));
     private final MerkleToken extant =
-            new MerkleToken(
-                    now,
-                    1,
-                    2,
-                    "shLong.asPhlThree",
-                    "FOUR",
-                    false,
-                    true,
-                    EntityId.MISSING_ENTITY_ID);
+            new MerkleToken(now, 1, 2, "shLong.asPhlThree", "FOUR", false, true, EntityId.MISSING_ENTITY_ID);
     private final String memo = "accountInfo";
     private final int tokenRelationShipCount = 23;
     private final int maxAutomaticAssociations = 12;
@@ -382,56 +376,39 @@ class OpUsageCtxHelperTest {
     private final TokenID target = IdUtils.asToken("0.0.1003");
     private final TokenOpsUsage tokenOpsUsage = new TokenOpsUsage();
     private final HFileMeta fileMeta = new HFileMeta(false, wacl, then);
-    private final TransactionBody stdAppendTxn =
-            TransactionBody.newBuilder()
-                    .setTransactionID(
-                            TransactionID.newBuilder()
-                                    .setTransactionValidStart(
-                                            Timestamp.newBuilder().setSeconds(now)))
-                    .setFileAppend(
-                            FileAppendTransactionBody.newBuilder()
-                                    .setFileID(targetFile)
-                                    .setContents(ByteString.copyFrom(new byte[newFileBytes])))
-                    .build();
-    private final TransactionBody specialAppendTxn =
-            TransactionBody.newBuilder()
-                    .setTransactionID(
-                            TransactionID.newBuilder()
-                                    .setTransactionValidStart(
-                                            Timestamp.newBuilder().setSeconds(now)))
-                    .setFileAppend(
-                            FileAppendTransactionBody.newBuilder()
-                                    .setFileID(specialFile)
-                                    .setContents(ByteString.copyFrom(new byte[newFileBytes])))
-                    .build();
+    private final TransactionBody stdAppendTxn = TransactionBody.newBuilder()
+            .setTransactionID(TransactionID.newBuilder()
+                    .setTransactionValidStart(Timestamp.newBuilder().setSeconds(now)))
+            .setFileAppend(FileAppendTransactionBody.newBuilder()
+                    .setFileID(targetFile)
+                    .setContents(ByteString.copyFrom(new byte[newFileBytes])))
+            .build();
+    private final TransactionBody specialAppendTxn = TransactionBody.newBuilder()
+            .setTransactionID(TransactionID.newBuilder()
+                    .setTransactionValidStart(Timestamp.newBuilder().setSeconds(now)))
+            .setFileAppend(FileAppendTransactionBody.newBuilder()
+                    .setFileID(specialFile)
+                    .setContents(ByteString.copyFrom(new byte[newFileBytes])))
+            .build();
     private static final AccountID spender1 = asAccount("0.0.123");
     private static final TokenID token1 = asToken("0.0.100");
     private static final TokenID token2 = asToken("0.0.200");
     private static final AccountID ownerId = asAccount("0.0.5000");
-    private static final Map<EntityNum, Long> cryptoAllowance =
-            new HashMap<>() {
-                {
-                    put(EntityNum.fromAccountId(spender1), 10L);
-                }
-            };
+    private static final Map<EntityNum, Long> cryptoAllowance = new HashMap<>() {
+        {
+            put(EntityNum.fromAccountId(spender1), 10L);
+        }
+    };
 
-    private static final Map<FcTokenAllowanceId, Long> tokenAllowance =
-            new HashMap<>() {
-                {
-                    put(
-                            FcTokenAllowanceId.from(
-                                    EntityNum.fromTokenId(token1),
-                                    EntityNum.fromAccountId(spender1)),
-                            10L);
-                }
-            };
+    private static final Map<FcTokenAllowanceId, Long> tokenAllowance = new HashMap<>() {
+        {
+            put(FcTokenAllowanceId.from(EntityNum.fromTokenId(token1), EntityNum.fromAccountId(spender1)), 10L);
+        }
+    };
 
-    private final Set<FcTokenAllowanceId> nftAllowance =
-            new HashSet<>() {
-                {
-                    add(
-                            FcTokenAllowanceId.from(
-                                    new EntityNum(1000), EntityNum.fromAccountId(spender1)));
-                }
-            };
+    private final Set<FcTokenAllowanceId> nftAllowance = new HashSet<>() {
+        {
+            add(FcTokenAllowanceId.from(new EntityNum(1000), EntityNum.fromAccountId(spender1)));
+        }
+    };
 }

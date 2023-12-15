@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.misc;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -23,6 +24,8 @@ import static com.hedera.services.bdd.spec.utilops.UtilVerbs.runWithProvider;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.withOpContext;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiPropertySource;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.HapiSpecOperation;
@@ -39,6 +42,7 @@ import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+@HapiTestSuite
 public class FileQueriesStressTests extends HapiSuite {
     private static final Logger log = LogManager.getLogger(FileQueriesStressTests.class);
 
@@ -52,13 +56,13 @@ public class FileQueriesStressTests extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return List.of(
-                new HapiSpec[] {
-                    getFileInfoStress(), getFileContentsStress(),
-                });
+        return List.of(new HapiSpec[] {
+            getFileInfoStress(), getFileContentsStress(),
+        });
     }
 
-    private HapiSpec getFileContentsStress() {
+    @HapiTest
+    final HapiSpec getFileContentsStress() {
         return defaultHapiSpec("getFileContentsStress")
                 .given()
                 .when()
@@ -69,7 +73,8 @@ public class FileQueriesStressTests extends HapiSuite {
                                 .maxOpsPerSec(maxOpsPerSec::get));
     }
 
-    private HapiSpec getFileInfoStress() {
+    @HapiTest
+    final HapiSpec getFileInfoStress() {
         return defaultHapiSpec("getFileInfoStress")
                 .given()
                 .when()
@@ -83,36 +88,33 @@ public class FileQueriesStressTests extends HapiSuite {
     private Function<HapiSpec, OpProvider> getFileContentsFactory() {
         byte[] contents = "You won't believe this!".getBytes();
 
-        return spec ->
-                new OpProvider() {
-                    @Override
-                    public List<HapiSpecOperation> suggestedInitializers() {
-                        return List.of(fileCreate("something").contents(contents));
-                    }
+        return spec -> new OpProvider() {
+            @Override
+            public List<HapiSpecOperation> suggestedInitializers() {
+                return List.of(fileCreate("something").contents(contents));
+            }
 
-                    @Override
-                    public Optional<HapiSpecOperation> get() {
-                        return Optional.of(
-                                getFileContents("something")
-                                        .hasContents(ignore -> contents)
-                                        .noLogging());
-                    }
-                };
+            @Override
+            public Optional<HapiSpecOperation> get() {
+                return Optional.of(getFileContents("something")
+                        .hasContents(ignore -> contents)
+                        .noLogging());
+            }
+        };
     }
 
     private Function<HapiSpec, OpProvider> getFileInfoFactory() {
-        return spec ->
-                new OpProvider() {
-                    @Override
-                    public List<HapiSpecOperation> suggestedInitializers() {
-                        return List.of(fileCreate("something").contents("You won't believe this!"));
-                    }
+        return spec -> new OpProvider() {
+            @Override
+            public List<HapiSpecOperation> suggestedInitializers() {
+                return List.of(fileCreate("something").contents("You won't believe this!"));
+            }
 
-                    @Override
-                    public Optional<HapiSpecOperation> get() {
-                        return Optional.of(getFileInfo("something").noLogging());
-                    }
-                };
+            @Override
+            public Optional<HapiSpecOperation> get() {
+                return Optional.of(getFileInfo("something").noLogging());
+            }
+        };
     }
 
     private void configureFromCi(HapiSpec spec) {
@@ -123,10 +125,7 @@ public class FileQueriesStressTests extends HapiSuite {
     }
 
     private <T> void configure(
-            String name,
-            Consumer<T> configurer,
-            HapiPropertySource ciProps,
-            Function<String, T> getter) {
+            String name, Consumer<T> configurer, HapiPropertySource ciProps, Function<String, T> getter) {
         if (ciProps.has(name)) {
             configurer.accept(getter.apply(name));
         }

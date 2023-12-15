@@ -13,11 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.virtual;
 
 import static com.hedera.node.app.service.mono.state.virtual.ContractKeySerializer.CLASS_ID;
 import static com.hedera.node.app.service.mono.state.virtual.ContractKeySerializer.CURRENT_VERSION;
 import static com.hedera.node.app.service.mono.state.virtual.ContractKeySerializer.DATA_VERSION;
+import static com.swirlds.merkledb.serialize.BaseSerializer.VARIABLE_DATA_SIZE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -25,8 +27,6 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 
-import com.swirlds.common.io.streams.SerializableDataOutputStream;
-import com.swirlds.jasperdb.files.DataFileCommon;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -37,8 +37,7 @@ class ContractKeySerializerTest {
     private final long otherContractNum = 1235L;
     private final long key = 123L;
     private final UInt256 largeKey =
-            UInt256.fromHexString(
-                    "0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563");
+            UInt256.fromHexString("0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563");
 
     final ContractKeySerializer subject = new ContractKeySerializer();
     final ContractKey contractKey = new ContractKey(contractNum, key);
@@ -49,7 +48,7 @@ class ContractKeySerializerTest {
         assertEquals(DATA_VERSION, subject.getCurrentDataVersion());
         assertEquals(CLASS_ID, subject.getClassId());
         assertEquals(CURRENT_VERSION, subject.getVersion());
-        assertEquals(DataFileCommon.VARIABLE_DATA_SIZE, subject.getSerializedSize());
+        assertEquals(VARIABLE_DATA_SIZE, subject.getSerializedSize());
         assertEquals(ContractKey.ESTIMATED_AVERAGE_SIZE, subject.getTypicalSerializedSize());
     }
 
@@ -70,17 +69,17 @@ class ContractKeySerializerTest {
         final var contractIdNonZeroBytes = contractKey.getContractIdNonZeroBytes();
         final var uint256KeyNonZeroBytes = contractKey.getUint256KeyNonZeroBytes();
 
-        final var out = mock(SerializableDataOutputStream.class);
+        final var out = mock(ByteBuffer.class);
         final var inOrder = inOrder(out);
 
         subject.serialize(contractKey, out);
 
-        inOrder.verify(out).write(contractKey.getContractIdNonZeroBytesAndUint256KeyNonZeroBytes());
+        inOrder.verify(out).put(contractKey.getContractIdNonZeroBytesAndUint256KeyNonZeroBytes());
         for (int b = contractIdNonZeroBytes - 1; b >= 0; b--) {
-            inOrder.verify(out).write((byte) (contractKey.getContractId() >> (b * 8)));
+            inOrder.verify(out).put((byte) (contractKey.getContractId() >> (b * 8)));
         }
         for (int b = uint256KeyNonZeroBytes - 1; b >= 0; b--) {
-            inOrder.verify(out).write(contractKey.getUint256Byte(b));
+            inOrder.verify(out).put(contractKey.getUint256Byte(b));
         }
     }
 
@@ -90,12 +89,9 @@ class ContractKeySerializerTest {
         final var uint256KeyNonZeroBytes = contractKey.getUint256KeyNonZeroBytes();
         final var bin = mock(ByteBuffer.class);
 
-        given(bin.get())
-                .willReturn(contractKey.getContractIdNonZeroBytesAndUint256KeyNonZeroBytes());
+        given(bin.get()).willReturn(contractKey.getContractIdNonZeroBytesAndUint256KeyNonZeroBytes());
 
-        assertEquals(
-                1 + contractIdNonZeroBytes + uint256KeyNonZeroBytes,
-                subject.deserializeKeySize(bin));
+        assertEquals(1 + contractIdNonZeroBytes + uint256KeyNonZeroBytes, subject.deserializeKeySize(bin));
     }
 
     @Test
@@ -115,8 +111,7 @@ class ContractKeySerializerTest {
     @Test
     void equalsUsingByteBufferFailsAsExpected() throws IOException {
         final var someKey = new ContractKey(contractNum, key);
-        final var someKeyForDiffContractButSameNonZeroBytes =
-                new ContractKey(otherContractNum, key);
+        final var someKeyForDiffContractButSameNonZeroBytes = new ContractKey(otherContractNum, key);
         final var someKeyForDiffContract = new ContractKey(Long.MAX_VALUE, key);
         final var someDiffKeyForSameContract = new ContractKey(contractNum, largeKey.toArray());
         final var bin = mock(ByteBuffer.class);

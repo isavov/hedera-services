@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.grpc.marshalling;
 
 import com.google.common.base.MoreObjects;
@@ -23,9 +24,9 @@ import com.hedera.node.app.service.mono.ledger.accounts.AliasManager;
 import com.hedera.node.app.service.mono.txns.customfees.CustomFeeSchedules;
 import com.hedera.node.app.service.mono.utils.EntityNum;
 import com.hederahashgraph.api.proto.java.ResponseCodeEnum;
-import com.swirlds.common.system.Round;
-import com.swirlds.common.system.SwirldDualState;
-import com.swirlds.common.system.events.Event;
+import com.swirlds.platform.system.Round;
+import com.swirlds.platform.system.SwirldDualState;
+import com.swirlds.platform.system.events.Event;
 import java.util.List;
 import java.util.Map;
 import org.apache.commons.lang3.builder.EqualsBuilder;
@@ -69,13 +70,7 @@ public class ImpliedTransfersMeta {
             final List<CustomFeeMeta> customFeeMeta,
             final Map<ByteString, EntityNum> resolutions,
             final int numAutoCreations) {
-        this(
-                validationProps,
-                code,
-                customFeeMeta,
-                resolutions,
-                numAutoCreations,
-                NO_LAZY_CREATIONS);
+        this(validationProps, code, customFeeMeta, resolutions, numAutoCreations, NO_LAZY_CREATIONS);
     }
 
     public ImpliedTransfersMeta(
@@ -122,23 +117,15 @@ public class ImpliedTransfersMeta {
                 }
             }
         }
-        final var validationParamsMatch =
-                (validationProps.maxHbarAdjusts == dynamicProperties.maxTransferListSize())
-                        && (validationProps.maxTokenAdjusts
-                                == dynamicProperties.maxTokenTransferListSize())
-                        && (validationProps.maxOwnershipChanges
-                                == dynamicProperties.maxNftTransfersLen())
-                        && (validationProps.maxXferBalanceChanges
-                                == dynamicProperties.maxXferBalanceChanges())
-                        && (validationProps.maxNestedCustomFees
-                                == dynamicProperties.maxCustomFeeDepth())
-                        && (validationProps.areNftsEnabled == dynamicProperties.areNftsEnabled())
-                        && (validationProps.isAutoCreationEnabled
-                                == dynamicProperties.isAutoCreationEnabled())
-                        && (validationProps.isLazyCreationEnabled
-                                == dynamicProperties.isLazyCreationEnabled())
-                        && (validationProps.areAllowancesEnabled
-                                == dynamicProperties.areAllowancesEnabled());
+        final var validationParamsMatch = (validationProps.maxHbarAdjusts == dynamicProperties.maxTransferListSize())
+                && (validationProps.maxTokenAdjusts == dynamicProperties.maxTokenTransferListSize())
+                && (validationProps.maxOwnershipChanges == dynamicProperties.maxNftTransfersLen())
+                && (validationProps.maxXferBalanceChanges == dynamicProperties.maxXferBalanceChanges())
+                && (validationProps.maxNestedCustomFees == dynamicProperties.maxCustomFeeDepth())
+                && (validationProps.areNftsEnabled == dynamicProperties.areNftsEnabled())
+                && (validationProps.isAutoCreationEnabled == dynamicProperties.isAutoCreationEnabled())
+                && (validationProps.isLazyCreationEnabled == dynamicProperties.isLazyCreationEnabled())
+                && (validationProps.areAllowancesEnabled == dynamicProperties.areAllowancesEnabled());
         if (!validationParamsMatch) {
             return false;
         }

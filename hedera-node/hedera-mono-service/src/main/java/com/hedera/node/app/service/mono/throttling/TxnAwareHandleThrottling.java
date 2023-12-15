@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.throttling;
 
 import com.hedera.node.app.hapi.utils.sysfiles.domain.throttling.ThrottleDefinitions;
@@ -22,16 +23,21 @@ import com.hedera.node.app.service.mono.context.TransactionContext;
 import com.hedera.node.app.service.mono.utils.accessors.TxnAccessor;
 import com.hederahashgraph.api.proto.java.HederaFunctionality;
 import com.hederahashgraph.api.proto.java.Query;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 
 public class TxnAwareHandleThrottling implements FunctionalityThrottling {
     private final TransactionContext txnCtx;
     private final TimedFunctionalityThrottling delegate;
 
-    public TxnAwareHandleThrottling(
-            TransactionContext txnCtx, TimedFunctionalityThrottling delegate) {
+    public TxnAwareHandleThrottling(TransactionContext txnCtx, TimedFunctionalityThrottling delegate) {
         this.txnCtx = txnCtx;
         this.delegate = delegate;
+    }
+
+    @Override
+    public void leakCapacityForNOfUnscaled(final int n, @NonNull final HederaFunctionality function) {
+        delegate.leakCapacityForNOfUnscaled(n, function);
     }
 
     @Override
@@ -67,6 +73,22 @@ public class TxnAwareHandleThrottling implements FunctionalityThrottling {
     @Override
     public List<DeterministicThrottle> allActiveThrottles() {
         return delegate.allActiveThrottles();
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public List<DeterministicThrottle.UsageSnapshot> getUsageSnapshots() {
+        return delegate.getUsageSnapshots();
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void resetUsageThrottlesTo(List<DeterministicThrottle.UsageSnapshot> snapshots) {
+        delegate.resetUsageThrottlesTo(snapshots);
     }
 
     @Override

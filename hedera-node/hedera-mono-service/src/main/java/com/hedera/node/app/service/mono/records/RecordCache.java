@@ -13,8 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.records;
 
+import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.BUSY;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.FAIL_INVALID;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.UNKNOWN;
 
@@ -28,6 +30,7 @@ import com.hederahashgraph.api.proto.java.ResponseCodeEnum;
 import com.hederahashgraph.api.proto.java.TransactionID;
 import com.hederahashgraph.api.proto.java.TransactionReceipt;
 import com.hederahashgraph.api.proto.java.TransactionRecord;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -50,8 +53,7 @@ public class RecordCache {
     private Map<TransactionID, TxnIdRecentHistory> histories;
 
     @Inject
-    public RecordCache(
-            Cache<TransactionID, Boolean> cache, Map<TransactionID, TxnIdRecentHistory> histories) {
+    public RecordCache(Cache<TransactionID, Boolean> cache, Map<TransactionID, TxnIdRecentHistory> histories) {
         this.histories = histories;
         this.timedReceiptCache = cache;
     }
@@ -66,30 +68,56 @@ public class RecordCache {
     }
 
     void setPostConsensus(
-            final TransactionID txnId,
-            final ResponseCodeEnum status,
-            final ExpirableTxnRecord expirableTxnRecord) {
-        final var recentHistory =
-                histories.computeIfAbsent(txnId, ignore -> new TxnIdRecentHistory());
+            final TransactionID txnId, final ResponseCodeEnum status, final ExpirableTxnRecord expirableTxnRecord) {
+        final var recentHistory = histories.computeIfAbsent(txnId, ignore -> new TxnIdRecentHistory());
         recentHistory.observe(expirableTxnRecord, status);
     }
 
     public void setFailInvalid(
-            final AccountID effectivePayer,
-            final TxnAccessor accessor,
-            final Instant consensusTimestamp,
+            @NonNull final AccountID effectivePayer,
+            @NonNull final TxnAccessor accessor,
+            @NonNull final Instant consensusTimestamp,
             final long submittingMember) {
-        final var recordBuilder = creator.createInvalidFailureRecord(accessor, consensusTimestamp);
-        final var expiringRecord =
-                creator.saveExpiringRecord(
-                        effectivePayer,
-                        recordBuilder.build(),
-                        consensusTimestamp.getEpochSecond(),
-                        submittingMember);
+        setRecordWithStatus(effectivePayer, accessor, consensusTimestamp, submittingMember, FAIL_INVALID);
+    }
 
-        final var recentHistory =
-                histories.computeIfAbsent(accessor.getTxnId(), ignore -> new TxnIdRecentHistory());
-        recentHistory.observe(expiringRecord, FAIL_INVALID);
+    /**
+     * Set the record for a transaction that was submitted with an older event version. We set the status of the
+     * transaction as {@code ResponseCodeEnum.BUSY} on the receipt. This transaction needs to be re-submitted for
+     * it to succeed.
+     * @param effectivePayer payer for the transaction
+     * @param accessor transaction accessor
+     * @param consensusTimestamp consensus timestamp
+     * @param submittingMember submitting member
+     */
+    public void setStaleTransaction(
+            @NonNull final AccountID effectivePayer,
+            @NonNull final TxnAccessor accessor,
+            @NonNull final Instant consensusTimestamp,
+            final long submittingMember) {
+        setRecordWithStatus(effectivePayer, accessor, consensusTimestamp, submittingMember, BUSY);
+    }
+
+    /**
+     * Create a failure record with the given status in the receipt and store it in cache.
+     * @param effectivePayer payer for the transaction
+     * @param accessor transaction accessor
+     * @param consensusTimestamp consensus timestamp
+     * @param submittingMember submitting member
+     * @param status status of the transaction
+     */
+    private void setRecordWithStatus(
+            @NonNull final AccountID effectivePayer,
+            @NonNull final TxnAccessor accessor,
+            @NonNull final Instant consensusTimestamp,
+            final long submittingMember,
+            @NonNull final ResponseCodeEnum status) {
+        final var recordBuilder = creator.createInvalidFailureRecord(accessor, consensusTimestamp);
+        final var expiringRecord = creator.saveExpiringRecord(
+                effectivePayer, recordBuilder.build(), consensusTimestamp.getEpochSecond(), submittingMember);
+
+        final var recentHistory = histories.computeIfAbsent(accessor.getTxnId(), ignore -> new TxnIdRecentHistory());
+        recentHistory.observe(expiringRecord, status);
     }
 
     public boolean isReceiptPresent(final TransactionID txnId) {
@@ -113,7 +141,8 @@ public class RecordCache {
     }
 
     public List<TransactionReceipt> getChildReceipts(final TransactionID txnId) {
-        return transformedChildrenOf(txnId, childRecord -> childRecord.getReceipt().toGrpc());
+        return transformedChildrenOf(
+                txnId, childRecord -> childRecord.getReceipt().toGrpc());
     }
 
     public List<TransactionRecord> getChildRecords(final TransactionID txnId) {

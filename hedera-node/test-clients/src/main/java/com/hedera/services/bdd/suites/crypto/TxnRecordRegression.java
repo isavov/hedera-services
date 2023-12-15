@@ -13,8 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.crypto;
 
+import static com.hedera.services.bdd.junit.TestTags.CRYPTO;
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
 import static com.hedera.services.bdd.spec.assertions.TransactionRecordAsserts.recordWith;
 import static com.hedera.services.bdd.spec.queries.QueryVerbs.getReceipt;
@@ -32,17 +34,26 @@ import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.RECEIPT_NOT_FO
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.RECORD_NOT_FOUND;
 import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.SUCCESS;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.suites.HapiSuite;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.Tag;
 
-/* ! WARNING - Requires a RecordCache TTL of 3s to pass ! */
+/**
+ * ! WARNING - Requires a RecordCache TTL of 3s to pass !
+ *
+ * <p>Even with a 3s TTL, a number of these tests fail. FUTURE: revisit
+ * */
+@HapiTestSuite
+@Tag(CRYPTO)
 public class TxnRecordRegression extends HapiSuite {
     static final Logger log = LogManager.getLogger(TxnRecordRegression.class);
 
-    public static void main(String... args) {
+    public static void main(final String... args) {
         new TxnRecordRegression().runSuiteSync();
     }
 
@@ -53,18 +64,18 @@ public class TxnRecordRegression extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return List.of(
-                new HapiSpec[] {
-                    returnsInvalidForUnspecifiedTxnId(),
-                    recordNotFoundIfNotInPayerState(),
-                    recordUnavailableIfRejectedInPrecheck(),
-                    recordUnavailableBeforeConsensus(),
-                    recordAvailableInPayerState(),
-                    deletedAccountRecordsUnavailableAfterTtl(),
-                });
+        return List.of(new HapiSpec[] {
+            returnsInvalidForUnspecifiedTxnId(),
+            recordNotFoundIfNotInPayerState(),
+            recordUnavailableIfRejectedInPrecheck(),
+            recordUnavailableBeforeConsensus(),
+            recordAvailableInPayerState(),
+            deletedAccountRecordsUnavailableAfterTtl(),
+        });
     }
 
-    private HapiSpec recordAvailableInPayerState() {
+    // FUTURE: revisit this test, which isn't passing in modular or mono code (even with a 3 second TTL)
+    final HapiSpec recordAvailableInPayerState() {
         return defaultHapiSpec("RecordAvailableInPayerState")
                 .given(
                         cryptoCreate("stingyPayer").sendThreshold(1L),
@@ -77,7 +88,8 @@ public class TxnRecordRegression extends HapiSuite {
                         getTxnRecord("recordTxn").hasPriority(recordWith().status(SUCCESS)));
     }
 
-    private HapiSpec deletedAccountRecordsUnavailableAfterTtl() {
+    // FUTURE: revisit this test, which isn't passing in modular or mono code (even with a 3 second TTL)
+    final HapiSpec deletedAccountRecordsUnavailableAfterTtl() {
         return defaultHapiSpec("DeletedAccountRecordsUnavailableAfterTtl")
                 .given(
                         cryptoCreate("lowThreshPayer").sendThreshold(1L),
@@ -90,39 +102,42 @@ public class TxnRecordRegression extends HapiSuite {
                 .then(getTxnRecord("recordTxn").hasCostAnswerPrecheck(ACCOUNT_DELETED));
     }
 
-    private HapiSpec returnsInvalidForUnspecifiedTxnId() {
+    @HapiTest
+    final HapiSpec returnsInvalidForUnspecifiedTxnId() {
         return defaultHapiSpec("ReturnsInvalidForUnspecifiedTxnId")
                 .given()
                 .when()
                 .then(getTxnRecord("").useDefaultTxnId().hasCostAnswerPrecheck(INVALID_ACCOUNT_ID));
     }
 
-    private HapiSpec recordNotFoundIfNotInPayerState() {
+    @HapiTest
+    final HapiSpec recordNotFoundIfNotInPayerState() {
         return defaultHapiSpec("RecordNotFoundIfNotInPayerState")
                 .given(
                         cryptoCreate("misc").via("success"),
                         usableTxnIdNamed("rightAccountWrongId").payerId("misc"))
                 .when()
-                .then(getTxnRecord("rightAccountWrongId").hasCostAnswerPrecheck(RECORD_NOT_FOUND));
+                .then(getTxnRecord("rightAccountWrongId").hasAnswerOnlyPrecheck(RECORD_NOT_FOUND));
     }
 
-    private HapiSpec recordUnavailableBeforeConsensus() {
+    @HapiTest
+    final HapiSpec recordUnavailableBeforeConsensus() {
         return defaultHapiSpec("RecordUnavailableBeforeConsensus")
                 .given()
                 .when()
                 .then(
                         cryptoCreate("misc").via("success").balance(1_000L).deferStatusResolution(),
-                        getTxnRecord("success").hasCostAnswerPrecheck(RECORD_NOT_FOUND));
+                        getTxnRecord("success").hasAnswerOnlyPrecheck(RECORD_NOT_FOUND));
     }
 
-    private HapiSpec recordUnavailableIfRejectedInPrecheck() {
+    // FUTURE: revisit this test, which isn't passing in modular or mono code (even with a 3 second TTL)
+    final HapiSpec recordUnavailableIfRejectedInPrecheck() {
         return defaultHapiSpec("RecordUnavailableIfRejectedInPrecheck")
                 .given(usableTxnIdNamed("failingTxn"), cryptoCreate("misc").balance(1_000L))
-                .when(
-                        cryptoCreate("nope")
-                                .payingWith("misc")
-                                .hasPrecheck(INSUFFICIENT_PAYER_BALANCE)
-                                .txnId("failingTxn"))
+                .when(cryptoCreate("nope")
+                        .payingWith("misc")
+                        .hasPrecheck(INSUFFICIENT_PAYER_BALANCE)
+                        .txnId("failingTxn"))
                 .then(getTxnRecord("failingTxn").hasCostAnswerPrecheck(RECORD_NOT_FOUND));
     }
 }

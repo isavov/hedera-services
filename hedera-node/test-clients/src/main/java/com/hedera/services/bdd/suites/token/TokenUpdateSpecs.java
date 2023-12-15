@@ -13,8 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.token;
 
+import static com.hedera.services.bdd.junit.TestTags.TOKEN;
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
 import static com.hedera.services.bdd.spec.queries.QueryVerbs.getAccountBalance;
 import static com.hedera.services.bdd.spec.queries.QueryVerbs.getAccountInfo;
@@ -62,6 +64,8 @@ import static com.hederahashgraph.api.proto.java.ResponseCodeEnum.TRANSACTION_RE
 import static com.hederahashgraph.api.proto.java.TokenType.NON_FUNGIBLE_UNIQUE;
 
 import com.google.protobuf.ByteString;
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.spec.HapiSpecSetup;
 import com.hedera.services.bdd.spec.queries.crypto.ExpectedTokenRel;
@@ -75,8 +79,12 @@ import java.time.Instant;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.Tag;
 
+@HapiTestSuite
+@Tag(TOKEN)
 public class TokenUpdateSpecs extends HapiSuite {
+
     private static final Logger log = LogManager.getLogger(TokenUpdateSpecs.class);
     private static final int MAX_NAME_LENGTH = 100;
     private static final int MAX_SYMBOL_LENGTH = 100;
@@ -124,25 +132,25 @@ public class TokenUpdateSpecs extends HapiSuite {
                 customFeesOnlyUpdatableWithKey(),
                 updateUniqueTreasuryWithNfts(),
                 updateHappyPath(),
-                safeToUpdateCustomFeesWithNewFallbackWhileTransferring());
+                safeToUpdateCustomFeesWithNewFallbackWhileTransferring(),
+                tokenUpdateCanClearMemo());
     }
 
-    private HapiSpec validatesNewExpiry() {
+    @HapiTest
+    final HapiSpec validatesNewExpiry() {
         final var smallBuffer = 12_345L;
         final var okExpiry = defaultMaxLifetime + Instant.now().getEpochSecond() - smallBuffer;
-        final var excessiveExpiry =
-                defaultMaxLifetime + Instant.now().getEpochSecond() + smallBuffer;
+        final var excessiveExpiry = defaultMaxLifetime + Instant.now().getEpochSecond() + smallBuffer;
         return defaultHapiSpec("ValidatesNewExpiry")
                 .given(tokenCreate("tbu"))
                 .when()
                 .then(
-                        tokenUpdate("tbu")
-                                .expiry(excessiveExpiry)
-                                .hasKnownStatus(INVALID_EXPIRATION_TIME),
+                        tokenUpdate("tbu").expiry(excessiveExpiry).hasKnownStatus(INVALID_EXPIRATION_TIME),
                         tokenUpdate("tbu").expiry(okExpiry));
     }
 
-    private HapiSpec validatesAlreadyDeletedToken() {
+    @HapiTest
+    final HapiSpec validatesAlreadyDeletedToken() {
         return defaultHapiSpec("ValidatesAlreadyDeletedToken")
                 .given(
                         newKeyNamed("adminKey"),
@@ -153,7 +161,8 @@ public class TokenUpdateSpecs extends HapiSuite {
                 .then(tokenUpdate("tbd").hasKnownStatus(TOKEN_WAS_DELETED));
     }
 
-    private HapiSpec tokensCanBeMadeImmutableWithEmptyKeyList() {
+    @HapiTest
+    final HapiSpec tokensCanBeMadeImmutableWithEmptyKeyList() {
         final var mutableForNow = "mutableForNow";
         return defaultHapiSpec("TokensCanBeMadeImmutableWithEmptyKeyList")
                 .given(
@@ -161,9 +170,7 @@ public class TokenUpdateSpecs extends HapiSuite {
                         cryptoCreate("neverToBe").balance(0L),
                         tokenCreate(mutableForNow).adminKey("initialAdmin"))
                 .when(
-                        tokenUpdate(mutableForNow)
-                                .improperlyEmptyingAdminKey()
-                                .hasPrecheck(INVALID_ADMIN_KEY),
+                        tokenUpdate(mutableForNow).improperlyEmptyingAdminKey().hasPrecheck(INVALID_ADMIN_KEY),
                         tokenUpdate(mutableForNow).properlyEmptyingAdminKey())
                 .then(
                         getTokenInfo(mutableForNow),
@@ -173,23 +180,21 @@ public class TokenUpdateSpecs extends HapiSuite {
                                 .hasKnownStatus(TOKEN_IS_IMMUTABLE));
     }
 
-    private HapiSpec standardImmutabilitySemanticsHold() {
+    @HapiTest
+    final HapiSpec standardImmutabilitySemanticsHold() {
         long then = Instant.now().getEpochSecond() + 1_234_567L;
         final var immutable = "immutable";
         return defaultHapiSpec("StandardImmutabilitySemanticsHold")
                 .given(tokenCreate(immutable).expiry(then))
                 .when(
-                        tokenUpdate(immutable)
-                                .treasury(ADDRESS_BOOK_CONTROL)
-                                .hasKnownStatus(TOKEN_IS_IMMUTABLE),
-                        tokenUpdate(immutable)
-                                .expiry(then - 1)
-                                .hasKnownStatus(INVALID_EXPIRATION_TIME),
+                        tokenUpdate(immutable).treasury(ADDRESS_BOOK_CONTROL).hasKnownStatus(TOKEN_IS_IMMUTABLE),
+                        tokenUpdate(immutable).expiry(then - 1).hasKnownStatus(INVALID_EXPIRATION_TIME),
                         tokenUpdate(immutable).expiry(then + 1))
                 .then(getTokenInfo(immutable).logged());
     }
 
-    private HapiSpec validatesMissingRef() {
+    @HapiTest
+    final HapiSpec validatesMissingRef() {
         return defaultHapiSpec("ValidatesMissingRef")
                 .given(cryptoCreate(PAYER))
                 .when()
@@ -206,21 +211,22 @@ public class TokenUpdateSpecs extends HapiSuite {
                                 .hasKnownStatus(INVALID_TOKEN_ID));
     }
 
-    private HapiSpec validatesMissingAdminKey() {
+    @HapiTest
+    final HapiSpec validatesMissingAdminKey() {
         return defaultHapiSpec("ValidatesMissingAdminKey")
                 .given(
                         cryptoCreate(TOKEN_TREASURY).balance(0L),
                         cryptoCreate(PAYER),
                         tokenCreate("tbd").treasury(TOKEN_TREASURY))
                 .when()
-                .then(
-                        tokenUpdate("tbd")
-                                .autoRenewAccount(GENESIS)
-                                .payingWith(PAYER)
-                                .signedBy(PAYER, GENESIS)
-                                .hasKnownStatus(TOKEN_IS_IMMUTABLE));
+                .then(tokenUpdate("tbd")
+                        .autoRenewAccount(GENESIS)
+                        .payingWith(PAYER)
+                        .signedBy(PAYER, GENESIS)
+                        .hasKnownStatus(TOKEN_IS_IMMUTABLE));
     }
 
+    @HapiTest
     public HapiSpec keysChange() {
         return defaultHapiSpec("KeysChange")
                 .given(
@@ -256,8 +262,8 @@ public class TokenUpdateSpecs extends HapiSuite {
                         tokenAssociate("misc", "tbu"))
                 .then(
                         getTokenInfo("tbu").logged(),
-                        grantTokenKyc("tbu", "misc").signedBy(GENESIS, "freezeThenKycKey"),
                         tokenUnfreeze("tbu", "misc").signedBy(GENESIS, "kycThenFreezeKey"),
+                        grantTokenKyc("tbu", "misc").signedBy(GENESIS, "freezeThenKycKey"),
                         getAccountInfo("misc").logged(),
                         cryptoTransfer(moving(5, "tbu").between(TOKEN_TREASURY, "misc")),
                         mintToken("tbu", 10).signedBy(GENESIS, "wipeThenSupplyKey"),
@@ -266,6 +272,7 @@ public class TokenUpdateSpecs extends HapiSuite {
                         getAccountInfo(TOKEN_TREASURY).logged());
     }
 
+    @HapiTest
     public HapiSpec newTreasuryAutoAssociationWorks() {
         return defaultHapiSpec("NewTreasuryAutoAssociationWorks")
                 .given(
@@ -273,7 +280,8 @@ public class TokenUpdateSpecs extends HapiSuite {
                         cryptoCreate("oldTreasury").balance(0L),
                         tokenCreate("tbu").adminKey("adminKey").treasury("oldTreasury"))
                 .when(
-                        cryptoCreate("newTreasuryWithoutRemainingAutoAssociations").balance(0L),
+                        cryptoCreate("newTreasuryWithoutRemainingAutoAssociations")
+                                .balance(0L),
                         cryptoCreate("newTreasuryWithRemainingAutoAssociations")
                                 .balance(0L)
                                 .maxAutomaticTokenAssociations(10))
@@ -282,10 +290,10 @@ public class TokenUpdateSpecs extends HapiSuite {
                                 .treasury("newTreasuryWithoutRemainingAutoAssociations")
                                 .hasKnownStatus(NO_REMAINING_AUTOMATIC_ASSOCIATIONS),
                         tokenUpdate("tbu").treasury("newTreasuryWithRemainingAutoAssociations"),
-                        getTokenInfo("tbu")
-                                .hasTreasury("newTreasuryWithRemainingAutoAssociations"));
+                        getTokenInfo("tbu").hasTreasury("newTreasuryWithRemainingAutoAssociations"));
     }
 
+    @HapiTest
     public HapiSpec newTreasuryMustSign() {
         return defaultHapiSpec("NewTreasuryMustSign")
                 .given(
@@ -304,6 +312,7 @@ public class TokenUpdateSpecs extends HapiSuite {
                         tokenUpdate("tbu").treasury("newTreasury"));
     }
 
+    @HapiTest
     public HapiSpec treasuryEvolves() {
         return defaultHapiSpec("TreasuryEvolves")
                 .given(
@@ -329,10 +338,11 @@ public class TokenUpdateSpecs extends HapiSuite {
                         getTxnRecord(TREASURY_UPDATE_TXN).logged());
     }
 
+    @HapiTest
     public HapiSpec validAutoRenewWorks() {
         final var firstPeriod = THREE_MONTHS_IN_SECONDS;
         final var secondPeriod = THREE_MONTHS_IN_SECONDS + 1234;
-        return defaultHapiSpec("AutoRenewInfoChanges")
+        return defaultHapiSpec("validAutoRenewWorks")
                 .given(
                         cryptoCreate("autoRenew").balance(0L),
                         cryptoCreate("newAutoRenew").balance(0L),
@@ -347,12 +357,11 @@ public class TokenUpdateSpecs extends HapiSuite {
                                 .autoRenewAccount("newAutoRenew")
                                 .autoRenewPeriod(secondPeriod)
                                 .hasKnownStatus(INVALID_SIGNATURE),
-                        tokenUpdate("tbu")
-                                .autoRenewAccount("newAutoRenew")
-                                .autoRenewPeriod(secondPeriod))
+                        tokenUpdate("tbu").autoRenewAccount("newAutoRenew").autoRenewPeriod(secondPeriod))
                 .then(getTokenInfo("tbu").logged());
     }
 
+    @HapiTest
     public HapiSpec symbolChanges() {
         var hopefullyUnique = "ORIGINAL" + TxnUtils.randomUppercase(5);
 
@@ -367,6 +376,7 @@ public class TokenUpdateSpecs extends HapiSuite {
                         cryptoTransfer(moving(1, "tbu").between(TOKEN_TREASURY, GENESIS)));
     }
 
+    @HapiTest
     public HapiSpec nameChanges() {
         var hopefullyUnique = "ORIGINAL" + TxnUtils.randomUppercase(5);
 
@@ -378,6 +388,7 @@ public class TokenUpdateSpecs extends HapiSuite {
                 .then(getTokenInfo("tbu").hasName(hopefullyUnique));
     }
 
+    @HapiTest
     public HapiSpec tooLongNameCheckHolds() {
         var tooLongName = "ORIGINAL" + TxnUtils.randomUppercase(MAX_NAME_LENGTH + 1);
 
@@ -387,6 +398,7 @@ public class TokenUpdateSpecs extends HapiSuite {
                 .then(tokenUpdate("tbu").name(tooLongName).hasPrecheck(TOKEN_NAME_TOO_LONG));
     }
 
+    @HapiTest
     public HapiSpec tooLongSymbolCheckHolds() {
         var tooLongSymbol = TxnUtils.randomUppercase(MAX_SYMBOL_LENGTH + 1);
 
@@ -396,6 +408,7 @@ public class TokenUpdateSpecs extends HapiSuite {
                 .then(tokenUpdate("tbu").symbol(tooLongSymbol).hasPrecheck(TOKEN_SYMBOL_TOO_LONG));
     }
 
+    @HapiTest
     public HapiSpec deletedAutoRenewAccountCheckHolds() {
         return defaultHapiSpec("DeletedAutoRenewAccountCheckHolds")
                 .given(
@@ -405,12 +418,12 @@ public class TokenUpdateSpecs extends HapiSuite {
                 .when(
                         cryptoDelete("autoRenewAccount"),
                         tokenCreate("tbu").adminKey("adminKey").treasury(TOKEN_TREASURY))
-                .then(
-                        tokenUpdate("tbu")
-                                .autoRenewAccount("autoRenewAccount")
-                                .hasKnownStatus(INVALID_AUTORENEW_ACCOUNT));
+                .then(tokenUpdate("tbu")
+                        .autoRenewAccount("autoRenewAccount")
+                        .hasKnownStatus(INVALID_AUTORENEW_ACCOUNT));
     }
 
+    @HapiTest
     public HapiSpec renewalPeriodCheckHolds() {
         return defaultHapiSpec("RenewalPeriodCheckHolds")
                 .given(
@@ -432,14 +445,13 @@ public class TokenUpdateSpecs extends HapiSuite {
                                 .autoRenewAccount("autoRenewAccount")
                                 .autoRenewPeriod(0)
                                 .hasKnownStatus(INVALID_RENEWAL_PERIOD),
-                        tokenUpdate("withAutoRenewAcc")
-                                .autoRenewPeriod(-1)
-                                .hasKnownStatus(INVALID_RENEWAL_PERIOD),
+                        tokenUpdate("withAutoRenewAcc").autoRenewPeriod(-1).hasKnownStatus(INVALID_RENEWAL_PERIOD),
                         tokenUpdate("withAutoRenewAcc")
                                 .autoRenewPeriod(100000000000L)
                                 .hasKnownStatus(INVALID_RENEWAL_PERIOD));
     }
 
+    @HapiTest
     public HapiSpec invalidTreasuryCheckHolds() {
         return defaultHapiSpec("InvalidTreasuryCheckHolds")
                 .given(
@@ -449,12 +461,10 @@ public class TokenUpdateSpecs extends HapiSuite {
                 .when(
                         cryptoDelete(INVALID_TREASURY),
                         tokenCreate("tbu").adminKey("adminKey").treasury(TOKEN_TREASURY))
-                .then(
-                        tokenUpdate("tbu")
-                                .treasury(INVALID_TREASURY)
-                                .hasKnownStatus(ACCOUNT_DELETED));
+                .then(tokenUpdate("tbu").treasury(INVALID_TREASURY).hasKnownStatus(ACCOUNT_DELETED));
     }
 
+    @HapiTest
     public HapiSpec updateHappyPath() {
         String originalMemo = "First things first";
         String updatedMemo = "Nothing left to do";
@@ -496,9 +506,7 @@ public class TokenUpdateSpecs extends HapiSuite {
                                 .payingWith(civilian))
                 .when(
                         tokenAssociate("newTokenTreasury", "primary"),
-                        tokenUpdate("primary")
-                                .entityMemo(ZERO_BYTE_MEMO)
-                                .hasPrecheck(INVALID_ZERO_BYTE_IN_STRING),
+                        tokenUpdate("primary").entityMemo(ZERO_BYTE_MEMO).hasPrecheck(INVALID_ZERO_BYTE_IN_STRING),
                         tokenUpdate("primary")
                                 .name(newSaltedName)
                                 .entityMemo(updatedMemo)
@@ -515,13 +523,13 @@ public class TokenUpdateSpecs extends HapiSuite {
                         getAccountBalance(TOKEN_TREASURY).hasTokenBalance("primary", 0),
                         getAccountBalance("newTokenTreasury").hasTokenBalance("primary", 500),
                         getAccountInfo(TOKEN_TREASURY)
-                                .hasToken(ExpectedTokenRel.relationshipWith("primary").balance(0)),
+                                .hasToken(ExpectedTokenRel.relationshipWith("primary")
+                                        .balance(0)),
                         getAccountInfo("newTokenTreasury")
-                                .hasToken(
-                                        ExpectedTokenRel.relationshipWith("primary")
-                                                .freeze(TokenFreezeStatus.Unfrozen)
-                                                .kyc(TokenKycStatus.Granted)
-                                                .balance(500)),
+                                .hasToken(ExpectedTokenRel.relationshipWith("primary")
+                                        .freeze(TokenFreezeStatus.Unfrozen)
+                                        .kyc(TokenKycStatus.Granted)
+                                        .balance(500)),
                         getTokenInfo("primary")
                                 .logged()
                                 .hasEntityMemo(updatedMemo)
@@ -539,6 +547,7 @@ public class TokenUpdateSpecs extends HapiSuite {
                                 .hasAutoRenewPeriod(THREE_MONTHS_IN_SECONDS + 1));
     }
 
+    @HapiTest
     public HapiSpec updateTokenTreasuryRequiresZeroTokenBalance() {
         return defaultHapiSpec("updateTokenTreasuryRequiresZeroTokenBalance")
                 .given(
@@ -555,19 +564,29 @@ public class TokenUpdateSpecs extends HapiSuite {
                 .when(
                         mintToken(
                                 "non-fungible",
-                                List.of(
-                                        ByteString.copyFromUtf8("memo"),
-                                        ByteString.copyFromUtf8("memo1"))),
+                                List.of(ByteString.copyFromUtf8("memo"), ByteString.copyFromUtf8("memo1"))),
                         tokenAssociate("newTreasury", "non-fungible"),
-                        cryptoTransfer(
-                                movingUnique("non-fungible", 1)
-                                        .between("oldTreasury", "newTreasury")))
-                .then(
-                        tokenUpdate("non-fungible")
-                                .treasury("newTreasury")
-                                .hasKnownStatus(TRANSACTION_REQUIRES_ZERO_TOKEN_BALANCES));
+                        cryptoTransfer(movingUnique("non-fungible", 1).between("oldTreasury", "newTreasury")))
+                .then(tokenUpdate("non-fungible")
+                        .treasury("newTreasury")
+                        .hasKnownStatus(TRANSACTION_REQUIRES_ZERO_TOKEN_BALANCES));
     }
 
+    @HapiTest
+    public HapiSpec tokenUpdateCanClearMemo() {
+        final var token = "token";
+        final var multiKey = "multiKey";
+        final var memoToBeErased = "memoToBeErased";
+        return defaultHapiSpec("TokenUpdateCanClearMemo")
+                .given(
+                        newKeyNamed(multiKey),
+                        tokenCreate(token).entityMemo(memoToBeErased).adminKey(multiKey),
+                        getTokenInfo(token).hasEntityMemo(memoToBeErased))
+                .when(tokenUpdate(token).entityMemo(""))
+                .then(getTokenInfo(token).logged().hasEntityMemo(""));
+    }
+
+    @HapiTest
     public HapiSpec updateNftTreasuryHappyPath() {
         return defaultHapiSpec("UpdateNftTreasuryHappyPath")
                 .given(
@@ -595,10 +614,13 @@ public class TokenUpdateSpecs extends HapiSuite {
                                 .hasPauseKey("primary")
                                 .hasPauseStatus(TokenPauseStatus.Unpaused)
                                 .logged(),
-                        getTokenNftInfo("primary", 1).hasAccountID("newTokenTreasury").logged());
+                        getTokenNftInfo("primary", 1)
+                                .hasAccountID("newTokenTreasury")
+                                .logged());
     }
 
-    private HapiSpec safeToUpdateCustomFeesWithNewFallbackWhileTransferring() {
+    @HapiTest
+    final HapiSpec safeToUpdateCustomFeesWithNewFallbackWhileTransferring() {
         final var uniqueTokenFeeKey = "uniqueTokenFeeKey";
         final var hbarCollector = "hbarFee";
         final var beneficiary = "luckyOne";
@@ -614,57 +636,37 @@ public class TokenUpdateSpecs extends HapiSuite {
                         cryptoCreate(sender).maxAutomaticTokenAssociations(100),
                         cryptoCreate(beneficiary).maxAutomaticTokenAssociations(100))
                 .when()
-                .then(
-                        withOpContext(
-                                (spec, opLog) -> {
-                                    for (int i = 0; i < 3; i++) {
-                                        final var name = uniqueTokenFeeKey + i;
-                                        final var creation =
-                                                tokenCreate(name)
-                                                        .tokenType(NON_FUNGIBLE_UNIQUE)
-                                                        .treasury(TOKEN_TREASURY)
-                                                        .supplyKey(multiKey)
-                                                        .feeScheduleKey(multiKey)
-                                                        .initialSupply(0);
-                                        final var mint =
-                                                mintToken(
-                                                        name,
-                                                        List.of(ByteString.copyFromUtf8("SOLO")));
-                                        final var normalXfer =
-                                                cryptoTransfer(
-                                                                movingUnique(name, 1L)
-                                                                        .between(
-                                                                                TOKEN_TREASURY,
-                                                                                sender))
-                                                        .fee(ONE_HBAR);
-                                        final var update =
-                                                tokenFeeScheduleUpdate(name)
-                                                        .withCustom(
-                                                                royaltyFeeWithFallback(
-                                                                        1,
-                                                                        10,
-                                                                        fixedHbarFeeInheritingRoyaltyCollector(
-                                                                                1),
-                                                                        hbarCollector))
-                                                        .deferStatusResolution();
-                                        final var raceXfer =
-                                                cryptoTransfer(
-                                                                movingUnique(name, 1L)
-                                                                        .between(
-                                                                                sender,
-                                                                                beneficiary))
-                                                        .signedBy(DEFAULT_PAYER, sender)
-                                                        .fee(ONE_HBAR)
-                                                        /* The beneficiary needs to sign now b/c of the fallback fee (and the
-                                                         * lack of any fungible value going back to the treasury for this NFT). */
-                                                        .hasKnownStatus(INVALID_SIGNATURE);
-                                        allRunFor(
-                                                spec, creation, mint, normalXfer, update, raceXfer);
-                                    }
-                                }));
+                .then(withOpContext((spec, opLog) -> {
+                    for (int i = 0; i < 3; i++) {
+                        final var name = uniqueTokenFeeKey + i;
+                        final var creation = tokenCreate(name)
+                                .tokenType(NON_FUNGIBLE_UNIQUE)
+                                .treasury(TOKEN_TREASURY)
+                                .supplyKey(multiKey)
+                                .feeScheduleKey(multiKey)
+                                .initialSupply(0);
+                        final var mint = mintToken(name, List.of(ByteString.copyFromUtf8("SOLO")));
+                        final var normalXfer = cryptoTransfer(
+                                        movingUnique(name, 1L).between(TOKEN_TREASURY, sender))
+                                .fee(ONE_HBAR);
+                        final var update = tokenFeeScheduleUpdate(name)
+                                .withCustom(royaltyFeeWithFallback(
+                                        1, 10, fixedHbarFeeInheritingRoyaltyCollector(1), hbarCollector))
+                                .deferStatusResolution();
+                        final var raceXfer = cryptoTransfer(
+                                        movingUnique(name, 1L).between(sender, beneficiary))
+                                .signedBy(DEFAULT_PAYER, sender)
+                                .fee(ONE_HBAR)
+                                /* The beneficiary needs to sign now b/c of the fallback fee (and the
+                                 * lack of any fungible value going back to the treasury for this NFT). */
+                                .hasKnownStatus(INVALID_SIGNATURE);
+                        allRunFor(spec, creation, mint, normalXfer, update, raceXfer);
+                    }
+                }));
     }
 
-    private HapiSpec customFeesOnlyUpdatableWithKey() {
+    @HapiTest
+    final HapiSpec customFeesOnlyUpdatableWithKey() {
         final var origHbarFee = 1_234L;
         final var newHbarFee = 4_321L;
 
@@ -706,21 +708,16 @@ public class TokenUpdateSpecs extends HapiSuite {
                                 .feeScheduleKey(newFeeScheduleKey)
                                 .hasPrecheck(INVALID_CUSTOM_FEE_SCHEDULE_KEY),
                         tokenUpdate(tokenWithFeeKey).feeScheduleKey(newFeeScheduleKey),
-                        tokenFeeScheduleUpdate(tokenWithFeeKey)
-                                .withCustom(fixedHbarFee(newHbarFee, hbarCollector)),
+                        tokenFeeScheduleUpdate(tokenWithFeeKey).withCustom(fixedHbarFee(newHbarFee, hbarCollector)),
                         tokenFeeScheduleUpdate(uniqueTokenFeeKey)
-                                .withCustom(
-                                        royaltyFeeWithFallback(
-                                                1,
-                                                3,
-                                                fixedHbarFeeInheritingRoyaltyCollector(1_000),
-                                                hbarCollector)))
-                .then(
-                        getTokenInfo(tokenWithFeeKey)
-                                .hasCustom(fixedHbarFeeInSchedule(newHbarFee, hbarCollector))
-                                .hasFeeScheduleKey(tokenWithFeeKey));
+                                .withCustom(royaltyFeeWithFallback(
+                                        1, 3, fixedHbarFeeInheritingRoyaltyCollector(1_000), hbarCollector)))
+                .then(getTokenInfo(tokenWithFeeKey)
+                        .hasCustom(fixedHbarFeeInSchedule(newHbarFee, hbarCollector))
+                        .hasFeeScheduleKey(tokenWithFeeKey));
     }
 
+    @HapiTest
     public HapiSpec updateUniqueTreasuryWithNfts() {
         final var specialKey = "special";
 

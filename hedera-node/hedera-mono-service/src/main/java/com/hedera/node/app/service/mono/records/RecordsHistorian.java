@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.records;
 
 import com.hedera.node.app.service.mono.state.EntityCreator;
-import com.hedera.node.app.service.mono.state.expiry.ExpiryManager;
 import com.hedera.node.app.service.mono.state.submerkle.ExpirableTxnRecord;
 import com.hedera.node.app.service.mono.state.submerkle.TxnId;
 import com.hedera.node.app.service.mono.stream.RecordStreamObject;
@@ -99,6 +99,21 @@ public interface RecordsHistorian {
     List<RecordStreamObject> getPrecedingChildRecords();
 
     /**
+     * For each following child transaction which:
+     * <ul>
+     *   <li>Is <i>not</i> a {@code ContractCall} or {@code ContractCreate} operations, consumes
+     *   capacity in the consensus throttle; and,</li>
+     *   <li>Has status {@code SUCCESS}</li>
+     * </ul>
+     * consumes the capacity required for that child transaction in the consensus throttle buckets.
+     *
+     * <p>Returns true if all the child transactions were allowed through the throttle consideration, false otherwise.
+     *
+     * @return whether the consensus throttle has capacity to allow all the successful 0x167 children
+     */
+    boolean hasThrottleCapacityForChildTransactions();
+
+    /**
      * Returns a non-negative "source id" to be used to create a group of in-progress child
      * transactions.
      *
@@ -130,9 +145,15 @@ public interface RecordsHistorian {
      * @param recordSoFar the in-progress child record
      */
     void trackPrecedingChildRecord(
-            int sourceId,
-            TransactionBody.Builder syntheticBody,
-            ExpirableTxnRecord.Builder recordSoFar);
+            int sourceId, TransactionBody.Builder syntheticBody, ExpirableTxnRecord.Builder recordSoFar);
+
+    /**
+     * Returns whether the active transaction has the capacity to track the given number of preceding children.
+     *
+     * @param n the number of preceding children to track
+     * @return whether the active transaction has the capacity to track the given number of preceding children
+     */
+    boolean canTrackPrecedingChildRecords(int n);
 
     /**
      * Reverts all records created by the given source.
@@ -140,12 +161,6 @@ public interface RecordsHistorian {
      * @param sourceId the id of the source whose records should be reverted
      */
     void revertChildRecordsFromSource(int sourceId);
-
-    /**
-     * At the moment before committing the active transaction, takes the opportunity to track any
-     * new expiring entities with the {@link ExpiryManager}.
-     */
-    void noteNewExpirationEvents();
 
     /**
      * Provides the next consensus timestamp that will be used; needed for assigning creation times
@@ -175,8 +190,7 @@ public interface RecordsHistorian {
      * Applies the given customization to the first in-progress successor record (and synthetic
      * transaction) that matches the given predicate.
      */
-    void customizeSuccessor(
-            Predicate<InProgressChildRecord> matcher, Consumer<InProgressChildRecord> customizer);
+    void customizeSuccessor(Predicate<InProgressChildRecord> matcher, Consumer<InProgressChildRecord> customizer);
 
     /**
      * Convenience method to get the {@link RunningHash} of the last record saved in this

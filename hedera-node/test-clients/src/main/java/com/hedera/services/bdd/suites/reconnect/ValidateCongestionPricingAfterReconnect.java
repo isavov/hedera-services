@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.reconnect;
 
 import static com.hedera.services.bdd.spec.HapiSpec.customHapiSpec;
@@ -39,7 +40,6 @@ import com.hedera.services.bdd.spec.HapiSpecOperation;
 import com.hedera.services.bdd.spec.HapiSpecSetup;
 import com.hedera.services.bdd.spec.transactions.crypto.HapiCryptoTransfer;
 import com.hedera.services.bdd.suites.HapiSuite;
-import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -51,17 +51,18 @@ import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.Assertions;
 
 /**
- * A reconnect test in which a congestion pricing multiplier is updated and triggered while the node
- * 0.0.8 is disconnected from the network. Once the node is reconnected validate that the congestion
- * pricing is in affect on reconnected node
+ * A reconnect test in which a congestion pricing multiplier is updated and triggered while the node 0.0.8 is
+ * disconnected from the network. Once the node is reconnected validate that the congestion pricing is in affect on
+ * reconnected node
  */
 public class ValidateCongestionPricingAfterReconnect extends HapiSuite {
-    private static final Logger log =
-            LogManager.getLogger(ValidateCongestionPricingAfterReconnect.class);
+    private static final Logger log = LogManager.getLogger(ValidateCongestionPricingAfterReconnect.class);
+    private static final String FEES_PERCENT_CONGESTION_MULTIPLIERS = "fees.percentCongestionMultipliers";
     private static final String defaultCongestionMultipliers =
-            HapiSpecSetup.getDefaultNodeProps().get("fees.percentCongestionMultipliers");
+            HapiSpecSetup.getDefaultNodeProps().get(FEES_PERCENT_CONGESTION_MULTIPLIERS);
+    private static final String FEES_MIN_CONGESTION_PERIOD = "fees.minCongestionPeriod";
     private static final String defaultMinCongestionPeriod =
-            HapiSpecSetup.getDefaultNodeProps().get("fees.minCongestionPeriod");
+            HapiSpecSetup.getDefaultNodeProps().get(FEES_MIN_CONGESTION_PERIOD);
 
     public static void main(String... args) {
         new ValidateAppPropertiesStateAfterReconnect().runSuiteSync();
@@ -69,13 +70,12 @@ public class ValidateCongestionPricingAfterReconnect extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return List.of(
-                new HapiSpec[] {
-                    runTransfersBeforeReconnect(), validateCongestionPricing(),
-                });
+        return List.of(new HapiSpec[] {
+            runTransfersBeforeReconnect(), validateCongestionPricing(),
+        });
     }
 
-    private HapiSpec validateCongestionPricing() {
+    final HapiSpec validateCongestionPricing() {
         var artificialLimits = protoDefsFromResource("testSystemFiles/artificial-limits-6N.json");
         var defaultThrottles = protoDefsFromResource("testSystemFiles/throttles-dev.json");
         String tmpMinCongestionPeriodInSecs = "5";
@@ -88,10 +88,7 @@ public class ValidateCongestionPricingAfterReconnect extends HapiSuite {
         return customHapiSpec("ValidateCongestionPricing")
                 .withProperties(Map.of("txn.start.offset.secs", "-5"))
                 .given(
-                        sleepFor(Duration.ofSeconds(25).toMillis()),
-                        cryptoCreate(civilianAccount)
-                                .payingWith(GENESIS)
-                                .balance(ONE_MILLION_HBARS),
+                        cryptoCreate(civilianAccount).payingWith(GENESIS).balance(ONE_MILLION_HBARS),
                         uploadInitCode(oneContract),
                         contractCreate(oneContract).payingWith(GENESIS).logging(),
                         contractCall(oneContract)
@@ -99,8 +96,7 @@ public class ValidateCongestionPricingAfterReconnect extends HapiSuite {
                                 .fee(ONE_HUNDRED_HBARS)
                                 .sending(ONE_HBAR)
                                 .via("cheapCallBeforeCongestionPricing"),
-                        getTxnRecord("cheapCallBeforeCongestionPricing")
-                                .providingFeeTo(normalPrice::set),
+                        getTxnRecord("cheapCallBeforeCongestionPricing").providingFeeTo(normalPrice::set),
                         sleepFor(30000),
                         getAccountBalance(GENESIS).setNode(reconnectingNode).unavailableNode())
                 .when(
@@ -108,40 +104,28 @@ public class ValidateCongestionPricingAfterReconnect extends HapiSuite {
                         fileUpdate(APP_PROPERTIES)
                                 .fee(ONE_HUNDRED_HBARS)
                                 .payingWith(EXCHANGE_RATE_CONTROL)
-                                .overridingProps(
-                                        Map.of(
-                                                "fees.percentCongestionMultipliers",
-                                                "1,10x",
-                                                "fees.minCongestionPeriod",
-                                                tmpMinCongestionPeriodInSecs)),
+                                .overridingProps(Map.of(
+                                        FEES_PERCENT_CONGESTION_MULTIPLIERS,
+                                        "1,10x",
+                                        FEES_MIN_CONGESTION_PERIOD,
+                                        tmpMinCongestionPeriodInSecs)),
                         fileUpdate(THROTTLE_DEFS)
                                 .fee(ONE_HUNDRED_HBARS)
                                 .payingWith(EXCHANGE_RATE_CONTROL)
                                 .contents(artificialLimits.toByteArray()),
-                        blockingOrder(
-                                IntStream.range(0, 110)
-                                        .mapToObj(
-                                                i ->
-                                                        new HapiSpecOperation[] {
-                                                            usableTxnIdNamed("uncheckedTxn1" + i)
-                                                                    .payerId(civilianAccount),
-                                                            uncheckedSubmit(
-                                                                            contractCall(
-                                                                                            oneContract)
-                                                                                    .signedBy(
-                                                                                            civilianAccount)
-                                                                                    .fee(
-                                                                                            ONE_HUNDRED_HBARS)
-                                                                                    .sending(
-                                                                                            ONE_HBAR)
-                                                                                    .txnId(
-                                                                                            "uncheckedTxn1"
-                                                                                                    + i))
-                                                                    .payingWith(GENESIS),
-                                                            sleepFor(50)
-                                                        })
-                                        .flatMap(Arrays::stream)
-                                        .toArray(HapiSpecOperation[]::new)))
+                        blockingOrder(IntStream.range(0, 110)
+                                .mapToObj(i -> new HapiSpecOperation[] {
+                                    usableTxnIdNamed("uncheckedTxn1" + i).payerId(civilianAccount),
+                                    uncheckedSubmit(contractCall(oneContract)
+                                                    .signedBy(civilianAccount)
+                                                    .fee(ONE_HUNDRED_HBARS)
+                                                    .sending(ONE_HBAR)
+                                                    .txnId("uncheckedTxn1" + i))
+                                            .payingWith(GENESIS),
+                                    sleepFor(50)
+                                })
+                                .flatMap(Arrays::stream)
+                                .toArray(HapiSpecOperation[]::new)))
                 .then(
                         withLiveNode(reconnectingNode)
                                 .within(5 * 60, TimeUnit.SECONDS)
@@ -154,32 +138,21 @@ public class ValidateCongestionPricingAfterReconnect extends HapiSuite {
                         // then we can send more transactions. Otherwise, transactions may be
                         // pending for too long
                         // and we will get UNKNOWN status
-                        sleepFor(30000),
-                        blockingOrder(
-                                IntStream.range(0, 110)
-                                        .mapToObj(
-                                                i ->
-                                                        new HapiSpecOperation[] {
-                                                            usableTxnIdNamed("uncheckedTxn2" + i)
-                                                                    .payerId(civilianAccount),
-                                                            uncheckedSubmit(
-                                                                            contractCall(
-                                                                                            oneContract)
-                                                                                    .signedBy(
-                                                                                            civilianAccount)
-                                                                                    .fee(
-                                                                                            ONE_HUNDRED_HBARS)
-                                                                                    .sending(
-                                                                                            ONE_HBAR)
-                                                                                    .txnId(
-                                                                                            "uncheckedTxn2"
-                                                                                                    + i))
-                                                                    .payingWith(GENESIS)
-                                                                    .setNode(reconnectingNode),
-                                                            sleepFor(50)
-                                                        })
-                                        .flatMap(Arrays::stream)
-                                        .toArray(HapiSpecOperation[]::new)),
+                        sleepFor(80000),
+                        blockingOrder(IntStream.range(0, 110)
+                                .mapToObj(i -> new HapiSpecOperation[] {
+                                    usableTxnIdNamed("uncheckedTxn2" + i).payerId(civilianAccount),
+                                    uncheckedSubmit(contractCall(oneContract)
+                                                    .signedBy(civilianAccount)
+                                                    .fee(ONE_HUNDRED_HBARS)
+                                                    .sending(ONE_HBAR)
+                                                    .txnId("uncheckedTxn2" + i))
+                                            .payingWith(GENESIS)
+                                            .setNode(reconnectingNode),
+                                    sleepFor(50)
+                                })
+                                .flatMap(Arrays::stream)
+                                .toArray(HapiSpecOperation[]::new)),
                         contractCall(oneContract)
                                 .payingWith(civilianAccount)
                                 .fee(ONE_HUNDRED_HBARS)
@@ -192,14 +165,11 @@ public class ValidateCongestionPricingAfterReconnect extends HapiSuite {
                                 .setNode(reconnectingNode),
 
                         /* check if the multiplier took effect in the contract call operation */
-                        withOpContext(
-                                (spec, opLog) -> {
-                                    Assertions.assertEquals(
-                                            10.0,
-                                            (1.0 * tenXPrice.get()) / normalPrice.get(),
-                                            0.1,
-                                            "~10x multiplier should be in affect!");
-                                }),
+                        withOpContext((spec, opLog) -> Assertions.assertEquals(
+                                10.0,
+                                (1.0 * tenXPrice.get()) / normalPrice.get(),
+                                0.1,
+                                "~10x multiplier should be in affect!")),
 
                         /* revert the multiplier before test ends */
                         fileUpdate(THROTTLE_DEFS)
@@ -210,12 +180,9 @@ public class ValidateCongestionPricingAfterReconnect extends HapiSuite {
                         fileUpdate(APP_PROPERTIES)
                                 .fee(ONE_HUNDRED_HBARS)
                                 .payingWith(EXCHANGE_RATE_CONTROL)
-                                .overridingProps(
-                                        Map.of(
-                                                "fees.percentCongestionMultipliers",
-                                                        defaultCongestionMultipliers,
-                                                "fees.minCongestionPeriod",
-                                                        defaultMinCongestionPeriod)),
+                                .overridingProps(Map.of(
+                                        FEES_PERCENT_CONGESTION_MULTIPLIERS, defaultCongestionMultipliers,
+                                        FEES_MIN_CONGESTION_PERIOD, defaultMinCongestionPeriod)),
                         cryptoTransfer(HapiCryptoTransfer.tinyBarsFromTo(GENESIS, FUNDING, 1))
                                 .payingWith(GENESIS));
     }

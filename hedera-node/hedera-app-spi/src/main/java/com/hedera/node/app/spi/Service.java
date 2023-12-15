@@ -13,15 +13,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.spi;
 
+import static java.util.Collections.emptySet;
+
+import com.hedera.hapi.node.base.SemanticVersion;
+import com.hedera.node.app.spi.state.SchemaRegistry;
+import com.hedera.pbj.runtime.RpcServiceDefinition;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.Set;
 
 /**
  * A definition of an interface that will be implemented by each conceptual "service" like
  * crypto-service, token-service etc.,
  */
 public interface Service {
+    SemanticVersion RELEASE_045_VERSION = new SemanticVersion(0, 45, 0, "SNAPSHOT", "");
     /**
      * Returns the name of the service. This name must be unique for each service deployed on the
      * application.
@@ -30,4 +38,25 @@ public interface Service {
      */
     @NonNull
     String getServiceName();
+
+    /**
+     * If this service exposes RPC endpoints, then this method returns the RPC service definitions.
+     * Otherwise, it returns an empty set.
+     *
+     * @return The RPC service definitions if this service is exposed via RPC.
+     */
+    @NonNull
+    default Set<RpcServiceDefinition> rpcDefinitions() {
+        return emptySet();
+    }
+
+    /**
+     * Registers the schemas this service really uses with the given {@link SchemaRegistry}.
+     *
+     * @param registry the registry to register the schemas with
+     * @param version the current services version
+     */
+    default void registerSchemas(@NonNull SchemaRegistry registry, final SemanticVersion version) {
+        // No-op
+    }
 }

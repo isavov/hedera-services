@@ -13,15 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.exports;
 
-import static com.swirlds.common.system.PlatformStatus.FREEZE_COMPLETE;
+import static com.swirlds.platform.system.status.PlatformStatus.FREEZE_COMPLETE;
 
 import com.hedera.node.app.service.mono.ServicesState;
 import com.hedera.node.app.service.mono.context.CurrentPlatformStatus;
-import com.swirlds.common.system.NodeId;
-import com.swirlds.common.system.state.notifications.NewSignedStateListener;
-import com.swirlds.common.system.state.notifications.NewSignedStateNotification;
+import com.swirlds.common.platform.NodeId;
+import com.swirlds.platform.system.state.notifications.NewSignedStateListener;
+import com.swirlds.platform.system.state.notifications.NewSignedStateNotification;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 

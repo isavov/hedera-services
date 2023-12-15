@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.logic;
 
 import static com.hedera.node.app.service.mono.context.properties.PropertyNames.HEDERA_RECORD_STREAM_LOG_PERIOD;
@@ -30,25 +31,39 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.hedera.node.app.service.mono.context.properties.BootstrapProperties;
+import com.hedera.node.app.service.mono.state.DualStateAccessor;
 import com.hedera.node.app.service.mono.state.merkle.MerkleNetworkContext;
 import com.hedera.node.app.service.mono.stream.RecordsRunningHashLeaf;
 import com.hedera.test.utils.TxnUtils;
 import com.swirlds.common.crypto.Hash;
 import com.swirlds.common.crypto.RunningHash;
+import com.swirlds.platform.system.SwirldDualState;
 import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class BlockManagerTest {
+
     private static final long blockPeriodSecs = 2L;
 
-    @Mock private BootstrapProperties bootstrapProperties;
-    @Mock private MerkleNetworkContext networkContext;
-    @Mock private RecordsRunningHashLeaf runningHashLeaf;
+    @Mock
+    private BootstrapProperties bootstrapProperties;
+
+    @Mock
+    private MerkleNetworkContext networkContext;
+
+    @Mock
+    private RecordsRunningHashLeaf runningHashLeaf;
+
+    private DualStateAccessor dualStateAccessor;
+
+    @Mock
+    private SwirldDualState dualState;
 
     private BlockManager subject;
 
@@ -56,8 +71,9 @@ class BlockManagerTest {
     void setUp() {
         given(bootstrapProperties.getLongProperty(HEDERA_RECORD_STREAM_LOG_PERIOD))
                 .willReturn(blockPeriodSecs);
-        subject =
-                new BlockManager(bootstrapProperties, () -> networkContext, () -> runningHashLeaf);
+        dualStateAccessor = new DualStateAccessor();
+        dualStateAccessor.setDualState(dualState);
+        subject = new BlockManager(bootstrapProperties, () -> networkContext, () -> runningHashLeaf, dualStateAccessor);
     }
 
     @Test
@@ -77,7 +93,8 @@ class BlockManagerTest {
         given(networkContext.firstConsTimeOfCurrentBlock()).willReturn(aTime);
         given(networkContext.getAlignmentBlockNo()).willReturn(someBlockNo);
 
-        final var newBlockNo = subject.updateAndGetAlignmentBlockNumber(someTime).blockNo();
+        final var newBlockNo =
+                subject.updateAndGetAlignmentBlockNumber(someTime).blockNo();
 
         assertEquals(someBlockNo, newBlockNo);
         verify(networkContext, never()).setFirstConsTimeOfCurrentBlock(any());
@@ -101,7 +118,8 @@ class BlockManagerTest {
                 .willReturn(someBlockNo);
         given(runningHashLeaf.currentRunningHash()).willReturn(aFullBlockHash);
 
-        final var newBlockNo = subject.updateAndGetAlignmentBlockNumber(anotherTime).blockNo();
+        final var newBlockNo =
+                subject.updateAndGetAlignmentBlockNumber(anotherTime).blockNo();
 
         assertEquals(someBlockNo, newBlockNo);
     }
@@ -126,7 +144,8 @@ class BlockManagerTest {
         given(runningHashLeaf.currentRunningHash()).willThrow(InterruptedException.class);
         given(networkContext.getAlignmentBlockNo()).willReturn(someBlockNo);
 
-        final var newBlockNo = subject.updateAndGetAlignmentBlockNumber(anotherTime).blockNo();
+        final var newBlockNo =
+                subject.updateAndGetAlignmentBlockNumber(anotherTime).blockNo();
 
         assertEquals(someBlockNo, newBlockNo);
     }
@@ -149,6 +168,46 @@ class BlockManagerTest {
         assertEquals(gasLimit, values.getGasLimit());
         assertEquals(someBlockNo + 1, values.getNumber());
         assertEquals(anotherTime.getEpochSecond(), values.getTimestamp());
+    }
+
+    @Test
+    void computesNewBlockIfIsFirstTransactionAfterFreezeRestart() throws InterruptedException {
+        given(networkContext.firstConsTimeOfCurrentBlock()).willReturn(aTime);
+        given(runningHashLeaf.currentRunningHash()).willReturn(aFullBlockHash);
+        given(networkContext.getAlignmentBlockNo()).willReturn(someBlockNo);
+        given(dualState.getLastFrozenTime()).willReturn(aTime);
+        given(dualState.getFreezeTime()).willReturn(aTime);
+
+        final var values = subject.computeBlockValues(someTime, gasLimit);
+
+        assertEquals(someBlockNo + 1, values.getNumber());
+        verify(dualState).setFreezeTime(null);
+    }
+
+    @Test
+    void computesSameBlockIfPastAndCurrentFreezeTimeAreNull() {
+        given(networkContext.firstConsTimeOfCurrentBlock()).willReturn(aTime);
+        given(networkContext.getAlignmentBlockNo()).willReturn(someBlockNo);
+        given(dualState.getFreezeTime()).willReturn(null);
+        Mockito.lenient().when(dualState.getLastFrozenTime()).thenReturn(null);
+
+        final var values = subject.computeBlockValues(someTime, gasLimit);
+
+        assertEquals(someBlockNo, values.getNumber());
+        verify(dualState, never()).setFreezeTime(null);
+    }
+
+    @Test
+    void computesSameBlockIfPastAndCurrentFreezeTimeDontMatch() {
+        given(networkContext.firstConsTimeOfCurrentBlock()).willReturn(aTime);
+        given(networkContext.getAlignmentBlockNo()).willReturn(someBlockNo);
+        given(dualState.getLastFrozenTime()).willReturn(aTime);
+        given(dualState.getFreezeTime()).willReturn(anotherTime);
+
+        final var values = subject.computeBlockValues(someTime, gasLimit);
+
+        assertEquals(someBlockNo, values.getNumber());
+        verify(dualState, never()).setFreezeTime(null);
     }
 
     @Test
@@ -214,6 +273,5 @@ class BlockManagerTest {
     private static final Instant someTime = Instant.ofEpochSecond(1_234_567L, 890_000);
     private static final Instant anotherTime = Instant.ofEpochSecond(1_234_568L, 890);
     private static final Hash aFullBlockHash = new Hash(TxnUtils.randomUtf8Bytes(48));
-    private static final org.hyperledger.besu.datatypes.Hash aSuffixHash =
-            ethHashFrom(aFullBlockHash);
+    private static final org.hyperledger.besu.datatypes.Hash aSuffixHash = ethHashFrom(aFullBlockHash);
 }

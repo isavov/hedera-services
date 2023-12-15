@@ -13,8 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.fees.calculation.file.queries;
 
+import static com.hedera.node.app.service.mono.pbj.PbjConverter.fromPbj;
+
+import com.hedera.hapi.node.state.file.File;
 import com.hedera.node.app.hapi.fees.usage.file.ExtantFileContext;
 import com.hedera.node.app.hapi.fees.usage.file.FileOpsUsage;
 import com.hedera.node.app.service.mono.context.primitives.StateView;
@@ -40,8 +44,7 @@ public final class GetFileInfoResourceUsage implements QueryResourceUsageEstimat
     }
 
     @Override
-    public FeeData usageGiven(
-            final Query query, final StateView view, final Map<String, Object> ignoreCtx) {
+    public FeeData usageGiven(final Query query, final StateView view, final Map<String, Object> ignoreCtx) {
         final var op = query.getFileGetInfo();
         final var info = view.infoForFile(op.getFileID());
         /* Given the test in {@code GetFileInfoAnswer.checkValidity}, this can only be empty
@@ -52,13 +55,23 @@ public final class GetFileInfoResourceUsage implements QueryResourceUsageEstimat
             return FeeData.getDefaultInstance();
         }
         final var details = info.get();
-        final var ctx =
-                ExtantFileContext.newBuilder()
-                        .setCurrentSize(details.getSize())
-                        .setCurrentWacl(details.getKeys())
-                        .setCurrentMemo(details.getMemo())
-                        .setCurrentExpiry(details.getExpirationTime().getSeconds())
-                        .build();
+        final var ctx = ExtantFileContext.newBuilder()
+                .setCurrentSize(details.getSize())
+                .setCurrentWacl(details.getKeys())
+                .setCurrentMemo(details.getMemo())
+                .setCurrentExpiry(details.getExpirationTime().getSeconds())
+                .build();
+        return fileOpsUsage.fileInfoUsage(query, ctx);
+    }
+
+    public FeeData usageGiven(final Query query, final File file) {
+        final com.hederahashgraph.api.proto.java.File details = fromPbj(file);
+        final var ctx = ExtantFileContext.newBuilder()
+                .setCurrentSize(details.getContents().toByteArray().length)
+                .setCurrentWacl(details.getKeys())
+                .setCurrentMemo(details.getMemo())
+                .setCurrentExpiry(details.getExpirationSecond())
+                .build();
         return fileOpsUsage.fileInfoUsage(query, ctx);
     }
 }

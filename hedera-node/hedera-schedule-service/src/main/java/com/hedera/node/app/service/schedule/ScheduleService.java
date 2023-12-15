@@ -13,12 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.schedule;
 
 import com.hedera.node.app.spi.Service;
 import com.hedera.node.app.spi.ServiceFactory;
+import com.hedera.pbj.runtime.RpcServiceDefinition;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ServiceLoader;
+import java.util.Set;
 
 /**
  * Implements the HAPI <a
@@ -35,6 +38,12 @@ public interface ScheduleService extends Service {
         return NAME;
     }
 
+    @NonNull
+    @Override
+    default Set<RpcServiceDefinition> rpcDefinitions() {
+        return Set.of(ScheduleServiceDefinition.INSTANCE);
+    }
+
     /**
      * Returns the concrete implementation instance of the service
      *
@@ -42,7 +51,6 @@ public interface ScheduleService extends Service {
      */
     @NonNull
     static ScheduleService getInstance() {
-        return ServiceFactory.loadService(
-                ScheduleService.class, ServiceLoader.load(ScheduleService.class));
+        return ServiceFactory.loadService(ScheduleService.class, ServiceLoader.load(ScheduleService.class));
     }
 }

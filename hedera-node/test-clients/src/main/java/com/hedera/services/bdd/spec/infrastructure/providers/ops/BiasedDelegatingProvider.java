@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.spec.infrastructure.providers.ops;
 
 import static java.util.Collections.binarySearch;
@@ -42,7 +43,9 @@ import org.apache.logging.log4j.Logger;
 public class BiasedDelegatingProvider implements OpProvider {
     private static final Logger log = LogManager.getLogger(BiasedDelegatingProvider.class);
 
-    private final Random r = new Random();
+    @SuppressWarnings("java:S2245") // using java.util.Random in tests is fine
+    private final Random r = new Random(505397L);
+
     private final List<Integer> cumulativeBias = new ArrayList<>(List.of(0));
     private final List<OpProvider> delegates = new ArrayList<>();
     private final List<HapiSpecOperation> globalInitializers = new ArrayList<>();
@@ -94,7 +97,8 @@ public class BiasedDelegatingProvider implements OpProvider {
             return Optional.empty();
         } else {
             while (true) {
-                Optional<HapiSpecOperation> op = delegates.get(randomSelection()).get();
+                Optional<HapiSpecOperation> op =
+                        delegates.get(randomSelection()).get();
                 if (op.isPresent()) {
                     op.ifPresent(this::configureDefaults);
                     return op;
@@ -125,11 +129,23 @@ public class BiasedDelegatingProvider implements OpProvider {
         if (shouldAlwaysDefer && isTxnOp) {
             ((HapiTxnOp) op).deferStatusResolution();
         }
+
+        // if we have not set the payer when we created the operation e.g. `RandomAccountDeletion`, we should default to
+        // `UNIQUE_PAYER_ACCOUNT`
+        // for the cases when we have set the payer e.g. `RandomOperationSignedBy`, do not overwrite it
+        if (op.getPayer().isEmpty()) {
+            if (isTxnOp) {
+                ((HapiTxnOp) op).payingWith(UNIQUE_PAYER_ACCOUNT).fee(TRANSACTION_FEE);
+            } else if (isQueryOp(op)) {
+                ((HapiQueryOp) op).payingWith(UNIQUE_PAYER_ACCOUNT);
+            }
+        }
+
         if (!shouldLogNormalFlow) {
             if (isTxnOp) {
-                ((HapiTxnOp) op).noLogging().payingWith(UNIQUE_PAYER_ACCOUNT).fee(TRANSACTION_FEE);
+                ((HapiTxnOp) op).noLogging();
             } else if (isQueryOp(op)) {
-                ((HapiQueryOp) op).noLogging().payingWith(UNIQUE_PAYER_ACCOUNT);
+                ((HapiQueryOp) op).noLogging();
             }
         }
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022-2023 Hedera Hashgraph, LLC
+ * Copyright (C) 2023 Hedera Hashgraph, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.state.merkle.memory;
+
+import static com.hedera.node.app.state.logging.TransactionStateLogger.*;
 
 import com.hedera.node.app.spi.state.WritableKVState;
 import com.hedera.node.app.spi.state.WritableKVStateBase;
@@ -30,8 +33,8 @@ import java.util.Objects;
  * @param <K> The type of key for the state
  * @param <V> The type of value for the state
  */
-public final class InMemoryWritableKVState<K extends Comparable<K>, V>
-        extends WritableKVStateBase<K, V> {
+@SuppressWarnings("DuplicatedCode")
+public final class InMemoryWritableKVState<K, V> extends WritableKVStateBase<K, V> {
     /** The underlying merkle tree data structure with the data */
     private final MerkleMap<InMemoryKey<K>, InMemoryValue<K, V>> merkle;
 
@@ -44,8 +47,7 @@ public final class InMemoryWritableKVState<K extends Comparable<K>, V>
      * @param merkleMap The backing merkle map
      */
     public InMemoryWritableKVState(
-            @NonNull final StateMetadata<K, V> md,
-            @NonNull MerkleMap<InMemoryKey<K>, InMemoryValue<K, V>> merkleMap) {
+            @NonNull final StateMetadata<K, V> md, @NonNull MerkleMap<InMemoryKey<K>, InMemoryValue<K, V>> merkleMap) {
         super(md.stateDefinition().stateKey());
         this.md = md;
         this.merkle = Objects.requireNonNull(merkleMap);
@@ -55,20 +57,29 @@ public final class InMemoryWritableKVState<K extends Comparable<K>, V>
     protected V readFromDataSource(@NonNull K key) {
         final var k = new InMemoryKey<>(key);
         final var leaf = merkle.get(k);
-        return leaf == null ? null : leaf.getValue();
+        final var value = leaf == null ? null : leaf.getValue();
+        // Log to transaction state log, what was read
+        logMapGet(getStateKey(), key, value);
+        return value;
     }
 
     @NonNull
     @Override
     protected Iterator<K> iterateFromDataSource() {
-        return merkle.keySet().stream().map(InMemoryKey::key).iterator();
+        final var keySet = merkle.keySet();
+        // Log to transaction state log, what was iterated
+        logMapIterate(getStateKey(), keySet);
+        return keySet.stream().map(InMemoryKey::key).iterator();
     }
 
     @Override
     protected V getForModifyFromDataSource(@NonNull K key) {
         final var k = new InMemoryKey<>(key);
         final var leaf = merkle.getForModify(k);
-        return leaf == null ? null : leaf.getValue();
+        final var value = leaf == null ? null : leaf.getValue();
+        // Log to transaction state log, what was read
+        logMapGetForModify(getStateKey(), key, value);
+        return value;
     }
 
     @Override
@@ -80,11 +91,24 @@ public final class InMemoryWritableKVState<K extends Comparable<K>, V>
         } else {
             merkle.put(k, new InMemoryValue<>(md, k, value));
         }
+        // Log to transaction state log, what was put
+        logMapPut(getStateKey(), key, value);
     }
 
     @Override
     protected void removeFromDataSource(@NonNull K key) {
         final var k = new InMemoryKey<>(key);
-        merkle.remove(k);
+        final var removed = merkle.remove(k);
+        // Log to transaction state log, what was removed
+        logMapRemove(getStateKey(), key, removed);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public long sizeOfDataSource() {
+        final var size = merkle.size();
+        // Log to transaction state log, size of map
+        logMapGetSize(getStateKey(), size);
+        return size;
     }
 }

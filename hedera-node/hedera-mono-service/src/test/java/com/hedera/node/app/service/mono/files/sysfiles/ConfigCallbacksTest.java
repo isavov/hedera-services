@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022-2023 Hedera Hashgraph, LLC
+ * Copyright (C) 2021-2023 Hedera Hashgraph, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.files.sysfiles;
 
 import static com.hedera.node.app.service.mono.context.properties.PropertyNames.EXPIRY_MIN_CYCLE_ENTRY_CAPACITY;
@@ -30,7 +31,9 @@ import com.hedera.node.app.service.mono.context.domain.security.HapiOpPermission
 import com.hedera.node.app.service.mono.context.properties.GlobalDynamicProperties;
 import com.hedera.node.app.service.mono.context.properties.PropertySource;
 import com.hedera.node.app.service.mono.context.properties.PropertySources;
+import com.hedera.node.app.service.mono.fees.congestion.MultiplierSources;
 import com.hedera.node.app.service.mono.ledger.SigImpactHistorian;
+import com.hedera.node.app.service.mono.state.adapters.MerkleMapLike;
 import com.hedera.node.app.service.mono.state.merkle.MerkleNetworkContext;
 import com.hedera.node.app.service.mono.state.merkle.MerkleStakingInfo;
 import com.hedera.node.app.service.mono.throttling.ExpiryThrottle;
@@ -38,8 +41,8 @@ import com.hedera.node.app.service.mono.throttling.FunctionalityThrottling;
 import com.hedera.node.app.service.mono.throttling.MapAccessType;
 import com.hedera.node.app.service.mono.utils.EntityNum;
 import com.hederahashgraph.api.proto.java.ServicesConfigurationList;
-import com.swirlds.common.system.address.AddressBook;
 import com.swirlds.merkle.map.MerkleMap;
+import com.swirlds.platform.system.address.AddressBook;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Assertions;
@@ -60,53 +63,75 @@ class ConfigCallbacksTest {
     private static final List<MapAccessType> minReqUnitOfWork = List.of(ACCOUNTS_GET, STORAGE_PUT);
     private static final KnownBlockValues blockValues = KnownBlockValues.from(literalBlockValues);
 
-    @Mock private ExpiryThrottle expiryThrottle;
-    @Mock private AddressBook addressBook;
-    @Mock private GlobalDynamicProperties dynamicProps;
-    @Mock private PropertySources propertySources;
-    @Mock private HapiOpPermissions hapiOpPermissions;
-    @Mock private FunctionalityThrottling functionalityThrottling;
-    @Mock private MerkleNetworkContext networkCtx;
-    @Mock private PropertySource properties;
-    @Mock private SigImpactHistorian sigImpactHistorian;
-    @Mock private FileNumbers fileNumbers;
+    @Mock
+    private ExpiryThrottle expiryThrottle;
+
+    @Mock
+    private AddressBook addressBook;
+
+    @Mock
+    private GlobalDynamicProperties dynamicProps;
+
+    @Mock
+    private PropertySources propertySources;
+
+    @Mock
+    private HapiOpPermissions hapiOpPermissions;
+
+    @Mock
+    private FunctionalityThrottling functionalityThrottling;
+
+    @Mock
+    private MerkleNetworkContext networkCtx;
+
+    @Mock
+    private PropertySource properties;
+
+    @Mock
+    private MultiplierSources multiplierSources;
+
+    @Mock
+    private SigImpactHistorian sigImpactHistorian;
+
+    @Mock
+    private FileNumbers fileNumbers;
 
     private final MerkleMap<EntityNum, MerkleStakingInfo> stakingInfos = new MerkleMap<>();
     private ConfigCallbacks subject;
 
     @BeforeEach
     void setUp() {
-        subject =
-                new ConfigCallbacks(
-                        hapiOpPermissions,
-                        dynamicProps,
-                        propertySources,
-                        expiryThrottle,
-                        functionalityThrottling,
-                        functionalityThrottling,
-                        functionalityThrottling,
-                        () -> addressBook,
-                        properties,
-                        () -> networkCtx,
-                        () -> stakingInfos,
-                        sigImpactHistorian,
-                        fileNumbers);
+        subject = new ConfigCallbacks(
+                hapiOpPermissions,
+                dynamicProps,
+                propertySources,
+                expiryThrottle,
+                functionalityThrottling,
+                functionalityThrottling,
+                functionalityThrottling,
+                () -> addressBook,
+                properties,
+                () -> networkCtx,
+                () -> MerkleMapLike.from(stakingInfos),
+                sigImpactHistorian,
+                fileNumbers,
+                multiplierSources);
     }
 
     @Test
     void propertiesCbAsExpected() {
         final var numNodes = 10;
-        final var hbarFloat = 50_000_000_000L * 100_000_000L;
+        final var totalHbarSupply = 50_000_000_000L * 100_000_000L;
         final var expiryResourceLoc = "something.json";
         givenWellKnownStakingInfos();
-        given(properties.getLongProperty(LEDGER_TOTAL_TINY_BAR_FLOAT)).willReturn(hbarFloat);
+        given(properties.getLongProperty(LEDGER_TOTAL_TINY_BAR_FLOAT)).willReturn(totalHbarSupply);
         given(properties.getStringProperty(EXPIRY_THROTTLE_RESOURCE)).willReturn(expiryResourceLoc);
-        given(properties.getAccessListProperty(EXPIRY_MIN_CYCLE_ENTRY_CAPACITY))
-                .willReturn(minReqUnitOfWork);
+        given(properties.getAccessListProperty(EXPIRY_MIN_CYCLE_ENTRY_CAPACITY)).willReturn(minReqUnitOfWork);
         given(addressBook.getSize()).willReturn(numNodes);
         given(dynamicProps.knownBlockValues()).willReturn(blockValues);
         given(dynamicProps.nodeMaxMinStakeRatios()).willReturn(Map.of(0L, 2L, 1L, 8L));
-        final var overrideMaxStake = hbarFloat / numNodes;
+        final var historicalMaxStake = totalHbarSupply / numNodes;
+        final var overrideMaxStake = totalHbarSupply / numNodes * 11 / 10;
         final var config = ServicesConfigurationList.getDefaultInstance();
 
         // when:
@@ -118,13 +143,14 @@ class ConfigCallbacksTest {
         verify(dynamicProps).reload();
         verify(functionalityThrottling, times(3)).applyGasConfig();
         verify(networkCtx).renumberBlocksToMatch(blockValues);
+        verify(multiplierSources).resetExpectations();
         // and:
         final var updatedNode0Info = stakingInfos.get(EntityNum.fromLong(0L));
-        assertStakes(updatedNode0Info, overrideMaxStake / 2, overrideMaxStake);
+        assertStakes(updatedNode0Info, historicalMaxStake / 2, overrideMaxStake);
         final var updatedNode1Info = stakingInfos.get(EntityNum.fromLong(1L));
-        assertStakes(updatedNode1Info, overrideMaxStake / 8, overrideMaxStake);
+        assertStakes(updatedNode1Info, historicalMaxStake / 8, overrideMaxStake);
         final var updatedNode2Info = stakingInfos.get(EntityNum.fromLong(2L));
-        assertStakes(updatedNode2Info, overrideMaxStake / 4, overrideMaxStake);
+        assertStakes(updatedNode2Info, historicalMaxStake / 4, overrideMaxStake);
     }
 
     @Test
@@ -138,8 +164,7 @@ class ConfigCallbacksTest {
         verify(hapiOpPermissions).reloadFrom(config);
     }
 
-    private void assertStakes(
-            final MerkleStakingInfo info, final long minStake, final long maxStake) {
+    private void assertStakes(final MerkleStakingInfo info, final long minStake, final long maxStake) {
         Assertions.assertEquals(minStake, info.getMinStake());
         Assertions.assertEquals(maxStake, info.getMaxStake());
     }

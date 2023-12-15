@@ -13,12 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.token;
 
 import com.hedera.node.app.spi.Service;
 import com.hedera.node.app.spi.ServiceFactory;
+import com.hedera.pbj.runtime.RpcServiceDefinition;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ServiceLoader;
+import java.util.Set;
 
 /**
  * Implements the HAPI <a
@@ -35,6 +38,12 @@ public interface TokenService extends Service {
         return NAME;
     }
 
+    @NonNull
+    @Override
+    default Set<RpcServiceDefinition> rpcDefinitions() {
+        return Set.of(CryptoServiceDefinition.INSTANCE, TokenServiceDefinition.INSTANCE);
+    }
+
     /**
      * Returns the concrete implementation instance of the service
      *
@@ -42,7 +51,6 @@ public interface TokenService extends Service {
      */
     @NonNull
     static TokenService getInstance() {
-        return ServiceFactory.loadService(
-                TokenService.class, ServiceLoader.load(TokenService.class));
+        return ServiceFactory.loadService(TokenService.class, ServiceLoader.load(TokenService.class));
     }
 }

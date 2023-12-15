@@ -13,8 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.crypto;
 
+import static com.hedera.services.bdd.junit.TestTags.CRYPTO;
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.getAccountNftInfosNotSupported;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.getBySolidityIdNotSupported;
@@ -23,12 +25,17 @@ import static com.hedera.services.bdd.spec.utilops.UtilVerbs.getFastRecordNotSup
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.getStakersNotSupported;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.getTokenNftInfosNotSupported;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.suites.HapiSuite;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.Tag;
 
+@HapiTestSuite
+@Tag(CRYPTO)
 public class UnsupportedQueriesRegression extends HapiSuite {
     static final Logger log = LogManager.getLogger(UnsupportedQueriesRegression.class);
 
@@ -43,13 +50,13 @@ public class UnsupportedQueriesRegression extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return List.of(
-                new HapiSpec[] {
-                    verifyUnsupportedOps(),
-                });
+        return List.of(new HapiSpec[] {
+            verifyUnsupportedOps(),
+        });
     }
 
-    private HapiSpec verifyUnsupportedOps() {
+    @HapiTest
+    final HapiSpec verifyUnsupportedOps() {
         return defaultHapiSpec("VerifyUnsupportedOps")
                 .given()
                 .when()

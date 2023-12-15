@@ -13,11 +13,34 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.contract.impl;
 
+import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.node.app.service.contract.ContractService;
+import com.hedera.node.app.service.contract.impl.handlers.ContractHandlers;
+import com.hedera.node.app.service.contract.impl.state.ContractSchema;
+import com.hedera.node.app.spi.state.SchemaRegistry;
+import edu.umd.cs.findbugs.annotations.NonNull;
 
 /**
- * Standard implementation of the {@link ContractService} {@link com.hedera.node.app.spi.Service}.
+ * Implementation of the {@link ContractService}.
  */
-public final class ContractServiceImpl implements ContractService {}
+public enum ContractServiceImpl implements ContractService {
+    CONTRACT_SERVICE;
+    public static final long INTRINSIC_GAS_LOWER_BOUND = 21_000L;
+    private final ContractServiceComponent component;
+
+    ContractServiceImpl() {
+        this.component = DaggerContractServiceComponent.create();
+    }
+
+    @Override
+    public void registerSchemas(@NonNull final SchemaRegistry registry, final SemanticVersion version) {
+        registry.register(new ContractSchema(version));
+    }
+
+    public ContractHandlers handlers() {
+        return component.handlers();
+    }
+}

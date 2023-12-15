@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.ledger.backing;
 
 import com.hedera.node.app.service.mono.state.merkle.MerkleAccount;
@@ -21,7 +22,6 @@ import com.hedera.test.utils.IdUtils;
 import com.hederahashgraph.api.proto.java.AccountID;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 
 public class HashMapBackingAccounts implements BackingStore<AccountID, HederaAccount> {
     final AccountID GENESIS = IdUtils.asAccount("0.0.2");
@@ -56,11 +56,6 @@ public class HashMapBackingAccounts implements BackingStore<AccountID, HederaAcc
     @Override
     public void remove(AccountID id) {
         accounts.remove(id);
-    }
-
-    @Override
-    public Set<AccountID> idSet() {
-        return accounts.keySet();
     }
 
     @Override

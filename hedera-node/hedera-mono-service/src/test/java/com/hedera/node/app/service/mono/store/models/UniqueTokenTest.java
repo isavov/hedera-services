@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.store.models;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -29,20 +30,13 @@ class UniqueTokenTest {
         assertEquals(1, subj.getSerialNumber());
         assertEquals(Id.DEFAULT, subj.getTokenId());
 
-        var metadata = new byte[] {107, 117, 114};
-        subj =
-                new UniqueToken(
-                        Id.DEFAULT,
-                        1,
-                        RichInstant.MISSING_INSTANT,
-                        new Id(1, 2, 3),
-                        new byte[] {111, 23, 85});
+        subj = new UniqueToken(Id.DEFAULT, 1, RichInstant.MISSING_INSTANT, new Id(1, 2, 3), new byte[] {111, 23, 85});
         assertEquals(RichInstant.MISSING_INSTANT, subj.getCreationTime());
         assertEquals(new Id(1, 2, 3), subj.getOwner());
         subj.setSerialNumber(2);
         assertEquals(2, subj.getSerialNumber());
 
-        metadata = new byte[] {1, 2, 3};
+        var metadata = new byte[] {1, 2, 3};
         subj.setMetadata(metadata);
         assertEquals(metadata, subj.getMetadata());
         subj.setTokenId(Id.DEFAULT);
@@ -63,10 +57,9 @@ class UniqueTokenTest {
         subject.setMetadata(meta1);
         subject.setCreationTime(RichInstant.MISSING_INSTANT);
 
-        final var expected =
-                "UniqueToken{tokenID=0.0.12345, serialNum=1, metadata=[97, 97],"
-                        + " creationTime=RichInstant{seconds=0, nanos=0}, owner=0.0.12346,"
-                        + " spender=0.0.12347}";
+        final var expected = "UniqueToken{tokenID=0.0.12345, serialNum=1, metadata=[97, 97],"
+                + " creationTime=RichInstant{seconds=0, nanos=0}, owner=0.0.12346,"
+                + " spender=0.0.12347}";
 
         assertEquals(expected, subject.toString());
     }

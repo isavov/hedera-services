@@ -13,9 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.yahcli;
 
 import com.hedera.services.yahcli.commands.accounts.AccountsCommand;
+import com.hedera.services.yahcli.commands.accounts.SetupStakeCommand;
 import com.hedera.services.yahcli.commands.fees.FeesCommand;
 import com.hedera.services.yahcli.commands.files.SysFilesCommand;
 import com.hedera.services.yahcli.commands.keys.KeysCommand;
@@ -43,14 +45,16 @@ import picocli.CommandLine.Model.CommandSpec;
             PrepareUpgradeCommand.class,
             FreezeUpgradeCommand.class,
             TelemetryUpgradeCommand.class,
-            VersionInfoCommand.class
+            VersionInfoCommand.class,
+            SetupStakeCommand.class,
         },
         description = "Performs DevOps-type actions against a Hedera Services network")
 public class Yahcli implements Callable<Integer> {
     public static final long NO_FIXED_FEE = Long.MIN_VALUE;
     public static final String DEFAULT_LOG_LEVEL = "WARN";
 
-    @Spec CommandSpec spec;
+    @Spec
+    CommandSpec spec;
 
     @Option(
             names = {"-f", "--fixed-fee"},

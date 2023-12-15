@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.misc;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -55,10 +56,9 @@ public class ZeroStakeNodeTest extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return List.of(
-                new HapiSpec[] {
-                    zeroStakeBehavesAsExpectedJRS(),
-                });
+        return List.of(new HapiSpec[] {
+            zeroStakeBehavesAsExpectedJRS(),
+        });
     }
 
     /**
@@ -66,7 +66,7 @@ public class ZeroStakeNodeTest extends HapiSuite {
      * node ids of the network with zero stake nodes. Assumes that node 0.0.7 and node 0.0.8 are
      * started with zero stake in a 6 node network.
      */
-    private HapiSpec zeroStakeBehavesAsExpectedJRS() {
+    final HapiSpec zeroStakeBehavesAsExpectedJRS() {
         return defaultHapiSpec("zeroStakeBehavesAsExpectedJRS")
                 .given(
                         cryptoCreate("sponsor"),
@@ -81,9 +81,7 @@ public class ZeroStakeNodeTest extends HapiSuite {
                                 .setNode("0.0.8")
                                 .newMemo("Oops!")
                                 .hasPrecheck(INVALID_NODE_ACCOUNT),
-                        contractDelete("Multipurpose")
-                                .setNode("0.0.7")
-                                .hasPrecheck(INVALID_NODE_ACCOUNT),
+                        contractDelete("Multipurpose").setNode("0.0.7").hasPrecheck(INVALID_NODE_ACCOUNT),
                         contractCall("Multipurpose")
                                 .setNode("0.0.8")
                                 .sending(1L)
@@ -105,14 +103,10 @@ public class ZeroStakeNodeTest extends HapiSuite {
                                 .setNode("0.0.7")
                                 .payingWith("sponsor")
                                 .nodePayment(0L)
-                                .has(
-                                        resultWith()
-                                                .resultThruAbi(
-                                                        getABIFor(FUNCTION, "pick", "Multipurpose"),
-                                                        isLiteralResult(
-                                                                new Object[] {
-                                                                    BigInteger.valueOf(42)
-                                                                }))),
+                                .has(resultWith()
+                                        .resultThruAbi(
+                                                getABIFor(FUNCTION, "pick", "Multipurpose"),
+                                                isLiteralResult(new Object[] {BigInteger.valueOf(42)}))),
                         getContractInfo("Multipurpose")
                                 .setNode("0.0.7")
                                 .payingWith("sponsor")

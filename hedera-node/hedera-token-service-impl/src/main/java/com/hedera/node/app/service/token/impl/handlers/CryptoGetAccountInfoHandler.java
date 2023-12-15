@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Hedera Hashgraph, LLC
+ * Copyright (C) 2022-2023 Hedera Hashgraph, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,70 +13,177 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.token.impl.handlers;
 
+import static com.hedera.hapi.node.base.ResponseCodeEnum.ACCOUNT_DELETED;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.FAIL_INVALID;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.INVALID_ACCOUNT_ID;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.OK;
+import static com.hedera.hapi.node.base.ResponseType.COST_ANSWER;
+import static com.hedera.node.app.service.token.impl.handlers.transfer.TransferContextImpl.isOfEvmAddressSize;
+import static com.hedera.node.app.spi.workflows.PreCheckException.validateFalsePreCheck;
 import static java.util.Objects.requireNonNull;
 
+import com.hedera.hapi.node.base.AccountID;
+import com.hedera.hapi.node.base.Duration;
+import com.hedera.hapi.node.base.HederaFunctionality;
+import com.hedera.hapi.node.base.QueryHeader;
+import com.hedera.hapi.node.base.ResponseHeader;
+import com.hedera.hapi.node.base.Timestamp;
+import com.hedera.hapi.node.token.AccountInfo;
+import com.hedera.hapi.node.token.CryptoGetInfoQuery;
+import com.hedera.hapi.node.token.CryptoGetInfoResponse;
+import com.hedera.hapi.node.transaction.Query;
+import com.hedera.hapi.node.transaction.Response;
+import com.hedera.node.app.hapi.fees.usage.crypto.CryptoOpsUsage;
+import com.hedera.node.app.service.mono.fees.calculation.crypto.queries.GetAccountInfoResourceUsage;
+import com.hedera.node.app.service.token.ReadableAccountStore;
+import com.hedera.node.app.service.token.ReadableNetworkStakingRewardsStore;
+import com.hedera.node.app.service.token.ReadableStakingInfoStore;
+import com.hedera.node.app.service.token.api.AccountSummariesApi;
+import com.hedera.node.app.spi.fees.Fees;
 import com.hedera.node.app.spi.workflows.PaidQueryHandler;
 import com.hedera.node.app.spi.workflows.PreCheckException;
-import com.hederahashgraph.api.proto.java.CryptoGetInfoResponse;
-import com.hederahashgraph.api.proto.java.Query;
-import com.hederahashgraph.api.proto.java.QueryHeader;
-import com.hederahashgraph.api.proto.java.Response;
-import com.hederahashgraph.api.proto.java.ResponseHeader;
+import com.hedera.node.app.spi.workflows.QueryContext;
+import com.hedera.node.config.data.LedgerConfig;
+import com.hedera.node.config.data.StakingConfig;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.Optional;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
 /**
  * This class contains all workflow-related functionality regarding {@link
- * com.hederahashgraph.api.proto.java.HederaFunctionality#CryptoGetInfo}.
+ * HederaFunctionality#CRYPTO_GET_INFO}.
+ * The token relationships field is deprecated and is no more returned by this query.
  */
 @Singleton
 public class CryptoGetAccountInfoHandler extends PaidQueryHandler {
+    private final CryptoOpsUsage cryptoOpsUsage;
+
     @Inject
-    public CryptoGetAccountInfoHandler() {}
+    public CryptoGetAccountInfoHandler(final CryptoOpsUsage cryptoOpsUsage) {
+        this.cryptoOpsUsage = cryptoOpsUsage;
+        // Dagger2
+    }
 
     @Override
     public QueryHeader extractHeader(@NonNull final Query query) {
         requireNonNull(query);
-        return query.getCryptoGetInfo().getHeader();
+        return query.cryptoGetInfoOrThrow().header();
     }
 
     @Override
     public Response createEmptyResponse(@NonNull final ResponseHeader header) {
-        final var response = CryptoGetInfoResponse.newBuilder().setHeader(header);
-        return Response.newBuilder().setCryptoGetInfo(response).build();
+        requireNonNull(header);
+        final var response = CryptoGetInfoResponse.newBuilder().header(requireNonNull(header));
+        return Response.newBuilder().cryptoGetInfo(response).build();
+    }
+
+    @Override
+    public void validate(@NonNull final QueryContext context) throws PreCheckException {
+        requireNonNull(context);
+        final var query = context.query();
+        final var accountStore = context.createStore(ReadableAccountStore.class);
+        final CryptoGetInfoQuery op = query.cryptoGetInfoOrThrow();
+        if (op.hasAccountID()) {
+            final var account = accountStore.getAccountById(requireNonNull(op.accountID()));
+            validateFalsePreCheck(account == null, INVALID_ACCOUNT_ID);
+            validateFalsePreCheck(account.deleted(), ACCOUNT_DELETED);
+        } else {
+            throw new PreCheckException(INVALID_ACCOUNT_ID);
+        }
+    }
+
+    @Override
+    public Response findResponse(@NonNull final QueryContext context, @NonNull final ResponseHeader header) {
+        requireNonNull(context);
+        requireNonNull(header);
+        final var query = context.query();
+        final var op = query.cryptoGetInfoOrThrow();
+        final var response = CryptoGetInfoResponse.newBuilder();
+        final var accountId = op.accountIDOrElse(AccountID.DEFAULT);
+
+        response.header(header);
+        final var responseType = op.headerOrElse(QueryHeader.DEFAULT).responseType();
+        if (header.nodeTransactionPrecheckCode() == OK && responseType != COST_ANSWER) {
+            final var optionalInfo = infoForAccount(accountId, context);
+            if (optionalInfo.isPresent()) {
+                response.accountInfo(optionalInfo.get());
+            } else {
+                response.header(ResponseHeader.newBuilder()
+                        .nodeTransactionPrecheckCode(FAIL_INVALID)
+                        .cost(0)); // FUTURE: from mono service, check in EET
+            }
+        }
+
+        return Response.newBuilder().cryptoGetInfo(response).build();
     }
 
     /**
-     * This method is called during the query workflow. It validates the query, but does not
-     * determine the response yet.
+     * Provides information about an account.
      *
-     * <p>Please note: the method signature is just a placeholder which is most likely going to
-     * change.
-     *
-     * @param query the {@link Query} that should be validated
-     * @throws NullPointerException if one of the arguments is {@code null}
-     * @throws PreCheckException if validation fails
+     * @param accountID account id
+     * @param context the query context
+     * @return the information about the account
      */
-    public void validate(@NonNull final Query query) throws PreCheckException {
-        throw new UnsupportedOperationException("Not implemented");
+    private Optional<AccountInfo> infoForAccount(
+            @NonNull final AccountID accountID, @NonNull final QueryContext context) {
+        requireNonNull(accountID);
+        requireNonNull(context);
+
+        final var ledgerConfig = context.configuration().getConfigData(LedgerConfig.class);
+        final var stakingConfig = context.configuration().getConfigData(StakingConfig.class);
+        final var accountStore = context.createStore(ReadableAccountStore.class);
+        final var stakingInfoStore = context.createStore(ReadableStakingInfoStore.class);
+        final var stakingRewardsStore = context.createStore(ReadableNetworkStakingRewardsStore.class);
+
+        final var account = accountStore.getAccountById(accountID);
+        if (account == null) {
+            return Optional.empty();
+        } else {
+            final var info = AccountInfo.newBuilder();
+            info.ledgerId(ledgerConfig.id());
+            info.key(account.key());
+
+            // Set this field with the account's id since that's guaranteed to be a numeric 0.0.X id;
+            // the request might have been made using a 0.0.<alias> id
+            info.accountID(account.accountIdOrThrow());
+            info.receiverSigRequired(account.receiverSigRequired());
+            info.deleted(account.deleted());
+            info.memo(account.memo());
+            info.autoRenewPeriod(Duration.newBuilder().seconds(account.autoRenewSeconds()));
+            info.balance(account.tinybarBalance());
+            info.expirationTime(Timestamp.newBuilder().seconds(account.expirationSecond()));
+            info.contractAccountID(AccountSummariesApi.hexedEvmAddressOf(account));
+            info.ownedNfts(account.numberOwnedNfts());
+            info.maxAutomaticTokenAssociations(account.maxAutoAssociations());
+            info.ethereumNonce(account.ethereumNonce());
+            if (!isOfEvmAddressSize(account.alias())) {
+                info.alias(account.alias());
+            }
+            info.stakingInfo(AccountSummariesApi.summarizeStakingInfo(
+                    stakingConfig.rewardHistoryNumStoredPeriods(),
+                    stakingConfig.periodMins(),
+                    stakingRewardsStore.isStakingRewardsActivated(),
+                    account,
+                    stakingInfoStore));
+            return Optional.of(info.build());
+        }
     }
 
-    /**
-     * This method is called during the query workflow. It determines the requested value(s) and
-     * returns the appropriate response.
-     *
-     * <p>Please note: the method signature is just a placeholder which is most likely going to
-     * change.
-     *
-     * @param query the {@link Query} with the request
-     * @param header the {@link ResponseHeader} that should be used, if the request was successful
-     * @return a {@link Response} with the requested values
-     * @throws NullPointerException if one of the arguments is {@code null}
-     */
-    public Response findResponse(@NonNull final Query query, @NonNull final ResponseHeader header) {
-        throw new UnsupportedOperationException("Not implemented");
+    @NonNull
+    @Override
+    public Fees computeFees(@NonNull final QueryContext queryContext) {
+        final var query = queryContext.query();
+        final var accountStore = queryContext.createStore(ReadableAccountStore.class);
+        final var op = query.cryptoGetInfoOrThrow();
+        final var accountId = op.accountIDOrThrow();
+        final var account = accountStore.getAccountById(accountId);
+
+        return queryContext.feeCalculator().legacyCalculate(sigValueObj -> new GetAccountInfoResourceUsage(
+                        cryptoOpsUsage, null, null)
+                .usageGiven(query, account));
     }
 }

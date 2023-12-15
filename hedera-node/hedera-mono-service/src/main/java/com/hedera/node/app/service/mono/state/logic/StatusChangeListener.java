@@ -13,16 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.logic;
 
-import static com.swirlds.common.system.PlatformStatus.ACTIVE;
-import static com.swirlds.common.system.PlatformStatus.FREEZE_COMPLETE;
+import static com.swirlds.platform.system.status.PlatformStatus.ACTIVE;
+import static com.swirlds.platform.system.status.PlatformStatus.FREEZE_COMPLETE;
 
 import com.hedera.node.app.service.mono.context.CurrentPlatformStatus;
 import com.hedera.node.app.service.mono.stream.RecordStreamManager;
-import com.swirlds.common.notification.listeners.PlatformStatusChangeListener;
-import com.swirlds.common.notification.listeners.PlatformStatusChangeNotification;
-import com.swirlds.common.system.NodeId;
+import com.swirlds.common.platform.NodeId;
+import com.swirlds.platform.listeners.PlatformStatusChangeListener;
+import com.swirlds.platform.listeners.PlatformStatusChangeNotification;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import org.apache.logging.log4j.LogManager;
@@ -30,7 +31,7 @@ import org.apache.logging.log4j.Logger;
 
 /**
  * Listener that will be notified with {@link
- * com.swirlds.common.notification.listeners.PlatformStatusChangeListener} when platform status
+ * PlatformStatusChangeListener} when platform status
  * changes. This will set {@link RecordStreamManager}'s {@code inFreeze} status
  */
 @Singleton
@@ -52,9 +53,7 @@ public class StatusChangeListener implements PlatformStatusChangeListener {
 
     @Override
     public void notify(PlatformStatusChangeNotification notification) {
-        log.info(
-                "Notification Received: Current Platform status changed to {}",
-                notification.getNewStatus());
+        log.info("Notification Received: Current Platform status changed to {}", notification.getNewStatus());
 
         final var status = notification.getNewStatus();
         currentPlatformStatus.set(status);

@@ -13,11 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.fees.calculation.schedule.txns;
 
 import com.hedera.node.app.hapi.fees.usage.SigUsage;
 import com.hedera.node.app.hapi.fees.usage.schedule.ScheduleOpsUsage;
-import com.hedera.node.app.hapi.utils.exception.InvalidTxBodyException;
 import com.hedera.node.app.hapi.utils.fee.SigValueObj;
 import com.hedera.node.app.service.mono.context.primitives.StateView;
 import com.hedera.node.app.service.mono.context.properties.GlobalDynamicProperties;
@@ -45,13 +45,9 @@ public class ScheduleSignResourceUsage implements TxnResourceUsageEstimator {
     }
 
     @Override
-    public FeeData usageGiven(
-            final TransactionBody txn, final SigValueObj svo, final StateView view)
-            throws InvalidTxBodyException {
+    public FeeData usageGiven(final TransactionBody txn, final SigValueObj svo, final StateView view) {
         final var op = txn.getScheduleSign();
-        final var sigUsage =
-                new SigUsage(
-                        svo.getTotalSigCount(), svo.getSignatureSize(), svo.getPayerAcctSigCount());
+        final var sigUsage = new SigUsage(svo.getTotalSigCount(), svo.getSignatureSize(), svo.getPayerAcctSigCount());
 
         final var optionalInfo = view.infoForSchedule(op.getScheduleID());
         if (optionalInfo.isPresent()) {

@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.txns.consensus;
 
 import static com.hedera.test.factories.scenarios.TxnHandlingScenario.MISC_ACCOUNT;
@@ -51,6 +52,7 @@ import com.hedera.node.app.service.mono.context.TransactionContext;
 import com.hedera.node.app.service.mono.ledger.HederaLedger;
 import com.hedera.node.app.service.mono.ledger.SigImpactHistorian;
 import com.hedera.node.app.service.mono.legacy.core.jproto.JKey;
+import com.hedera.node.app.service.mono.state.adapters.MerkleMapLike;
 import com.hedera.node.app.service.mono.state.merkle.MerkleAccount;
 import com.hedera.node.app.service.mono.state.merkle.MerkleTopic;
 import com.hedera.node.app.service.mono.state.migration.AccountStorageAdapter;
@@ -70,6 +72,8 @@ import com.hederahashgraph.api.proto.java.TopicID;
 import com.hederahashgraph.api.proto.java.TransactionBody;
 import com.hederahashgraph.api.proto.java.TransactionID;
 import com.swirlds.merkle.map.MerkleMap;
+import java.io.IOException;
+import java.security.InvalidKeyException;
 import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -83,8 +87,7 @@ class MerkleTopicUpdateTransitionLogicTest {
     private static final long INVALID_AUTORENEW_PERIOD_SECONDS = -1L;
     private static final long EXISTING_AUTORENEW_PERIOD_SECONDS = 29 * 86400L;
     private static final long NOW_SECONDS = 1546304462;
-    private static final RichInstant EXISTING_EXPIRATION_TIME =
-            new RichInstant(NOW_SECONDS + 1000L, 0);
+    private static final RichInstant EXISTING_EXPIRATION_TIME = new RichInstant(NOW_SECONDS + 1000L, 0);
     private static final String TOO_LONG_MEMO = "too-long";
     private static final String VALID_MEMO = "updated memo";
     private static final String EXISTING_MEMO = "unmodified memo";
@@ -99,7 +102,7 @@ class MerkleTopicUpdateTransitionLogicTest {
     private SigImpactHistorian sigImpactHistorian;
     private OptionValidator validator;
     private MerkleMap<EntityNum, MerkleAccount> accounts = new MerkleMap<>();
-    private MerkleMap<EntityNum, MerkleTopic> topics = new MerkleMap<>();
+    private MerkleMapLike<EntityNum, MerkleTopic> topics = MerkleMapLike.from(new MerkleMap<>());
     private TopicUpdateTransitionLogic subject;
     private final AccountID payer = AccountID.newBuilder().setAccountNum(1_234L).build();
 
@@ -113,17 +116,13 @@ class MerkleTopicUpdateTransitionLogicTest {
         given(transactionContext.consensusTime()).willReturn(consensusTime);
         accessor = mock(SignedTxnAccessor.class);
         validator = mock(OptionValidator.class);
-        given(
-                        validator.isValidAutoRenewPeriod(
-                                Duration.newBuilder()
-                                        .setSeconds(VALID_AUTORENEW_PERIOD_SECONDS)
-                                        .build()))
+        given(validator.isValidAutoRenewPeriod(Duration.newBuilder()
+                        .setSeconds(VALID_AUTORENEW_PERIOD_SECONDS)
+                        .build()))
                 .willReturn(true);
-        given(
-                        validator.isValidAutoRenewPeriod(
-                                Duration.newBuilder()
-                                        .setSeconds(INVALID_AUTORENEW_PERIOD_SECONDS)
-                                        .build()))
+        given(validator.isValidAutoRenewPeriod(Duration.newBuilder()
+                        .setSeconds(INVALID_AUTORENEW_PERIOD_SECONDS)
+                        .build()))
                 .willReturn(false);
         given(validator.memoCheck("")).willReturn(OK);
         given(validator.memoCheck(VALID_MEMO)).willReturn(OK);
@@ -131,14 +130,13 @@ class MerkleTopicUpdateTransitionLogicTest {
         sigImpactHistorian = mock(SigImpactHistorian.class);
 
         ledger = mock(HederaLedger.class);
-        subject =
-                new TopicUpdateTransitionLogic(
-                        () -> AccountStorageAdapter.fromInMemory(accounts),
-                        () -> topics,
-                        validator,
-                        transactionContext,
-                        ledger,
-                        sigImpactHistorian);
+        subject = new TopicUpdateTransitionLogic(
+                () -> AccountStorageAdapter.fromInMemory(MerkleMapLike.from(accounts)),
+                () -> topics,
+                validator,
+                transactionContext,
+                ledger,
+                sigImpactHistorian);
     }
 
     @Test
@@ -171,7 +169,7 @@ class MerkleTopicUpdateTransitionLogicTest {
     }
 
     @Test
-    void followsHappyPath() throws Throwable {
+    void followsHappyPath() throws InvalidKeyException, IOException {
         // given:
         givenExistingTopicWithAdminKey();
         givenValidTransactionWithAllOptions();
@@ -197,7 +195,7 @@ class MerkleTopicUpdateTransitionLogicTest {
     }
 
     @Test
-    void clearsKeysIfRequested() throws Throwable {
+    void clearsKeysIfRequested() {
         // given:
         givenExistingTopicWithBothKeys();
         givenTransactionClearingKeys();
@@ -218,7 +216,7 @@ class MerkleTopicUpdateTransitionLogicTest {
     }
 
     @Test
-    void failsOnInvalidMemo() throws Throwable {
+    void failsOnInvalidMemo() {
         // given:
         givenExistingTopicWithAdminKey();
         givenTransactionWithInvalidMemo();
@@ -235,7 +233,7 @@ class MerkleTopicUpdateTransitionLogicTest {
     }
 
     @Test
-    void failsOnInvalidAdminKey() throws Throwable {
+    void failsOnInvalidAdminKey() {
         // given:
         givenExistingTopicWithAdminKey();
         givenTransactionWithInvalidAdminKey();
@@ -252,7 +250,7 @@ class MerkleTopicUpdateTransitionLogicTest {
     }
 
     @Test
-    void failsOnInvalidSubmitKey() throws Throwable {
+    void failsOnInvalidSubmitKey() {
         // given:
         givenExistingTopicWithAdminKey();
         givenTransactionWithInvalidSubmitKey();
@@ -269,7 +267,7 @@ class MerkleTopicUpdateTransitionLogicTest {
     }
 
     @Test
-    void failsOnInvalidAutoRenewPeriod() throws Throwable {
+    void failsOnInvalidAutoRenewPeriod() {
         // given:
         givenExistingTopicWithAdminKey();
         givenTransactionWithInvalidAutoRenewPeriod();
@@ -286,7 +284,7 @@ class MerkleTopicUpdateTransitionLogicTest {
     }
 
     @Test
-    void failsOnInvalidExpirationTime() throws Throwable {
+    void failsOnInvalidExpirationTime() {
         // given:
         givenExistingTopicWithAdminKey();
         givenTransactionWithInvalidExpirationTime();
@@ -303,7 +301,7 @@ class MerkleTopicUpdateTransitionLogicTest {
     }
 
     @Test
-    void failsOnExpirationTimeReduction() throws Throwable {
+    void failsOnExpirationTimeReduction() {
         // given:
         givenExistingTopicWithAdminKey();
         givenTransactionWithReducedExpirationTime();
@@ -320,7 +318,7 @@ class MerkleTopicUpdateTransitionLogicTest {
     }
 
     @Test
-    void failsUnauthorizedOnMemoChange() throws Throwable {
+    void failsUnauthorizedOnMemoChange() {
         // given:
         givenExistingTopicWithoutAdminKey();
         givenTransactionWithMemo();
@@ -349,7 +347,7 @@ class MerkleTopicUpdateTransitionLogicTest {
     }
 
     @Test
-    void failsOnInvalidAutoRenewAccount() throws Throwable {
+    void failsOnInvalidAutoRenewAccount() {
         // given:
         givenExistingTopicWithAdminKey();
         givenTransactionWithInvalidAutoRenewAccount();
@@ -362,7 +360,7 @@ class MerkleTopicUpdateTransitionLogicTest {
     }
 
     @Test
-    void failsOnDetachedExistingAutoRenewAccount() throws Throwable {
+    void failsOnDetachedExistingAutoRenewAccount() {
         // given:
         givenExistingTopicWithAutoRenewAccount();
         givenValidTransactionWithAllOptions();
@@ -376,7 +374,7 @@ class MerkleTopicUpdateTransitionLogicTest {
     }
 
     @Test
-    void failsOnDetachedNewAutoRenewAccount() throws Throwable {
+    void failsOnDetachedNewAutoRenewAccount() {
         // given:
         givenExistingTopicWithAdminKey();
         givenTransactionWithAutoRenewAccountNotClearingAdminKey();
@@ -390,7 +388,7 @@ class MerkleTopicUpdateTransitionLogicTest {
     }
 
     @Test
-    void failsOnAutoRenewAccountNotAllowed() throws Throwable {
+    void failsOnAutoRenewAccountNotAllowed() {
         // given:
         givenExistingTopicWithAdminKey();
         givenTransactionWithAutoRenewAccountClearingAdminKey();
@@ -403,7 +401,7 @@ class MerkleTopicUpdateTransitionLogicTest {
     }
 
     @Test
-    void clearsAutoRenewAccountIfCorrectSentinelUsed() throws Throwable {
+    void clearsAutoRenewAccountIfCorrectSentinelUsed() {
         // given:
         givenExistingTopicWithAutoRenewAccount();
         givenTransactionClearingAutoRenewAccount();
@@ -418,7 +416,7 @@ class MerkleTopicUpdateTransitionLogicTest {
     }
 
     @Test
-    void doesntClearAutoRenewAccountIfSentinelWithAliasUsed() throws Throwable {
+    void doesntClearAutoRenewAccountIfSentinelWithAliasUsed() {
         // given:
         givenExistingTopicWithAutoRenewAccount();
         givenTransactionChangingAutoRenewAccountWithAliasId();
@@ -432,71 +430,74 @@ class MerkleTopicUpdateTransitionLogicTest {
         assertTrue(topic.hasAutoRenewAccountId());
     }
 
-    private void assertTopicNotUpdated(
-            MerkleTopic originalMerkleTopic, MerkleTopic originalMerkleTopicClone) {
+    private void assertTopicNotUpdated(MerkleTopic originalMerkleTopic, MerkleTopic originalMerkleTopicClone) {
         var updatedTopic = topics.get(EntityNum.fromTopicId(TOPIC_ID));
         assertSame(originalMerkleTopic, updatedTopic); // No change
         assertEquals(originalMerkleTopicClone, updatedTopic); // No change in values
     }
 
-    private void givenExistingTopicWithAdminKey() throws Throwable {
-        var existingTopic =
-                new MerkleTopic(
-                        EXISTING_MEMO,
-                        JKey.mapKey(existingKey),
-                        null,
-                        EXISTING_AUTORENEW_PERIOD_SECONDS,
-                        null,
-                        EXISTING_EXPIRATION_TIME);
+    private void givenExistingTopicWithAdminKey() {
+        MerkleTopic existingTopic = null;
+        try {
+            existingTopic = new MerkleTopic(
+                    EXISTING_MEMO,
+                    JKey.mapKey(existingKey),
+                    null,
+                    EXISTING_AUTORENEW_PERIOD_SECONDS,
+                    null,
+                    EXISTING_EXPIRATION_TIME);
+            topics.put(EntityNum.fromTopicId(TOPIC_ID), existingTopic);
+            given(validator.queryableTopicStatus(TOPIC_ID, topics)).willReturn(OK);
+        } catch (InvalidKeyException e) {
+            throw new IllegalArgumentException("Invalid key in test scenario", e);
+        }
+    }
+
+    private void givenExistingTopicWithBothKeys() {
+        MerkleTopic existingTopic = null;
+        try {
+            existingTopic = new MerkleTopic(
+                    EXISTING_MEMO,
+                    JKey.mapKey(existingKey),
+                    JKey.mapKey(existingKey),
+                    EXISTING_AUTORENEW_PERIOD_SECONDS,
+                    null,
+                    EXISTING_EXPIRATION_TIME);
+            topics.put(EntityNum.fromTopicId(TOPIC_ID), existingTopic);
+            given(validator.queryableTopicStatus(TOPIC_ID, topics)).willReturn(OK);
+        } catch (InvalidKeyException e) {
+            throw new IllegalArgumentException("Invalid key in test scenario", e);
+        }
+    }
+
+    private void givenExistingTopicWithoutAdminKey() {
+        var existingTopic = new MerkleTopic(
+                EXISTING_MEMO, null, null, EXISTING_AUTORENEW_PERIOD_SECONDS, null, EXISTING_EXPIRATION_TIME);
         topics.put(EntityNum.fromTopicId(TOPIC_ID), existingTopic);
         given(validator.queryableTopicStatus(TOPIC_ID, topics)).willReturn(OK);
     }
 
-    private void givenExistingTopicWithBothKeys() throws Throwable {
-        var existingTopic =
-                new MerkleTopic(
-                        EXISTING_MEMO,
-                        JKey.mapKey(existingKey),
-                        JKey.mapKey(existingKey),
-                        EXISTING_AUTORENEW_PERIOD_SECONDS,
-                        null,
-                        EXISTING_EXPIRATION_TIME);
-        topics.put(EntityNum.fromTopicId(TOPIC_ID), existingTopic);
-        given(validator.queryableTopicStatus(TOPIC_ID, topics)).willReturn(OK);
-    }
-
-    private void givenExistingTopicWithoutAdminKey() throws Throwable {
-        var existingTopic =
-                new MerkleTopic(
-                        EXISTING_MEMO,
-                        null,
-                        null,
-                        EXISTING_AUTORENEW_PERIOD_SECONDS,
-                        null,
-                        EXISTING_EXPIRATION_TIME);
-        topics.put(EntityNum.fromTopicId(TOPIC_ID), existingTopic);
-        given(validator.queryableTopicStatus(TOPIC_ID, topics)).willReturn(OK);
-    }
-
-    private void givenExistingTopicWithAutoRenewAccount() throws Throwable {
-        var existingTopic =
-                new MerkleTopic(
-                        EXISTING_MEMO,
-                        JKey.mapKey(existingKey),
-                        null,
-                        EXISTING_AUTORENEW_PERIOD_SECONDS,
-                        EntityId.fromGrpcAccountId(MISC_ACCOUNT),
-                        EXISTING_EXPIRATION_TIME);
-        topics.put(EntityNum.fromTopicId(TOPIC_ID), existingTopic);
-        given(validator.queryableTopicStatus(TOPIC_ID, topics)).willReturn(OK);
+    private void givenExistingTopicWithAutoRenewAccount() {
+        try {
+            var existingTopic = new MerkleTopic(
+                    EXISTING_MEMO,
+                    JKey.mapKey(existingKey),
+                    null,
+                    EXISTING_AUTORENEW_PERIOD_SECONDS,
+                    EntityId.fromGrpcAccountId(MISC_ACCOUNT),
+                    EXISTING_EXPIRATION_TIME);
+            topics.put(EntityNum.fromTopicId(TOPIC_ID), existingTopic);
+            given(validator.queryableTopicStatus(TOPIC_ID, topics)).willReturn(OK);
+        } catch (InvalidKeyException e) {
+            throw new IllegalArgumentException("Invalid key in test scenario", e);
+        }
     }
 
     private void givenTransaction(ConsensusUpdateTopicTransactionBody.Builder body) {
-        transactionBody =
-                TransactionBody.newBuilder()
-                        .setTransactionID(ourTxnId())
-                        .setConsensusUpdateTopic(body.build())
-                        .build();
+        transactionBody = TransactionBody.newBuilder()
+                .setTransactionID(ourTxnId())
+                .setConsensusUpdateTopic(body.build())
+                .build();
         given(accessor.getTxn()).willReturn(transactionBody);
         given(transactionContext.accessor()).willReturn(accessor);
     }
@@ -506,25 +507,21 @@ class MerkleTopicUpdateTransitionLogicTest {
     }
 
     private void givenValidTransactionInvalidTopic() {
-        givenTransaction(
-                ConsensusUpdateTopicTransactionBody.newBuilder()
-                        .setTopicID(MISSING_TOPIC)
-                        .setMemo(StringValue.of(VALID_MEMO)));
+        givenTransaction(ConsensusUpdateTopicTransactionBody.newBuilder()
+                .setTopicID(MISSING_TOPIC)
+                .setMemo(StringValue.of(VALID_MEMO)));
         given(validator.queryableTopicStatus(MISSING_TOPIC, topics)).willReturn(INVALID_TOPIC_ID);
     }
 
     private void givenTransactionWithInvalidAutoRenewAccount() {
-        givenTransaction(
-                getBasicValidTransactionBodyBuilder().setAutoRenewAccount(MISSING_ACCOUNT));
-        given(validator.queryableAccountStatus(eq(MISSING_ACCOUNT), any()))
-                .willReturn(INVALID_ACCOUNT_ID);
+        givenTransaction(getBasicValidTransactionBodyBuilder().setAutoRenewAccount(MISSING_ACCOUNT));
+        given(validator.queryableAccountStatus(eq(MISSING_ACCOUNT), any())).willReturn(INVALID_ACCOUNT_ID);
     }
 
     private void givenTransactionWithAutoRenewAccountClearingAdminKey() {
-        givenTransaction(
-                getBasicValidTransactionBodyBuilder()
-                        .setAdminKey(Key.newBuilder().setKeyList(KeyList.getDefaultInstance()))
-                        .setAutoRenewAccount(MISC_ACCOUNT));
+        givenTransaction(getBasicValidTransactionBodyBuilder()
+                .setAdminKey(Key.newBuilder().setKeyList(KeyList.getDefaultInstance()))
+                .setAutoRenewAccount(MISC_ACCOUNT));
         given(validator.queryableAccountStatus(eq(MISC_ACCOUNT), any())).willReturn(OK);
         given(validator.hasGoodEncoding(any())).willReturn(true);
     }
@@ -536,23 +533,19 @@ class MerkleTopicUpdateTransitionLogicTest {
     }
 
     private void givenTransactionClearingAutoRenewAccount() {
-        givenTransaction(
-                getBasicValidTransactionBodyBuilder()
-                        .setAutoRenewAccount(
-                                AccountID.newBuilder()
-                                        .setShardNum(0)
-                                        .setRealmNum(0)
-                                        .setAccountNum(0)
-                                        .build()));
+        givenTransaction(getBasicValidTransactionBodyBuilder()
+                .setAutoRenewAccount(AccountID.newBuilder()
+                        .setShardNum(0)
+                        .setRealmNum(0)
+                        .setAccountNum(0)
+                        .build()));
     }
 
     private void givenTransactionChangingAutoRenewAccountWithAliasId() {
-        givenTransaction(
-                getBasicValidTransactionBodyBuilder()
-                        .setAutoRenewAccount(
-                                AccountID.newBuilder()
-                                        .setAlias(ByteString.copyFromUtf8("pretend"))
-                                        .build()));
+        givenTransaction(getBasicValidTransactionBodyBuilder()
+                .setAutoRenewAccount(AccountID.newBuilder()
+                        .setAlias(ByteString.copyFromUtf8("pretend"))
+                        .build()));
     }
 
     private void givenTransactionClearingKeys() {
@@ -564,19 +557,15 @@ class MerkleTopicUpdateTransitionLogicTest {
     }
 
     private void givenValidTransactionWithAllOptions() {
-        givenTransaction(
-                getBasicValidTransactionBodyBuilder()
-                        .setMemo(StringValue.of(VALID_MEMO))
-                        .setAdminKey(updatedAdminKey)
-                        .setSubmitKey(updatedSubmitKey)
-                        .setAutoRenewPeriod(
-                                Duration.newBuilder()
-                                        .setSeconds(VALID_AUTORENEW_PERIOD_SECONDS)
-                                        .build())
-                        .setAutoRenewAccount(MISC_ACCOUNT)
-                        .setExpirationTime(
-                                Timestamp.newBuilder()
-                                        .setSeconds(updatedExpirationTime.getEpochSecond())));
+        givenTransaction(getBasicValidTransactionBodyBuilder()
+                .setMemo(StringValue.of(VALID_MEMO))
+                .setAdminKey(updatedAdminKey)
+                .setSubmitKey(updatedSubmitKey)
+                .setAutoRenewPeriod(Duration.newBuilder()
+                        .setSeconds(VALID_AUTORENEW_PERIOD_SECONDS)
+                        .build())
+                .setAutoRenewAccount(MISC_ACCOUNT)
+                .setExpirationTime(Timestamp.newBuilder().setSeconds(updatedExpirationTime.getEpochSecond())));
         given(validator.hasGoodEncoding(updatedAdminKey)).willReturn(true);
         given(validator.hasGoodEncoding(updatedSubmitKey)).willReturn(true);
         given(validator.isValidExpiry(any())).willReturn(true);
@@ -584,8 +573,7 @@ class MerkleTopicUpdateTransitionLogicTest {
     }
 
     private void givenTransactionWithInvalidMemo() {
-        givenTransaction(
-                getBasicValidTransactionBodyBuilder().setMemo(StringValue.of(TOO_LONG_MEMO)));
+        givenTransaction(getBasicValidTransactionBodyBuilder().setMemo(StringValue.of(TOO_LONG_MEMO)));
     }
 
     private void givenTransactionWithMemo() {
@@ -603,36 +591,26 @@ class MerkleTopicUpdateTransitionLogicTest {
     }
 
     private void givenTransactionWithInvalidAutoRenewPeriod() {
-        givenTransaction(
-                getBasicValidTransactionBodyBuilder()
-                        .setAutoRenewPeriod(
-                                Duration.newBuilder()
-                                        .setSeconds(INVALID_AUTORENEW_PERIOD_SECONDS)));
+        givenTransaction(getBasicValidTransactionBodyBuilder()
+                .setAutoRenewPeriod(Duration.newBuilder().setSeconds(INVALID_AUTORENEW_PERIOD_SECONDS)));
     }
 
     private void givenTransactionWithInvalidExpirationTime() {
-        givenTransaction(
-                getBasicValidTransactionBodyBuilder()
-                        .setExpirationTime(
-                                Timestamp.newBuilder()
-                                        .setSeconds(consensusTime.getEpochSecond() - 1L)));
+        givenTransaction(getBasicValidTransactionBodyBuilder()
+                .setExpirationTime(Timestamp.newBuilder().setSeconds(consensusTime.getEpochSecond() - 1L)));
         given(validator.isValidExpiry(any())).willReturn(false);
     }
 
     private void givenTransactionWithReducedExpirationTime() {
-        givenTransaction(
-                getBasicValidTransactionBodyBuilder()
-                        .setExpirationTime(
-                                Timestamp.newBuilder()
-                                        .setSeconds(EXISTING_EXPIRATION_TIME.getSeconds() - 1L)));
+        givenTransaction(getBasicValidTransactionBodyBuilder()
+                .setExpirationTime(Timestamp.newBuilder().setSeconds(EXISTING_EXPIRATION_TIME.getSeconds() - 1L)));
         given(validator.isValidExpiry(any())).willReturn(true);
     }
 
     private TransactionID ourTxnId() {
         return TransactionID.newBuilder()
                 .setAccountID(payer)
-                .setTransactionValidStart(
-                        Timestamp.newBuilder().setSeconds(consensusTime.getEpochSecond()))
+                .setTransactionValidStart(Timestamp.newBuilder().setSeconds(consensusTime.getEpochSecond()))
                 .build();
     }
 }

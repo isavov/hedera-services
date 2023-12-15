@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.test.utils;
 
 import static com.hedera.node.app.service.mono.context.properties.EntityType.*;
@@ -48,6 +49,7 @@ import com.hedera.node.app.service.mono.state.merkle.MerkleTopic;
 import com.hedera.node.app.service.mono.state.merkle.MerkleUniqueToken;
 import com.hedera.node.app.service.mono.state.merkle.internals.BitPackUtils;
 import com.hedera.node.app.service.mono.state.merkle.internals.BytesElement;
+import com.hedera.node.app.service.mono.state.submerkle.ContractNonceInfo;
 import com.hedera.node.app.service.mono.state.submerkle.CurrencyAdjustments;
 import com.hedera.node.app.service.mono.state.submerkle.EntityId;
 import com.hedera.node.app.service.mono.state.submerkle.EvmFnResult;
@@ -113,7 +115,7 @@ public class SeededPropertySource {
         // call nextStateChanges(), even though state changes are not part of EvmFnResult anymore,
         // in order to advance SEEDED_RANDOM and get correct values for subsequent fields
         nextStateChanges(2, 5);
-        return new EvmFnResult(
+        final var evmResult = new EvmFnResult(
                 contractId,
                 result,
                 error,
@@ -121,11 +123,14 @@ public class SeededPropertySource {
                 gasUsed,
                 logs,
                 createdContractIds,
+                List.of(),
                 evmAddress,
                 nextUnsignedLong(),
                 nextUnsignedLong(),
                 nextBytes(128),
                 nextEntityId());
+        evmResult.setContractNonces(nextContractNonces(2));
+        return evmResult;
     }
 
     public MerkleTopic nextTopic() {
@@ -151,17 +156,16 @@ public class SeededPropertySource {
 
     public MerkleToken nextToken() {
         final var initialSupply = SEEDED_RANDOM.nextLong(100_000_000);
-        final var seeded =
-                new MerkleToken(
-                        nextUnsignedLong(),
-                        initialSupply,
-                        nextUnsignedInt(),
-                        nextString(24),
-                        nextString(48),
-                        nextBoolean(),
-                        nextBoolean(),
-                        nextEntityId(),
-                        nextInt());
+        final var seeded = new MerkleToken(
+                nextUnsignedLong(),
+                initialSupply,
+                nextUnsignedInt(),
+                nextString(24),
+                nextString(48),
+                nextBoolean(),
+                nextBoolean(),
+                nextZeroShardZeroRealmEntityId(),
+                nextInt());
         seeded.setMemo(nextString(36));
         seeded.setDeleted(nextBoolean());
         seeded.setFeeSchedule(nextCustomFeeSchedule());
@@ -179,6 +183,7 @@ public class SeededPropertySource {
         seeded.setFeeScheduleKey(nextNullableKey());
         seeded.setPauseKey(nextNullableKey());
         seeded.setKey(nextNum());
+        seeded.setAutoRenewAccount(nextZeroShardZeroRealmEntityId());
         return seeded;
     }
 
@@ -192,16 +197,14 @@ public class SeededPropertySource {
         final var type = nextFeeType();
         final FcCustomFee release17Type =
                 switch (type) {
-                    case FIXED_FEE -> FcCustomFee.fixedFee(
-                            nextUnsignedLong(), nextEntityId(), nextEntityId(), false);
+                    case FIXED_FEE -> FcCustomFee.fixedFee(nextUnsignedLong(), nextEntityId(), nextEntityId(), false);
                     case ROYALTY_FEE -> {
                         final var denom = 1 + nextNonZeroInt(100);
                         final var numer = nextNonZeroInt(denom - 1);
                         if (nextBoolean()) {
                             yield FcCustomFee.royaltyFee(numer, denom, null, nextEntityId(), false);
                         } else {
-                            yield FcCustomFee.royaltyFee(
-                                    numer, denom, nextFixedFeeSpec(), nextEntityId(), false);
+                            yield FcCustomFee.royaltyFee(numer, denom, nextFixedFeeSpec(), nextEntityId(), false);
                         }
                     }
                     case FRACTIONAL_FEE -> {
@@ -210,13 +213,7 @@ public class SeededPropertySource {
                         final var minUnits = nextNonZeroInt(100);
                         final var maxUnits = minUnits + nextNonZeroInt(100);
                         yield FcCustomFee.fractionalFee(
-                                numer,
-                                denom,
-                                minUnits,
-                                maxUnits,
-                                nextBoolean(),
-                                nextEntityId(),
-                                false);
+                                numer, denom, minUnits, maxUnits, nextBoolean(), nextEntityId(), false);
                     }
                 };
         release17Type.setAllCollectorsAreExempt(nextBoolean());
@@ -261,18 +258,13 @@ public class SeededPropertySource {
         return TransactionBody.newBuilder()
                 .setTransactionID(nextTxnId().toGrpc())
                 .setMemo(nextString(50))
-                .setScheduleCreate(
-                        ScheduleCreateTransactionBody.newBuilder()
-                                .setAdminKey(
-                                        Key.newBuilder()
-                                                .setECDSASecp256K1(
-                                                        ByteString.copyFrom(nextBytes(20))))
+                .setScheduleCreate(ScheduleCreateTransactionBody.newBuilder()
+                        .setAdminKey(Key.newBuilder().setECDSASecp256K1(ByteString.copyFrom(nextBytes(20))))
+                        .setMemo(nextString(20))
+                        .setPayerAccountID(nextEntityId().toGrpcAccountId())
+                        .setScheduledTransactionBody(SchedulableTransactionBody.newBuilder()
                                 .setMemo(nextString(20))
-                                .setPayerAccountID(nextEntityId().toGrpcAccountId())
-                                .setScheduledTransactionBody(
-                                        SchedulableTransactionBody.newBuilder()
-                                                .setMemo(nextString(20))
-                                                .setTransactionFee(nextLong())))
+                                .setTransactionFee(nextLong())))
                 .build()
                 .toByteArray();
     }
@@ -283,10 +275,8 @@ public class SeededPropertySource {
         final var packedCreationTime = packedTime(nextInRangeLong(), nextInt());
         final var metadata = nextBytes(10);
         final var numbers = SEEDED_RANDOM.nextLong(1234);
-        final var prev =
-                NftNumPair.fromLongs(SEEDED_RANDOM.nextLong(1234), SEEDED_RANDOM.nextLong(1234));
-        final var next =
-                NftNumPair.fromLongs(SEEDED_RANDOM.nextLong(1234), SEEDED_RANDOM.nextLong(1234));
+        final var prev = NftNumPair.fromLongs(SEEDED_RANDOM.nextLong(1234), SEEDED_RANDOM.nextLong(1234));
+        final var next = NftNumPair.fromLongs(SEEDED_RANDOM.nextLong(1234), SEEDED_RANDOM.nextLong(1234));
 
         final var subject = new MerkleUniqueToken(ownerCode, metadata, packedCreationTime, numbers);
         subject.setSpender(new EntityId(0, 0, spenderCode));
@@ -320,10 +310,8 @@ public class SeededPropertySource {
         nextGrantedFungibleAllowances(10);
         nextApprovedForAllAllowances(10);
 
-        final var newMaxAutoAssociations =
-                BitPackUtils.getMaxAutomaticAssociationsFrom(autoAssocMeta);
-        final var newUsedAutoAssociations =
-                BitPackUtils.getAlreadyUsedAutomaticAssociationsFrom(autoAssocMeta);
+        final var newMaxAutoAssociations = BitPackUtils.getMaxAutomaticAssociationsFrom(autoAssocMeta);
+        final var newUsedAutoAssociations = BitPackUtils.getAlreadyUsedAutomaticAssociationsFrom(autoAssocMeta);
         final var seeded = new MerkleAccountState();
         seeded.setAccountKey(key);
         seeded.setExpiry(expiry);
@@ -348,42 +336,41 @@ public class SeededPropertySource {
         final var usedAutoAssoc = SEEDED_RANDOM.nextInt(maxAutoAssoc + 1);
         final var numAssociations = SEEDED_RANDOM.nextInt(12345);
         final var numPositiveBalanceAssociations = SEEDED_RANDOM.nextInt(numAssociations);
-        final var misorderedState =
-                new MerkleAccountState(
-                        nextKey(),
-                        nextUnsignedLong(),
-                        nextUnsignedLong(),
-                        nextUnsignedLong(),
-                        nextString(100),
-                        nextBoolean(),
-                        nextBoolean(),
-                        nextBoolean(),
-                        nextEntityId(),
-                        nextInt(),
-                        maxAutoAssoc,
-                        usedAutoAssoc,
-                        nextByteString(36),
-                        nextUnsignedInt(),
-                        nextGrantedCryptoAllowances(10),
-                        nextGrantedFungibleAllowances(10),
-                        nextApprovedForAllAllowances(10),
-                        null,
-                        (byte) 0,
-                        0,
-                        numAssociations,
-                        numPositiveBalanceAssociations,
-                        nextInRangeLong(),
-                        0,
-                        0,
-                        null,
-                        0,
-                        0,
-                        0,
-                        -1,
-                        0,
-                        false,
-                        -1,
-                        false);
+        final var misorderedState = new MerkleAccountState(
+                nextKey(),
+                nextUnsignedLong(),
+                nextUnsignedLong(),
+                nextUnsignedLong(),
+                nextString(100),
+                nextBoolean(),
+                nextBoolean(),
+                nextBoolean(),
+                nextEntityId(),
+                nextInt(),
+                maxAutoAssoc,
+                usedAutoAssoc,
+                nextByteString(36),
+                nextUnsignedInt(),
+                nextGrantedCryptoAllowances(10),
+                nextGrantedFungibleAllowances(10),
+                nextApprovedForAllAllowances(10),
+                null,
+                (byte) 0,
+                0,
+                numAssociations,
+                numPositiveBalanceAssociations,
+                nextInRangeLong(),
+                0,
+                0,
+                null,
+                0,
+                0,
+                0,
+                -1,
+                0,
+                false,
+                -1,
+                false);
         misorderedState.setNftsOwned(nextUnsignedLong());
         misorderedState.setNumTreasuryTitles(nextUnsignedInt());
         return misorderedState;
@@ -449,13 +436,12 @@ public class SeededPropertySource {
 
     public ExpirableTxnRecord nextRecord() {
         // Releases 0.23/4 and 0.25 all used the same fields; only serialization format changed
-        final var builder =
-                ExpirableTxnRecord.newBuilder()
-                        .setTxnId(nextTxnId())
-                        .setReceiptBuilder(nextReceiptBuilder())
-                        .setConsensusTime(nextRichInstant())
-                        .setFee(nextUnsignedLong())
-                        .setNumChildRecords(nextUnsignedShort());
+        final var builder = ExpirableTxnRecord.newBuilder()
+                .setTxnId(nextTxnId())
+                .setReceiptBuilder(nextReceiptBuilder())
+                .setConsensusTime(nextRichInstant())
+                .setFee(nextUnsignedLong())
+                .setNumChildRecords(nextUnsignedShort());
         if (nextBoolean()) {
             builder.setAlias(nextByteString(32));
         }
@@ -510,18 +496,34 @@ public class SeededPropertySource {
         return seeded;
     }
 
-    public MerkleStakingInfo nextStakingInfo() {
+    public MerkleStakingInfo next0370StakingInfo() {
         final var MAX_REWARD_HISTORY = 366;
-        final var ans =
-                new MerkleStakingInfo(
-                        nextLong(),
-                        nextLong(),
-                        nextLong(),
-                        nextLong(),
-                        nextLong(),
-                        nextLong(),
-                        nextLong(),
-                        nextLongs(MAX_REWARD_HISTORY));
+        final var ans = new MerkleStakingInfo(
+                nextLong(),
+                nextLong(),
+                nextLong(),
+                nextLong(),
+                nextLong(),
+                nextLong(),
+                nextLong(),
+                nextLongs(MAX_REWARD_HISTORY),
+                0);
+        return ans;
+    }
+
+    public MerkleStakingInfo next0371StakingInfo() {
+        final var MAX_REWARD_HISTORY = 366;
+        final var ans = new MerkleStakingInfo(
+                nextLong(),
+                nextLong(),
+                nextLong(),
+                nextLong(),
+                nextLong(),
+                nextLong(),
+                nextLong(),
+                nextLongs(MAX_REWARD_HISTORY),
+                // added in 0.37.1
+                nextInt());
         return ans;
     }
 
@@ -651,14 +653,10 @@ public class SeededPropertySource {
 
     public FcAssessedCustomFee nextAssessedFee() {
         if (nextBoolean()) {
-            return new FcAssessedCustomFee(
-                    nextEntityId(), nextUnsignedLong(), nextInRangeLongs(nextNonZeroInt(3)));
+            return new FcAssessedCustomFee(nextEntityId(), nextUnsignedLong(), nextInRangeLongs(nextNonZeroInt(3)));
         } else {
             return new FcAssessedCustomFee(
-                    nextEntityId(),
-                    nextEntityId(),
-                    nextUnsignedLong(),
-                    nextInRangeLongs(nextNonZeroInt(3)));
+                    nextEntityId(), nextEntityId(), nextUnsignedLong(), nextInRangeLongs(nextNonZeroInt(3)));
         }
     }
 
@@ -701,8 +699,7 @@ public class SeededPropertySource {
         if (nextBoolean()) {
             return new TxnId(nextEntityId(), nextRichInstant(), nextBoolean(), nextNonce());
         } else {
-            return new TxnId(
-                    nextEntityId(), nextRichInstant(), nextBoolean(), USER_TRANSACTION_NONCE);
+            return new TxnId(nextEntityId(), nextRichInstant(), nextBoolean(), USER_TRANSACTION_NONCE);
         }
     }
 
@@ -711,9 +708,7 @@ public class SeededPropertySource {
     }
 
     public Instant nextNullableInstant() {
-        return nextBoolean()
-                ? null
-                : Instant.ofEpochSecond(nextInRangeLong(), SEEDED_RANDOM.nextInt(1_000_000));
+        return nextBoolean() ? null : Instant.ofEpochSecond(nextInRangeLong(), SEEDED_RANDOM.nextInt(1_000_000));
     }
 
     public TxnId nextScheduledTxnId() {
@@ -800,6 +795,7 @@ public class SeededPropertySource {
                 gasUsed,
                 List.of(),
                 List.of(),
+                List.of(),
                 evmAddress,
                 nextUnsignedLong(),
                 nextUnsignedLong(),
@@ -816,11 +812,12 @@ public class SeededPropertySource {
     }
 
     public List<byte[]> nextLogTopics(final int n) {
-        return IntStream.range(0, nextNonZeroInt(n)).mapToObj(i -> nextBytes(256)).toList();
+        return IntStream.range(0, nextNonZeroInt(n))
+                .mapToObj(i -> nextBytes(256))
+                .toList();
     }
 
-    public Map<Address, Map<Bytes, Pair<Bytes, Bytes>>> nextStateChanges(
-            int n, final int changesPerAddress) {
+    public Map<Address, Map<Bytes, Pair<Bytes, Bytes>>> nextStateChanges(int n, final int changesPerAddress) {
         final Map<Address, Map<Bytes, Pair<Bytes, Bytes>>> ans = new TreeMap<>();
         while (n-- > 0) {
             final var address = nextAddress();
@@ -875,7 +872,8 @@ public class SeededPropertySource {
                 }
             }
         }
-        return builder.setExchangeRates(nextExchangeRates()).setStatus(nextStatus().toString());
+        return builder.setExchangeRates(nextExchangeRates())
+                .setStatus(nextStatus().toString());
     }
 
     public int nextNonZeroInt(final int inclusiveUpperBound) {
@@ -935,11 +933,10 @@ public class SeededPropertySource {
 
     public Map<EntityNum, Map<EntityNum, Long>> nextCryptoAllowances(
             final int numUniqueAccounts, final int numSpenders, final int numAllowancesPerSpender) {
-        final EntityNum[] accounts =
-                IntStream.range(0, numUniqueAccounts)
-                        .mapToObj(i -> nextNum())
-                        .distinct()
-                        .toArray(EntityNum[]::new);
+        final EntityNum[] accounts = IntStream.range(0, numUniqueAccounts)
+                .mapToObj(i -> nextNum())
+                .distinct()
+                .toArray(EntityNum[]::new);
         final Map<EntityNum, Map<EntityNum, Long>> ans = new TreeMap<>();
         for (int i = 0; i < numSpenders; i++) {
             final var aNum = accounts[SEEDED_RANDOM.nextInt(accounts.length)];
@@ -994,6 +991,10 @@ public class SeededPropertySource {
 
     public List<EntityId> nextEntityIds(final int n) {
         return IntStream.range(0, n).mapToObj(i -> nextEntityId()).toList();
+    }
+
+    public List<ContractNonceInfo> nextContractNonces(final int n) {
+        return IntStream.range(0, n).mapToObj(i -> nextContractNonce()).toList();
     }
 
     public long[] nextUnsignedLongs(final int n) {
@@ -1067,11 +1068,10 @@ public class SeededPropertySource {
         } else if (keyType == 2) {
             return new JContractIDKey(nextContractId());
         } else if (keyType == 3) {
-            return new JDelegatableContractAliasKey(
-                    nextContractId().toBuilder()
-                            .clearContractNum()
-                            .setEvmAddress(nextByteString(20))
-                            .build());
+            return new JDelegatableContractAliasKey(nextContractId().toBuilder()
+                    .clearContractNum()
+                    .setEvmAddress(nextByteString(20))
+                    .build());
         } else {
             return new JKeyList(List.of(nextKey(), nextKey()));
         }
@@ -1109,6 +1109,21 @@ public class SeededPropertySource {
 
     public EntityId nextEntityId() {
         return new EntityId(nextUnsignedLong(), nextUnsignedLong(), nextUnsignedLong());
+    }
+
+    public ContractNonceInfo nextContractNonce() {
+        return new ContractNonceInfo(nextEntityId(), nextUnsignedLong());
+    }
+
+    /**
+     * Return an entity id with the default shard and realm of {@code 0} so that when using
+     * PBJ converters inside {@link com.hedera.test.serde.SelfSerializableDataTest} object
+     * providers, we don't lose information.
+     *
+     * @return an entity id in the default shard and realm
+     */
+    public EntityId nextZeroShardZeroRealmEntityId() {
+        return new EntityId(0, 0, nextUnsignedLong());
     }
 
     public RichInstant nextRichInstant() {
@@ -1175,13 +1190,8 @@ public class SeededPropertySource {
     }
 
     public MerkleTokenRelStatus nextMerkleTokenRelStatus() {
-        final var seeded =
-                new MerkleTokenRelStatus(
-                        nextUnsignedLong(),
-                        nextBoolean(),
-                        nextBoolean(),
-                        nextBoolean(),
-                        nextUnsignedLong());
+        final var seeded = new MerkleTokenRelStatus(
+                nextUnsignedLong(), nextBoolean(), nextBoolean(), nextBoolean(), nextUnsignedLong());
         seeded.setPrev(nextUnsignedLong());
         seeded.setNext(nextUnsignedLong());
         return seeded;
@@ -1224,8 +1234,7 @@ public class SeededPropertySource {
     }
 
     public VirtualBlobKey.Type nextVirtualBlobKeyType() {
-        return VirtualBlobKey.Type.values()[
-                nextNonZeroInt(VirtualBlobKey.Type.values().length) - 1];
+        return VirtualBlobKey.Type.values()[nextNonZeroInt(VirtualBlobKey.Type.values().length) - 1];
     }
 
     public VirtualBlobKey nextVirtualBlobKey() {

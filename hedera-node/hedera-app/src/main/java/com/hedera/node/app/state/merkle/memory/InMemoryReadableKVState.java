@@ -13,7 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.state.merkle.memory;
+
+import static com.hedera.node.app.state.logging.TransactionStateLogger.*;
 
 import com.hedera.node.app.spi.state.ReadableKVState;
 import com.hedera.node.app.spi.state.ReadableKVStateBase;
@@ -30,8 +33,9 @@ import java.util.Objects;
  * @param <K> The type of key for the state
  * @param <V> The type of value for the state
  */
-public final class InMemoryReadableKVState<K extends Comparable<K>, V>
-        extends ReadableKVStateBase<K, V> {
+@SuppressWarnings("DuplicatedCode")
+public final class InMemoryReadableKVState<K, V> extends ReadableKVStateBase<K, V> {
+
     /** The underlying merkle tree data structure with the data */
     private final MerkleMap<InMemoryKey<K>, InMemoryValue<K, V>> merkle;
 
@@ -42,8 +46,7 @@ public final class InMemoryReadableKVState<K extends Comparable<K>, V>
      * @param merkleMap The backing merkle map
      */
     public InMemoryReadableKVState(
-            @NonNull final StateMetadata<K, V> md,
-            @NonNull MerkleMap<InMemoryKey<K>, InMemoryValue<K, V>> merkleMap) {
+            @NonNull final StateMetadata<K, V> md, @NonNull MerkleMap<InMemoryKey<K>, InMemoryValue<K, V>> merkleMap) {
         super(md.stateDefinition().stateKey());
         this.merkle = Objects.requireNonNull(merkleMap);
     }
@@ -52,12 +55,27 @@ public final class InMemoryReadableKVState<K extends Comparable<K>, V>
     protected V readFromDataSource(@NonNull K key) {
         final var k = new InMemoryKey<>(key);
         final var leaf = merkle.get(k);
-        return leaf == null ? null : leaf.getValue();
+        final var value = leaf == null ? null : leaf.getValue();
+        // Log to transaction state log, what was read
+        logMapGet(getStateKey(), key, value);
+        return value;
     }
 
     @NonNull
     @Override
     protected Iterator<K> iterateFromDataSource() {
-        return merkle.keySet().stream().map(InMemoryKey::key).iterator();
+        final var keySet = merkle.keySet();
+        // Log to transaction state log, what was iterated
+        logMapIterate(getStateKey(), keySet);
+        return keySet.stream().map(InMemoryKey::key).iterator();
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public long size() {
+        final var size = merkle.size();
+        // Log to transaction state log, size of map
+        logMapGetSize(getStateKey(), size);
+        return size;
     }
 }

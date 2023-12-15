@@ -1,66 +1,97 @@
-## Installs OpenJDK17 and openssl (used by Swirlds Platform to
+## Installs OpenJDK21 and openssl (used by Swirlds Platform to
 ## generate node keys for e.g. signing states), then copies
 ## required libraries and startup assets for a node with:
 ##  * Configuration from /opt/hedera/services/config-mount; and,
 ##  * Logs at /opt/hedera/services/output; and,
 ##  * Saved states under /opt/hedera/services/output
-FROM ubuntu:20.04 AS base-runtime
+## Ideally we'd use a much lighter (perhaps CoreOS) base, but this will do for now.
+FROM ubuntu:22.04 AS openjdk-builder
+
+# Define Standard Environment Variables
+ENV LC_ALL=C.UTF-8
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install basic OS utilities for building
 RUN apt-get update && \
-    apt-get upgrade -y && \
-    apt-get install -y dos2unix openssl libsodium23 bind9-host
+	apt-get install --yes tar gzip gnupg2 curl && \
+    apt-get autoclean && \
+    apt-get clean all && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/cache/apt
 
-# JDK
-RUN apt-get install -y software-properties-common && \
-    add-apt-repository -y ppa:openjdk-r/ppa && \
-    apt-get install -y openjdk-17-jdk
+##########################
+####    Java Setup    ####
+##########################
+RUN set -eux; \
+        ARCH="$(dpkg --print-architecture)"; \
+        case "${ARCH}" in \
+           aarch64|arm64) \
+             ESUM='e184dc29a6712c1f78754ab36fb48866583665fa345324f1a79e569c064f95e9'; \
+             BINARY_URL='https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.1%2B12/OpenJDK21U-jdk_aarch64_linux_hotspot_21.0.1_12.tar.gz'; \
+             ;; \
+           amd64|i386:x86-64) \
+             ESUM='1a6fa8abda4c5caed915cfbeeb176e7fbd12eb6b222f26e290ee45808b529aa1'; \
+             BINARY_URL='https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.1%2B12/OpenJDK21U-jdk_x64_linux_hotspot_21.0.1_12.tar.gz'; \
+             ;; \
+           ppc64el|powerpc:common64) \
+             ESUM='9574828ef3d735a25404ced82e09bf20e1614f7d6403956002de9cfbfcb8638f'; \
+             BINARY_URL='https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.1%2B12/OpenJDK21U-jdk_ppc64le_linux_hotspot_21.0.1_12.tar.gz'; \
+             ;; \
+           *) \
+             echo "Unsupported arch: ${ARCH}"; \
+             exit 1; \
+             ;; \
+        esac; \
+    curl -LfsSo /tmp/openjdk.tar.gz ${BINARY_URL}; \
+    echo "${ESUM} */tmp/openjdk.tar.gz" | sha256sum -c -; \
+    mkdir -p /usr/local/java; \
+    tar --extract \
+    	      --file /tmp/openjdk.tar.gz \
+    	      --directory "/usr/local/java" \
+    	      --strip-components 1 \
+    	      --no-same-owner \
+    	  ; \
+    rm -f /tmp/openjdk.tar.gz /usr/local/java/lib/src.zip;
 
-# Services runtime
-RUN mkdir -p /opt/hedera/services/data/lib
-RUN mkdir /opt/hedera/services/data/apps
-RUN mkdir /opt/hedera/services/data/config
-RUN mkdir /opt/hedera/services/data/saved
-RUN mkdir /opt/hedera/services/data/onboard
-RUN mkdir /opt/hedera/services/output
-RUN mkdir /opt/hedera/services/config-mount
-
-## Builds the HederaNode.jar from the current source tree and creates
-## the /opt/hedera/services/.VERSION file
-FROM base-runtime AS services-builder
-
-# Maven
-# Note: Java 17 requires Maven 3.8+ so the distro provided one just won't do
+FROM ubuntu:22.04 AS base-runtime
 RUN apt-get update && \
-    apt-get install -y wget unzip
-ENV PATH=/opt/apache-maven-3.8.6/bin:$PATH
-
-WORKDIR /opt/hedera/services
-# Install Services
-COPY .env /opt/hedera/services
-RUN for PIECE in $(cat .env | head -1 | tr '=' ' '); do \
-  if [ "$IS_VERSION" = "true" ]; then echo $PIECE >> .VERSION ; else IS_VERSION=true; fi done
-RUN mkdir /opt/hedera/services/hedera-node
-COPY hedera-node /opt/hedera/services/hedera-node
-RUN mkdir /opt/hedera/services/test-clients
-COPY hedera-node/test-clients /opt/hedera/services/test-clients
-RUN mkdir /opt/hedera/services/buildSrc
-COPY buildSrc /opt/hedera/services/buildSrc
-RUN mkdir /opt/hedera/services/gradle
-COPY gradle /opt/hedera/services/gradle
-COPY gradlew /opt/hedera/services/gradlew
-COPY gradle.properties /opt/hedera/services/gradle.properties
-COPY settings.gradle.kts /opt/hedera/services/settings.gradle.kts
-COPY build.gradle.kts /opt/hedera/services/build.gradle.kts
-
-RUN ./gradlew assemble copyLib copyApp
+    apt-get install --yes --no-install-recommends dos2unix openssl libsodium23 bind9-host libnetty-tcnative-jni && \
+    apt-get autoclean && \
+    apt-get clean all && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/cache/apt && \
+    mkdir -p /opt/hedera/services/data/lib && \
+    mkdir /opt/hedera/services/data/apps && \
+    mkdir /opt/hedera/services/data/config && \
+    mkdir /opt/hedera/services/data/saved && \
+    mkdir /opt/hedera/services/data/onboard && \
+    mkdir /opt/hedera/services/output && \
+    mkdir /opt/hedera/services/config-mount
 
 ## Finishes by copying the Services JAR to the base runtime
 FROM base-runtime AS final-image
-COPY hedera-node/docker/start-services.sh /opt/hedera/services/start-services.sh
-COPY --from=services-builder /opt/hedera/services/.VERSION /opt/hedera/services
-COPY --from=services-builder /opt/hedera/services/hedera-node/data/lib /opt/hedera/services/data/lib
-RUN ls -al /opt/hedera/services/data/lib
-COPY --from=services-builder /opt/hedera/services/hedera-node/data/onboard/StartUpAccount.txt /opt/hedera/services/data/onboard
-COPY --from=services-builder /opt/hedera/services/hedera-node/data/apps /opt/hedera/services/data/apps
+
+ENV JAVA_VERSION="jdk-21.0.1+12"
+ENV JAVA_HOME="/usr/local/java/"
+ENV MALLOC_ARENA_MAX=4
+
+# Fetch Validated Java Binaries
+COPY --from=openjdk-builder /usr/local/java/ /usr/local/java/
+
+# Install Java Alternatives
+RUN update-alternatives --install "/usr/bin/java" "java" "${JAVA_HOME}/bin/java" 1500 && \
+    update-alternatives --install "/usr/bin/javac" "javac" "${JAVA_HOME}/bin/javac" 1500 && \
+    update-alternatives --install "/usr/bin/javadoc" "javadoc" "${JAVA_HOME}/bin/javadoc" 1500 && \
+    update-alternatives --install "/usr/bin/jshell" "jshell" "${JAVA_HOME}/bin/jshell" 1500 && \
+    update-alternatives --install "/usr/bin/jstack" "jstack" "${JAVA_HOME}/bin/jstack" 1500 && \
+    update-alternatives --install "/usr/bin/jps" "jps" "${JAVA_HOME}/bin/jps" 1500 && \
+    update-alternatives --install "/usr/bin/jmap" "jmap" "${JAVA_HOME}/bin/jmap" 1500
+
 WORKDIR /opt/hedera/services
-RUN dos2unix start-services.sh
+
+COPY start-services.sh /opt/hedera/services/start-services.sh
+COPY --from=services-data lib /opt/hedera/services/data/lib
+COPY --from=services-data apps /opt/hedera/services/data/apps
+
+RUN ls -al /opt/hedera/services/data/lib \
+ && dos2unix start-services.sh
+
 CMD ["/bin/sh", "-c", "./start-services.sh"]

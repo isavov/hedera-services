@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022-2023 Hedera Hashgraph, LLC
+ * Copyright (C) 2023 Hedera Hashgraph, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,22 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.state.merkle.disk;
 
-import com.hedera.node.app.spi.state.Serdes;
 import com.hedera.node.app.state.merkle.StateMetadata;
-import com.hedera.node.app.state.merkle.data.ByteBufferDataInput;
-import com.hedera.node.app.state.merkle.data.MeteredOutputStream;
+import com.hedera.pbj.runtime.Codec;
+import com.hedera.pbj.runtime.io.buffer.BufferedData;
 import com.swirlds.common.io.SelfSerializable;
-import com.swirlds.common.io.streams.SerializableDataInputStream;
-import com.swirlds.common.io.streams.SerializableDataOutputStream;
-import com.swirlds.jasperdb.SelfSerializableSupplier;
-import com.swirlds.jasperdb.files.DataFileCommon;
-import com.swirlds.jasperdb.files.hashmap.KeySerializer;
+import com.swirlds.merkledb.serialize.KeySerializer;
 import com.swirlds.virtualmap.VirtualMap;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
-import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Objects;
@@ -44,28 +39,32 @@ import java.util.Objects;
  *
  * @param <K>
  */
-public final class OnDiskKeySerializer<K extends Comparable<K>>
-        implements KeySerializer<OnDiskKey<K>>, SelfSerializableSupplier<OnDiskKey<K>> {
+public final class OnDiskKeySerializer<K> implements KeySerializer<OnDiskKey<K>> {
+    /**
+     * This is a hint for virtual maps, it's the best guess as of now. Should be revisited later
+     * based on the information about real mainnet entities.
+     */
+    private static final int TYPICAL_SIZE = 256;
 
     @Deprecated(forRemoval = true)
-    private static final long CLASS_ID = 0x9992382838283411L;
+    private static final long CLASS_ID = 0x9992382838283412L;
 
     private final long classId;
-    private final Serdes<K> serdes;
+    private final Codec<K> codec;
     private final StateMetadata<K, ?> md;
 
     // Default constructor provided for ConstructableRegistry, TO BE REMOVED ASAP
     @Deprecated(forRemoval = true)
     public OnDiskKeySerializer() {
         classId = CLASS_ID; // BAD!!
-        serdes = null;
+        codec = null;
         md = null;
     }
 
     public OnDiskKeySerializer(@NonNull final StateMetadata<K, ?> md) {
         this.classId = md.onDiskKeySerializerClassId();
         this.md = Objects.requireNonNull(md);
-        this.serdes = md.stateDefinition().keySerdes();
+        this.codec = md.stateDefinition().keyCodec();
     }
 
     @Override
@@ -92,12 +91,12 @@ public final class OnDiskKeySerializer<K extends Comparable<K>>
         // size, and protobuf would either be fixed > 8 bytes, or variable sized, and being
         // fixed but greater than 8 bytes doesn't help us in performance, so we will
         // have to use variable size always.
-        return DataFileCommon.VARIABLE_DATA_SIZE;
+        return VARIABLE_DATA_SIZE;
     }
 
     @Override
     public int getTypicalSerializedSize() {
-        return serdes.typicalSize();
+        return TYPICAL_SIZE;
     }
 
     @Override
@@ -107,42 +106,36 @@ public final class OnDiskKeySerializer<K extends Comparable<K>>
 
     @Override
     public int deserializeKeySize(@NonNull final ByteBuffer byteBuffer) {
-        try {
-            return serdes.measure(new ByteBufferDataInput(byteBuffer));
-        } catch (IOException e) {
-            // Maybe log here?
-            return -1;
-        }
+        return byteBuffer.getInt() + Integer.BYTES;
     }
 
     @Override
-    public OnDiskKey<K> deserialize(@NonNull final ByteBuffer byteBuffer, final long ignored)
-            throws IOException {
-        final var k = serdes.parse(new ByteBufferDataInput(byteBuffer));
+    public OnDiskKey<K> deserialize(@NonNull final ByteBuffer byteBuffer, final long ignored) throws IOException {
+        final var buff = BufferedData.wrap(byteBuffer);
+        final var len = buff.readInt();
+        final var pos = buff.position();
+        final var oldLimit = buff.limit();
+        buff.limit(pos + len);
+        final var k = codec.parse(buff);
+        buff.limit(oldLimit);
         Objects.requireNonNull(k);
         return new OnDiskKey<>(md, k);
     }
 
     @Override
-    public int serialize(
-            @Nullable final OnDiskKey<K> key, @NonNull final SerializableDataOutputStream out)
-            throws IOException {
-        final var metered = new MeteredOutputStream(out);
-        final var k = Objects.requireNonNull(Objects.requireNonNull(key).getKey());
-        serdes.write(k, new DataOutputStream(metered));
-        return metered.getCountWritten();
+    public int serialize(OnDiskKey<K> key, ByteBuffer buffer) throws IOException {
+        Objects.requireNonNull(key);
+        Objects.requireNonNull(buffer);
+        return key.serializeReturningWrittenBytes(buffer);
     }
 
     @Override
-    public boolean equals(
-            @NonNull final ByteBuffer byteBuffer,
-            final int ignored,
-            @Nullable final OnDiskKey<K> key)
+    public boolean equals(@NonNull final ByteBuffer byteBuffer, final int ignored, @Nullable final OnDiskKey<K> key)
             throws IOException {
         // I really don't have a fast path for this. Which is very problematic for performance.
         // All we can do is serialize one or deserialize the other! It would be nice if PBJ
         // had a special method for this, but then we'd have to pipe it through all our APIs again
-        // or create some kind of Serdes object with all this stuff on it.
+        // or create some kind of Codec object with all this stuff on it.
         final var other = deserialize(byteBuffer, 0);
         return other.equals(key);
     }
@@ -155,21 +148,5 @@ public final class OnDiskKeySerializer<K extends Comparable<K>>
     @Override
     public int getVersion() {
         return 1;
-    }
-
-    @Override
-    public void serialize(@NonNull final SerializableDataOutputStream out) throws IOException {
-        // This class has nothing to serialize
-    }
-
-    @Override
-    public void deserialize(@NonNull final SerializableDataInputStream in, final int ignored)
-            throws IOException {
-        // This class has nothing to deserialize
-    }
-
-    @Override
-    public OnDiskKey<K> get() {
-        return new OnDiskKey<>(md);
     }
 }

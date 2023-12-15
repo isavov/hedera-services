@@ -13,10 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.submerkle;
 
+import com.hedera.node.app.service.mono.pbj.PbjConverter;
+import com.hedera.test.serde.EqualityType;
 import com.hedera.test.serde.SelfSerializableDataTest;
 import com.hedera.test.utils.SeededPropertySource;
+import edu.umd.cs.findbugs.annotations.NonNull;
 
 public class FcCustomFeeSerdeTest extends SelfSerializableDataTest<FcCustomFee> {
     @Override
@@ -30,13 +34,15 @@ public class FcCustomFeeSerdeTest extends SelfSerializableDataTest<FcCustomFee> 
     }
 
     @Override
-    protected FcCustomFee getExpectedObject(int version, int testCaseNo) {
+    protected FcCustomFee getExpectedObject(int version, int testCaseNo, @NonNull final EqualityType equalityType) {
         final var propertySource = SeededPropertySource.forSerdeTest(version, testCaseNo);
         final var nextFee = propertySource.nextCustomFee();
         if (version < FcCustomFee.RELEASE_0310_VERSION) {
             nextFee.setAllCollectorsAreExempt(false);
         }
-
-        return nextFee;
+        final var seededFee = nextFee;
+        final var pbjFee = PbjConverter.fromFcCustomFee(seededFee);
+        final var merkleFcCustomFee = FcCustomFee.fromGrpc(PbjConverter.fromPbj(pbjFee));
+        return merkleFcCustomFee;
     }
 }

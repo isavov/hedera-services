@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.hapi.utils.fee;
 
 import com.hedera.node.app.hapi.utils.builder.RequestBuilder;
-import com.hedera.node.app.hapi.utils.exception.InvalidTxBodyException;
 import com.hederahashgraph.api.proto.java.AccountID;
 import com.hederahashgraph.api.proto.java.ConsensusUpdateTopicTransactionBody;
 import com.hederahashgraph.api.proto.java.FeeComponents;
@@ -39,27 +39,18 @@ public final class ConsensusServiceFeeBuilder extends FeeBuilder {
      * @param txBody transaction body
      * @param sigValObj signature value object
      * @return fee data
-     * @throws InvalidTxBodyException when transaction body is invalid
      */
-    public static FeeData getConsensusCreateTopicFee(
-            final TransactionBody txBody, final SigValueObj sigValObj)
-            throws InvalidTxBodyException {
-        if (txBody == null || !txBody.hasConsensusCreateTopic()) {
-            throw new InvalidTxBodyException(
-                    "consensusCreateTopic field not available for Fee Calculation");
-        }
+    public static FeeData getConsensusCreateTopicFee(final TransactionBody txBody, final SigValueObj sigValObj) {
         final var createTopicTxBody = txBody.getConsensusCreateTopic();
-        final var variableSize =
-                computeVariableSizedFieldsUsage(
-                        createTopicTxBody.getAdminKey(),
-                        createTopicTxBody.getSubmitKey(),
-                        createTopicTxBody.getMemo(),
-                        createTopicTxBody.hasAutoRenewAccount());
+        final var variableSize = computeVariableSizedFieldsUsage(
+                createTopicTxBody.getAdminKey(),
+                createTopicTxBody.getSubmitKey(),
+                createTopicTxBody.getMemo(),
+                createTopicTxBody.hasAutoRenewAccount());
         long extraRbsServices = 0;
         if (createTopicTxBody.hasAutoRenewPeriod()) {
-            extraRbsServices =
-                    getTopicRamBytes(variableSize)
-                            * createTopicTxBody.getAutoRenewPeriod().getSeconds();
+            extraRbsServices = getTopicRamBytes(variableSize)
+                    * createTopicTxBody.getAutoRenewPeriod().getSeconds();
         }
         return getTxFeeMatrices(
                 txBody,
@@ -76,22 +67,15 @@ public final class ConsensusServiceFeeBuilder extends FeeBuilder {
      * @param rbsIncrease rbs increase
      * @param sigValObj signature value object
      * @return fee data
-     * @throws InvalidTxBodyException when transaction body is invalid
      */
     public static FeeData getConsensusUpdateTopicFee(
-            final TransactionBody txBody, final long rbsIncrease, final SigValueObj sigValObj)
-            throws InvalidTxBodyException {
-        if (txBody == null || !txBody.hasConsensusUpdateTopic()) {
-            throw new InvalidTxBodyException(
-                    "consensusUpdateTopic field not available for Fee Calculation");
-        }
+            final TransactionBody txBody, final long rbsIncrease, final SigValueObj sigValObj) {
         final var updateTopicTxBody = txBody.getConsensusUpdateTopic();
-        final var variableSize =
-                computeVariableSizedFieldsUsage(
-                        updateTopicTxBody.getAdminKey(),
-                        updateTopicTxBody.getSubmitKey(),
-                        updateTopicTxBody.getMemo().getValue(),
-                        updateTopicTxBody.hasAutoRenewAccount());
+        final var variableSize = computeVariableSizedFieldsUsage(
+                updateTopicTxBody.getAdminKey(),
+                updateTopicTxBody.getSubmitKey(),
+                updateTopicTxBody.getMemo().getValue(),
+                updateTopicTxBody.hasAutoRenewAccount());
         return getTxFeeMatrices(
                 txBody,
                 sigValObj,
@@ -133,10 +117,8 @@ public final class ConsensusServiceFeeBuilder extends FeeBuilder {
             final boolean hasOldAutoRenewAccount,
             final Timestamp oldExpirationTimeStamp,
             final ConsensusUpdateTopicTransactionBody updateTopicTxBody) {
-        final var oldRamBytes =
-                getTopicRamBytes(
-                        computeVariableSizedFieldsUsage(
-                                oldAdminKey, oldSubmitKey, oldMemo, hasOldAutoRenewAccount));
+        final var oldRamBytes = getTopicRamBytes(
+                computeVariableSizedFieldsUsage(oldAdminKey, oldSubmitKey, oldMemo, hasOldAutoRenewAccount));
         // If value is null, do not update memo field
         final var newMemo =
                 updateTopicTxBody.hasMemo() ? updateTopicTxBody.getMemo().getValue() : oldMemo;
@@ -144,9 +126,7 @@ public final class ConsensusServiceFeeBuilder extends FeeBuilder {
         if (updateTopicTxBody.hasAutoRenewAccount()) { // no change if unspecified
             hasNewAutoRenewAccount = true;
             AccountID account = updateTopicTxBody.getAutoRenewAccount();
-            if (account.getAccountNum() == 0
-                    && account.getShardNum() == 0
-                    && account.getRealmNum() == 0) {
+            if (account.getAccountNum() == 0 && account.getShardNum() == 0 && account.getRealmNum() == 0) {
                 hasNewAutoRenewAccount = false; // cleared if set to 0.0.0
             }
         }
@@ -164,21 +144,13 @@ public final class ConsensusServiceFeeBuilder extends FeeBuilder {
                 newSubmitKey = null; // cleared if set to empty KeyList
             }
         }
-        final var newRamBytes =
-                getTopicRamBytes(
-                        computeVariableSizedFieldsUsage(
-                                newAdminKey, newSubmitKey, newMemo, hasNewAutoRenewAccount));
+        final var newRamBytes = getTopicRamBytes(
+                computeVariableSizedFieldsUsage(newAdminKey, newSubmitKey, newMemo, hasNewAutoRenewAccount));
 
         final var newExpirationTimeStamp =
-                updateTopicTxBody.hasExpirationTime()
-                        ? updateTopicTxBody.getExpirationTime()
-                        : oldExpirationTimeStamp;
+                updateTopicTxBody.hasExpirationTime() ? updateTopicTxBody.getExpirationTime() : oldExpirationTimeStamp;
         return calculateRbsIncrease(
-                txValidStartTimestamp,
-                oldRamBytes,
-                oldExpirationTimeStamp,
-                newRamBytes,
-                newExpirationTimeStamp);
+                txValidStartTimestamp, oldRamBytes, oldExpirationTimeStamp, newRamBytes, newExpirationTimeStamp);
     }
 
     private static long calculateRbsIncrease(
@@ -192,14 +164,12 @@ public final class ConsensusServiceFeeBuilder extends FeeBuilder {
         final var newExpiration = RequestBuilder.convertProtoTimeStamp(newExpirationTimeStamp);
 
         // RBS which has already been paid for.
-        final var oldLifetime =
-                Math.min(
-                        MAX_ENTITY_LIFETIME,
-                        Duration.between(txValidStart, oldExpiration).getSeconds());
-        final var newLifetime =
-                Math.min(
-                        MAX_ENTITY_LIFETIME,
-                        Duration.between(txValidStart, newExpiration).getSeconds());
+        final var oldLifetime = Math.min(
+                MAX_ENTITY_LIFETIME,
+                Duration.between(txValidStart, oldExpiration).getSeconds());
+        final var newLifetime = Math.min(
+                MAX_ENTITY_LIFETIME,
+                Duration.between(txValidStart, newExpiration).getSeconds());
         final var rbsRefund = oldRamBytes * oldLifetime;
         final var rbsCharge = newRamBytes * newLifetime;
         final var netRbs = rbsCharge - rbsRefund;
@@ -212,48 +182,33 @@ public final class ConsensusServiceFeeBuilder extends FeeBuilder {
      * @param txBody transaction body
      * @param sigValObj signature value object
      * @return fee data
-     * @throws InvalidTxBodyException when transaction body is invalid
      */
-    public static FeeData getConsensusDeleteTopicFee(
-            final TransactionBody txBody, final SigValueObj sigValObj)
-            throws InvalidTxBodyException {
-        if (txBody == null || !txBody.hasConsensusDeleteTopic()) {
-            throw new InvalidTxBodyException(
-                    "consensusDeleteTopic field not available for Fee Calculation");
-        }
+    public static FeeData getConsensusDeleteTopicFee(final TransactionBody txBody, final SigValueObj sigValObj) {
         return getTxFeeMatrices(txBody, sigValObj, BASIC_ENTITY_ID_SIZE, 0, 0);
     }
 
     /**
      * Given transaction specific additional rbh and bpt components, computes fee components for
      * node, network and services.
-     *
-     * @throws InvalidTxBodyException when transaction body is invalid
      */
     private static FeeData getTxFeeMatrices(
             final TransactionBody txBody,
             final SigValueObj sigValObj,
             final int txBodyDataSize,
             final long extraRbsServices,
-            final long extraRbsNetwork)
-            throws InvalidTxBodyException {
-        final var feeComponentsBuilder =
-                FeeComponents.newBuilder()
-                        .setVpt(sigValObj.getTotalSigCount())
-                        .setSbh(0)
-                        .setGas(0)
-                        .setTv(0)
-                        .setBpr(INT_SIZE)
-                        .setSbpr(0);
+            final long extraRbsNetwork) {
+        final var feeComponentsBuilder = FeeComponents.newBuilder()
+                .setVpt(sigValObj.getTotalSigCount())
+                .setSbh(0)
+                .setGas(0)
+                .setTv(0)
+                .setBpr(INT_SIZE)
+                .setSbpr(0);
         feeComponentsBuilder.setBpt(
-                getCommonTransactionBodyBytes(txBody)
-                        + txBodyDataSize
-                        + sigValObj.getSignatureSize());
-        feeComponentsBuilder.setRbh(
-                getBaseTransactionRecordSize(txBody) * RECEIPT_STORAGE_TIME_SEC + extraRbsServices);
+                getCommonTransactionBodyBytes(txBody) + txBodyDataSize + sigValObj.getSignatureSize());
+        feeComponentsBuilder.setRbh(getBaseTransactionRecordSize(txBody) * RECEIPT_STORAGE_TIME_SEC + extraRbsServices);
         final var rbsNetwork = getDefaultRBHNetworkSize() + extraRbsNetwork;
-        return getFeeDataMatrices(
-                feeComponentsBuilder.build(), sigValObj.getPayerAcctSigCount(), rbsNetwork);
+        return getFeeDataMatrices(feeComponentsBuilder.build(), sigValObj.getPayerAcctSigCount(), rbsNetwork);
     }
 
     /**
@@ -283,10 +238,7 @@ public final class ConsensusServiceFeeBuilder extends FeeBuilder {
      * @return size (in bytes) used by variable sized fields in topic
      */
     public static int computeVariableSizedFieldsUsage(
-            final Key adminKey,
-            final Key submitKey,
-            final String memo,
-            final boolean hasAutoRenewAccount) {
+            final Key adminKey, final Key submitKey, final String memo, final boolean hasAutoRenewAccount) {
         int size = 0;
         if (memo != null) {
             size += memo.getBytes(StandardCharsets.UTF_8).length;

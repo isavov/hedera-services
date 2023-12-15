@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Hedera Hashgraph, LLC
+ * Copyright (C) 2022-2023 Hedera Hashgraph, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,70 +13,154 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.token.impl.handlers;
 
+import static com.hedera.hapi.node.base.ResponseCodeEnum.INVALID_NFT_ID;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.INVALID_TOKEN_ID;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.INVALID_TOKEN_NFT_SERIAL_NUMBER;
+import static com.hedera.hapi.node.base.ResponseCodeEnum.OK;
+import static com.hedera.hapi.node.base.ResponseType.COST_ANSWER;
+import static com.hedera.node.app.spi.workflows.PreCheckException.validateFalsePreCheck;
+import static com.hedera.node.app.spi.workflows.PreCheckException.validateTruePreCheck;
 import static java.util.Objects.requireNonNull;
 
+import com.hedera.hapi.node.base.HederaFunctionality;
+import com.hedera.hapi.node.base.NftID;
+import com.hedera.hapi.node.base.QueryHeader;
+import com.hedera.hapi.node.base.ResponseHeader;
+import com.hedera.hapi.node.token.TokenGetNftInfoResponse;
+import com.hedera.hapi.node.token.TokenNftInfo;
+import com.hedera.hapi.node.transaction.Query;
+import com.hedera.hapi.node.transaction.Response;
+import com.hedera.node.app.service.mono.fees.calculation.token.queries.GetTokenNftInfoResourceUsage;
+import com.hedera.node.app.service.token.ReadableNftStore;
+import com.hedera.node.app.service.token.ReadableTokenStore;
+import com.hedera.node.app.spi.fees.Fees;
 import com.hedera.node.app.spi.workflows.PaidQueryHandler;
 import com.hedera.node.app.spi.workflows.PreCheckException;
-import com.hederahashgraph.api.proto.java.Query;
-import com.hederahashgraph.api.proto.java.QueryHeader;
-import com.hederahashgraph.api.proto.java.Response;
-import com.hederahashgraph.api.proto.java.ResponseHeader;
-import com.hederahashgraph.api.proto.java.TokenGetNftInfoResponse;
+import com.hedera.node.app.spi.workflows.QueryContext;
+import com.hedera.node.config.data.LedgerConfig;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.Optional;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
 /**
  * This class contains all workflow-related functionality regarding {@link
- * com.hederahashgraph.api.proto.java.HederaFunctionality#TokenGetNftInfo}.
+ * HederaFunctionality#TOKEN_GET_NFT_INFO}.
  */
 @Singleton
 public class TokenGetNftInfoHandler extends PaidQueryHandler {
     @Inject
-    public TokenGetNftInfoHandler() {}
+    public TokenGetNftInfoHandler() {
+        // Exists for injection
+    }
 
     @Override
     public QueryHeader extractHeader(@NonNull final Query query) {
         requireNonNull(query);
-        return query.getTokenGetInfo().getHeader();
+        return query.tokenGetNftInfoOrThrow().header();
     }
 
     @Override
     public Response createEmptyResponse(@NonNull final ResponseHeader header) {
-        final var response = TokenGetNftInfoResponse.newBuilder().setHeader(header);
-        return Response.newBuilder().setTokenGetNftInfo(response).build();
+        requireNonNull(header);
+        final var response = TokenGetNftInfoResponse.newBuilder().header(requireNonNull(header));
+        return Response.newBuilder().tokenGetNftInfo(response).build();
     }
 
-    /**
-     * This method is called during the query workflow. It validates the query, but does not
-     * determine the response yet.
-     *
-     * <p>Please note: the method signature is just a placeholder which is most likely going to
-     * change.
-     *
-     * @param query the {@link Query} that should be validated
-     * @throws NullPointerException if one of the arguments is {@code null}
-     * @throws PreCheckException if validation fails
-     */
-    public void validate(@NonNull final Query query) throws PreCheckException {
-        throw new UnsupportedOperationException("Not implemented");
+    @Override
+    public void validate(@NonNull final QueryContext context) throws PreCheckException {
+        requireNonNull(context);
+        final var query = context.query();
+        final var nftStore = context.createStore(ReadableNftStore.class);
+        final var op = query.tokenGetNftInfoOrThrow();
+        final var nftId = op.nftIDOrThrow();
+        validateTruePreCheck(nftId.hasTokenId(), INVALID_TOKEN_ID);
+        validateTruePreCheck(nftId.serialNumber() > 0, INVALID_TOKEN_NFT_SERIAL_NUMBER);
+
+        final var nft = nftStore.get(nftId.tokenIdOrThrow(), nftId.serialNumber());
+        validateFalsePreCheck(nft == null, INVALID_NFT_ID);
     }
 
+    @Override
+    public Response findResponse(@NonNull final QueryContext context, @NonNull final ResponseHeader header) {
+        requireNonNull(context);
+        requireNonNull(header);
+        final var query = context.query();
+        final var config = context.configuration().getConfigData(LedgerConfig.class);
+        final var nftStore = context.createStore(ReadableNftStore.class);
+        final var tokenStore = context.createStore(ReadableTokenStore.class);
+        final var op = query.tokenGetNftInfoOrThrow();
+        final var response = TokenGetNftInfoResponse.newBuilder();
+        final var nftId = op.nftIDOrElse(NftID.DEFAULT);
+
+        final var responseType = op.headerOrElse(QueryHeader.DEFAULT).responseType();
+        response.header(header);
+        if (header.nodeTransactionPrecheckCode() == OK && responseType != COST_ANSWER) {
+            final var optionalInfo = infoForNft(nftId, nftStore, tokenStore, config);
+            if (optionalInfo.isPresent()) {
+                response.nft(optionalInfo.get());
+            } else {
+                response.header(ResponseHeader.newBuilder()
+                        .nodeTransactionPrecheckCode(INVALID_NFT_ID)
+                        .cost(0)); // from mono service, need to validate in the future
+            }
+        }
+
+        return Response.newBuilder().tokenGetNftInfo(response).build();
+    }
     /**
-     * This method is called during the query workflow. It determines the requested value(s) and
-     * returns the appropriate response.
+     * Returns the {@link TokenNftInfo} for the given {@link NftID} if it exists.
      *
-     * <p>Please note: the method signature is just a placeholder which is most likely going to
-     * change.
-     *
-     * @param query the {@link Query} with the request
-     * @param header the {@link ResponseHeader} that should be used, if the request was successful
-     * @return a {@link Response} with the requested values
-     * @throws NullPointerException if one of the arguments is {@code null}
+     * @param nftId
+     * 		the {@link NftID} to get the {@link TokenNftInfo} for
+     * @param readableNftStore
+     * 		the {@link ReadableNftStore} to get the {@link TokenNftInfo} from
+     * @param readableTokenStore
+     *      the {@link ReadableTokenStore} to get the {@link com.hedera.hapi.node.state.token.Token} from
+     * @param config
+     * 		the {@link LedgerConfig} to get the ledger ID from
+     * @return the {@link TokenNftInfo} for the given {@link NftID} if it exists
      */
-    public Response findResponse(@NonNull final Query query, @NonNull final ResponseHeader header) {
-        throw new UnsupportedOperationException("Not implemented");
+    private Optional<TokenNftInfo> infoForNft(
+            @NonNull final NftID nftId,
+            @NonNull final ReadableNftStore readableNftStore,
+            @NonNull final ReadableTokenStore readableTokenStore,
+            @NonNull final LedgerConfig config) {
+        requireNonNull(nftId);
+        requireNonNull(readableNftStore);
+        requireNonNull(readableTokenStore);
+        requireNonNull(config);
+
+        final var nft = readableNftStore.get(nftId.tokenIdOrThrow(), nftId.serialNumber());
+        final var token = requireNonNull(readableTokenStore.get(nftId.tokenIdOrThrow()));
+        if (nft == null) {
+            return Optional.empty();
+        } else {
+            final var info = TokenNftInfo.newBuilder()
+                    .ledgerId(config.id())
+                    .nftID(nftId)
+                    .accountID(nft.ownerIdOrElse(token.treasuryAccountIdOrThrow()))
+                    .creationTime(nft.mintTime())
+                    .metadata(nft.metadata())
+                    .spenderId(nft.spenderId())
+                    .build();
+            return Optional.of(info);
+        }
+    }
+
+    @NonNull
+    @Override
+    public Fees computeFees(@NonNull final QueryContext queryContext) {
+        final var query = queryContext.query();
+        final var nftStore = queryContext.createStore(ReadableNftStore.class);
+        final var op = query.tokenGetNftInfoOrThrow();
+        final var nftId = op.nftIDOrThrow();
+        final var nft = nftStore.get(nftId);
+
+        return queryContext.feeCalculator().legacyCalculate(sigValueObj -> new GetTokenNftInfoResourceUsage()
+                .usageGiven(query, nft));
     }
 }

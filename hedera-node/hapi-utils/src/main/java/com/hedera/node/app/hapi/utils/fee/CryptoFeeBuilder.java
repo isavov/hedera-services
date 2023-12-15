@@ -13,9 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.hapi.utils.fee;
 
-import com.hedera.node.app.hapi.utils.exception.InvalidTxBodyException;
 import com.hederahashgraph.api.proto.java.CryptoCreateTransactionBody;
 import com.hederahashgraph.api.proto.java.FeeComponents;
 import com.hederahashgraph.api.proto.java.FeeData;
@@ -43,39 +43,28 @@ public final class CryptoFeeBuilder extends FeeBuilder {
      * @param txBody transaction body
      * @param sigValObj signature value object
      * @return fee data
-     * @throws InvalidTxBodyException when transaction body is invalid
      */
-    public FeeData getCryptoCreateTxFeeMatrices(
-            final TransactionBody txBody, final SigValueObj sigValObj)
-            throws InvalidTxBodyException {
-        if (txBody == null || !txBody.hasCryptoCreateAccount()) {
-            throw new InvalidTxBodyException(
-                    "CryptoCreate Tx Body not available for Fee Calculation");
-        }
-
+    public static FeeData getCryptoCreateTxFeeMatrices(final TransactionBody txBody, final SigValueObj sigValObj) {
         final var txBodySize = getCommonTransactionBodyBytes(txBody);
         final var cryptoCreate = txBody.getCryptoCreateAccount();
         final var cryptoCreateSize = getCryptoCreateAccountBodyTxSize(cryptoCreate);
         final long bpt = txBodySize + cryptoCreateSize + sigValObj.getSignatureSize();
         final long vpt = sigValObj.getTotalSigCount();
-        final long rbs =
-                getCryptoRBS(cryptoCreate, cryptoCreateSize) + calculateRBS(txBody); // TxRecord
-        final var rbsNetwork =
-                getDefaultRBHNetworkSize() + BASIC_ENTITY_ID_SIZE * (RECEIPT_STORAGE_TIME_SEC);
+        final long rbs = getCryptoRBS(cryptoCreate, cryptoCreateSize) + calculateRBS(txBody); // TxRecord
+        final var rbsNetwork = getDefaultRBHNetworkSize() + BASIC_ENTITY_ID_SIZE * (RECEIPT_STORAGE_TIME_SEC);
 
         final long bpr = INT_SIZE;
 
-        final var feeMatricesForTx =
-                FeeComponents.newBuilder()
-                        .setBpt(bpt)
-                        .setVpt(vpt)
-                        .setRbh(rbs)
-                        .setSbh(0L)
-                        .setGas(0L)
-                        .setTv(0L)
-                        .setBpr(bpr)
-                        .setSbpr(0L)
-                        .build();
+        final var feeMatricesForTx = FeeComponents.newBuilder()
+                .setBpt(bpt)
+                .setVpt(vpt)
+                .setRbh(rbs)
+                .setSbh(0L)
+                .setGas(0L)
+                .setTv(0L)
+                .setBpr(bpr)
+                .setSbpr(0L)
+                .build();
         return getFeeDataMatrices(feeMatricesForTx, sigValObj.getPayerAcctSigCount(), rbsNetwork);
     }
 
@@ -85,16 +74,8 @@ public final class CryptoFeeBuilder extends FeeBuilder {
      * @param txBody transaction body
      * @param sigValObj signature value object
      * @return fee data
-     * @throws InvalidTxBodyException when transaction body is invalid
      */
-    public FeeData getCryptoDeleteTxFeeMatrices(
-            final TransactionBody txBody, final SigValueObj sigValObj)
-            throws InvalidTxBodyException {
-        if (txBody == null || !txBody.hasCryptoDelete()) {
-            throw new InvalidTxBodyException(
-                    "CryptoDelete Tx Body not available for Fee Calculation");
-        }
-
+    public FeeData getCryptoDeleteTxFeeMatrices(final TransactionBody txBody, final SigValueObj sigValObj) {
         final long bpr = INT_SIZE;
         final var txBodySize = getCommonTransactionBodyBytes(txBody);
         final var bpt = txBodySize + 2 * BASIC_ENTITY_ID_SIZE + sigValObj.getSignatureSize();
@@ -102,17 +83,16 @@ public final class CryptoFeeBuilder extends FeeBuilder {
 
         final var rbs = calculateRBS(txBody);
         final var rbsNetwork = getDefaultRBHNetworkSize();
-        final var feeMatricesForTx =
-                FeeComponents.newBuilder()
-                        .setBpt(bpt)
-                        .setVpt(vpt)
-                        .setRbh(rbs)
-                        .setSbh(0L)
-                        .setGas(0L)
-                        .setTv(0L)
-                        .setBpr(bpr)
-                        .setSbpr(0L)
-                        .build();
+        final var feeMatricesForTx = FeeComponents.newBuilder()
+                .setBpt(bpt)
+                .setVpt(vpt)
+                .setRbh(rbs)
+                .setSbh(0L)
+                .setGas(0L)
+                .setTv(0L)
+                .setBpr(bpr)
+                .setSbpr(0L)
+                .build();
 
         return getFeeDataMatrices(feeMatricesForTx, sigValObj.getPayerAcctSigCount(), rbsNetwork);
     }
@@ -125,12 +105,10 @@ public final class CryptoFeeBuilder extends FeeBuilder {
      * @param crCreateSize the size of the crypto create transaction body
      * @return the total RAM Bytes for the given crypto create transaction body
      */
-    private long getCryptoRBS(
-            final CryptoCreateTransactionBody cryptoCreate, final int crCreateSize) {
-        final var seconds =
-                cryptoCreate.hasAutoRenewPeriod()
-                        ? cryptoCreate.getAutoRenewPeriod().getSeconds()
-                        : 0L;
+    private static long getCryptoRBS(final CryptoCreateTransactionBody cryptoCreate, final int crCreateSize) {
+        final var seconds = cryptoCreate.hasAutoRenewPeriod()
+                ? cryptoCreate.getAutoRenewPeriod().getSeconds()
+                : 0L;
         return crCreateSize * seconds;
     }
 
@@ -140,12 +118,10 @@ public final class CryptoFeeBuilder extends FeeBuilder {
      * @param cryptoCreate the crypto create transaction body
      * @return the total bytes in the given crypto create transaction body
      */
-    private int getCryptoCreateAccountBodyTxSize(final CryptoCreateTransactionBody cryptoCreate) {
+    private static int getCryptoCreateAccountBodyTxSize(final CryptoCreateTransactionBody cryptoCreate) {
         final var keySize = getAccountKeyStorageSize(cryptoCreate.getKey());
         final var newRealmAdminKeySize =
-                cryptoCreate.hasNewRealmAdminKey()
-                        ? getAccountKeyStorageSize(cryptoCreate.getNewRealmAdminKey())
-                        : 0;
+                cryptoCreate.hasNewRealmAdminKey() ? getAccountKeyStorageSize(cryptoCreate.getNewRealmAdminKey()) : 0;
 
         return keySize + BASIC_ACCOUNT_SIZE + newRealmAdminKeySize;
     }
@@ -156,7 +132,7 @@ public final class CryptoFeeBuilder extends FeeBuilder {
      *
      * @return fee data
      */
-    public FeeData getCostTransactionRecordQueryFeeMatrices() {
+    public static FeeData getCostTransactionRecordQueryFeeMatrices() {
         return FeeData.getDefaultInstance();
     }
 
@@ -176,17 +152,16 @@ public final class CryptoFeeBuilder extends FeeBuilder {
         final var txRecordSize = getAccountTransactionRecordSize(transRecord);
         final var bpr = BASIC_QUERY_RES_HEADER + txRecordSize + getStateProofSize(responseType);
 
-        final var feeMatrices =
-                FeeComponents.newBuilder()
-                        .setBpt(bpt)
-                        .setVpt(0L)
-                        .setRbh(0L)
-                        .setSbh(0L)
-                        .setGas(0L)
-                        .setTv(0L)
-                        .setBpr(bpr)
-                        .setSbpr(0L)
-                        .build();
+        final var feeMatrices = FeeComponents.newBuilder()
+                .setBpt(bpt)
+                .setVpt(0L)
+                .setRbh(0L)
+                .setSbh(0L)
+                .setGas(0L)
+                .setTv(0L)
+                .setBpr(bpr)
+                .setSbpr(0L)
+                .build();
 
         return getQueryFeeDataMatrices(feeMatrices);
     }
@@ -211,17 +186,16 @@ public final class CryptoFeeBuilder extends FeeBuilder {
 
         final var bpr = BASIC_QUERY_RES_HEADER + txRecordListsize + getStateProofSize(responseType);
 
-        final var feeMatrices =
-                FeeComponents.newBuilder()
-                        .setBpt(bpt)
-                        .setVpt(0L)
-                        .setRbh(0L)
-                        .setSbh(0L)
-                        .setGas(0L)
-                        .setTv(0L)
-                        .setBpr(bpr)
-                        .setSbpr(0L)
-                        .build();
+        final var feeMatrices = FeeComponents.newBuilder()
+                .setBpt(bpt)
+                .setVpt(0L)
+                .setRbh(0L)
+                .setSbh(0L)
+                .setGas(0L)
+                .setTv(0L)
+                .setBpr(bpr)
+                .setSbpr(0L)
+                .build();
 
         return getQueryFeeDataMatrices(feeMatrices);
     }
@@ -231,7 +205,7 @@ public final class CryptoFeeBuilder extends FeeBuilder {
      *
      * @return fee data
      */
-    public FeeData getCostCryptoAccountRecordsQueryFeeMatrices() {
+    public static FeeData getCostCryptoAccountRecordsQueryFeeMatrices() {
         return getCostForQueryByIDOnly();
     }
 
@@ -240,18 +214,16 @@ public final class CryptoFeeBuilder extends FeeBuilder {
      *
      * @return fee data
      */
-    public FeeData getCostCryptoAccountInfoQueryFeeMatrices() {
+    public static FeeData getCostCryptoAccountInfoQueryFeeMatrices() {
         return getCostForQueryByIDOnly();
     }
 
-    private int getAccountTransactionRecordSize(final TransactionRecord transRecord) {
+    private static int getAccountTransactionRecordSize(final TransactionRecord transRecord) {
         final var memoBytesSize = transRecord.getMemoBytes().size();
 
-        final var accountAmountSize =
-                transRecord.hasTransferList()
-                        ? transRecord.getTransferList().getAccountAmountsCount()
-                                * BASIC_ACCOUNT_AMT_SIZE
-                        : 0;
+        final var accountAmountSize = transRecord.hasTransferList()
+                ? transRecord.getTransferList().getAccountAmountsCount() * BASIC_ACCOUNT_AMT_SIZE
+                : 0;
 
         return BASIC_TX_RECORD_SIZE + memoBytesSize + accountAmountSize;
     }

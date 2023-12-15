@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.spec.fees;
 
 import static com.hedera.services.bdd.spec.HapiPropertySource.asFileString;
@@ -36,18 +37,24 @@ import com.hederahashgraph.api.proto.java.FeeSchedule;
 import com.hederahashgraph.api.proto.java.FileGetContentsQuery;
 import com.hederahashgraph.api.proto.java.FileGetContentsResponse;
 import com.hederahashgraph.api.proto.java.FileID;
+import com.hederahashgraph.api.proto.java.HederaFunctionality;
 import com.hederahashgraph.api.proto.java.Key;
 import com.hederahashgraph.api.proto.java.Query;
 import com.hederahashgraph.api.proto.java.ResponseCodeEnum;
+import com.hederahashgraph.api.proto.java.SubType;
 import com.hederahashgraph.api.proto.java.Transaction;
 import com.hederahashgraph.api.proto.java.TransactionID;
 import com.hederahashgraph.api.proto.java.TransferList;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.File;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.file.Files;
+import java.security.GeneralSecurityException;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -64,16 +71,13 @@ public class FeesAndRatesProvider {
     private HapiSpecSetup setup;
     private HapiApiClients clients;
     private HapiSpecRegistry registry;
+    private static long gasPrice;
     private static FeeSchedule feeSchedule;
     private static ExchangeRateSet rateSet;
     private final ScheduleTypePatching typePatching = new ScheduleTypePatching();
 
     public FeesAndRatesProvider(
-            TxnFactory txns,
-            KeyFactory keys,
-            HapiSpecSetup setup,
-            HapiApiClients clients,
-            HapiSpecRegistry registry) {
+            TxnFactory txns, KeyFactory keys, HapiSpecSetup setup, HapiApiClients clients, HapiSpecRegistry registry) {
         this.txns = txns;
         this.keys = keys;
         this.setup = setup;
@@ -81,7 +85,7 @@ public class FeesAndRatesProvider {
         this.registry = registry;
     }
 
-    public void init() throws Throwable {
+    public void init() throws IOException, ReflectiveOperationException, GeneralSecurityException {
         if (setup.useFixedFee()) {
             return;
         }
@@ -101,13 +105,18 @@ public class FeesAndRatesProvider {
         return feeSchedule;
     }
 
+    public long currentTinybarGasPrice() {
+        return toTbWithActiveRates(gasPrice / 1000L);
+    }
+
     public ExchangeRate rates() {
         return activeRates();
     }
 
     public void updateRateSet(ExchangeRateSet newSet) {
         rateSet = newSet;
-        log.info("Updating rates! Now :: " + rateSetAsString(newSet));
+        final String message = String.format("Updating rates! Now :: %s", rateSetAsString(newSet));
+        log.info(message);
     }
 
     public ExchangeRateSet rateSet() {
@@ -115,120 +124,126 @@ public class FeesAndRatesProvider {
     }
 
     private ExchangeRate activeRates() {
-        boolean useCurrent =
-                Instant.now().getEpochSecond()
-                        < rateSet.getCurrentRate().getExpirationTime().getSeconds();
+        boolean useCurrent = Instant.now().getEpochSecond()
+                < rateSet.getCurrentRate().getExpirationTime().getSeconds();
 
         return useCurrent ? rateSet.getCurrentRate() : rateSet.getNextRate();
     }
 
-    private void readRateSet() throws Throwable {
+    private void readRateSet() throws IOException {
         File f = new File(setup.clientExchangeRatesPath());
         byte[] bytes = Files.readAllBytes(f.toPath());
         rateSet = ExchangeRateSet.parseFrom(bytes);
-        log.info(
-                "The exchange rates from '"
-                        + f.getAbsolutePath()
-                        + "' are :: "
-                        + rateSetAsString(rateSet));
+        String newSetAsString = rateSetAsString(rateSet);
+
+        final String message =
+                String.format("The exchange rates from '%s' are :: %s", f.getAbsolutePath(), newSetAsString);
+        log.info(message);
     }
 
     public boolean hasRateSet() {
         return rateSet != null;
     }
 
-    private void downloadRateSet() throws Throwable {
+    private void downloadRateSet() throws IOException, GeneralSecurityException, ReflectiveOperationException {
         long queryFee = lookupDownloadFee(setup.exchangeRatesId());
         FileGetContentsResponse response = downloadWith(queryFee, false, setup.exchangeRatesId());
         byte[] bytes = response.getFileContents().getContents().toByteArray();
         rateSet = ExchangeRateSet.parseFrom(bytes);
-        log.info("The exchange rates are :: " + rateSetAsString(rateSet));
+        String newSetAsString = rateSetAsString(rateSet);
+        final String message = String.format("The exchange rates are :: %s", newSetAsString);
+        log.info(message);
     }
 
-    private void readFeeSchedule() throws Throwable {
+    private void readFeeSchedule() throws IOException {
         File f = new File(setup.clientFeeSchedulePath());
         byte[] bytes = Files.readAllBytes(f.toPath());
         CurrentAndNextFeeSchedule wrapper = CurrentAndNextFeeSchedule.parseFrom(bytes);
-        feeSchedule = wrapper.getCurrentFeeSchedule();
-        log.info(
-                "The fee schedule from '"
-                        + f.getAbsolutePath()
-                        + "' covers "
-                        + feeSchedule.getTransactionFeeScheduleList().size()
-                        + " ops.");
+        setScheduleAndGasPriceFrom(wrapper.getCurrentFeeSchedule());
+        final String message = String.format(
+                "The fee schedule from '%s' covers %s ops.",
+                f.getAbsolutePath(), feeSchedule.getTransactionFeeScheduleList().size());
+        log.info(message);
     }
 
-    private void downloadFeeSchedule() throws Throwable {
+    private void downloadFeeSchedule() throws IOException, GeneralSecurityException, ReflectiveOperationException {
         long queryFee = lookupDownloadFee(setup.feeScheduleId());
         FileGetContentsResponse response = downloadWith(queryFee, false, setup.feeScheduleId());
         byte[] bytes = response.getFileContents().getContents().toByteArray();
         CurrentAndNextFeeSchedule wrapper = CurrentAndNextFeeSchedule.parseFrom(bytes);
-        feeSchedule = typePatching.withPatchedTypesIfNecessary(wrapper.getCurrentFeeSchedule());
-        log.info(
-                "The fee schedule covers "
-                        + feeSchedule.getTransactionFeeScheduleList().size()
-                        + " ops.");
+        setScheduleAndGasPriceFrom(typePatching.withPatchedTypesIfNecessary(wrapper.getCurrentFeeSchedule()));
+        String message = String.format(
+                "The fee schedule covers %s ops.",
+                feeSchedule.getTransactionFeeScheduleList().size());
+        log.info(message);
     }
 
-    private long lookupDownloadFee(FileID fileId) throws Throwable {
-        return downloadWith(setup.feeScheduleFetchFee(), true, fileId).getHeader().getCost();
+    private long lookupDownloadFee(FileID fileId)
+            throws IOException, GeneralSecurityException, ReflectiveOperationException {
+        return downloadWith(setup.feeScheduleFetchFee(), true, fileId)
+                .getHeader()
+                .getCost();
     }
 
     private FileGetContentsResponse downloadWith(long queryFee, boolean costOnly, FileID fid)
-            throws Throwable {
+            throws IOException, GeneralSecurityException, ReflectiveOperationException {
         int attemptsLeft = NUM_DOWNLOAD_ATTEMPTS;
         ResponseCodeEnum status;
         FileGetContentsResponse response;
         do {
             var payment = defaultPayerSponsored(queryFee);
             var query = downloadQueryWith(payment, costOnly, fid);
-            response =
-                    clients.getFileSvcStub(setup.defaultNode(), setup.getConfigTLS())
-                            .getFileContent(query)
-                            .getFileGetContents();
+            response = clients.getFileSvcStub(setup.defaultNode(), setup.getConfigTLS())
+                    .getFileContent(query)
+                    .getFileGetContents();
             status = response.getHeader().getNodeTransactionPrecheckCode();
-            if (status == OK) {
-                break;
-            } else {
+            if (status != OK) {
                 log.warn(
-                        "'{}' download attempt paid with {} got status {}, retrying...",
+                        "'{}' download attempt paid with {} got status {}; retrying {}...",
                         asFileString(fid),
                         toReadableString(payment),
-                        status);
+                        status,
+                        attemptsLeft);
+                simpleSleep(1);
             }
-        } while (--attemptsLeft > 0);
+        } while (status != OK && --attemptsLeft > 0);
         if (status != OK) {
             throw new IllegalStateException(
-                    String.format(
-                            "Could not download '%s' final status %s", asFileString(fid), status));
+                    String.format("Could not download '%s' final status %s", asFileString(fid), status));
         }
         return response;
     }
 
+    // Should really be in a utility somewhere, but it doesn't seem to be.
+    private void simpleSleep(final int secondsToSleep) {
+        if (secondsToSleep <= Byte.MAX_VALUE) {
+            try {
+                TimeUnit.SECONDS.sleep(secondsToSleep);
+            } catch (final InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
     private Query downloadQueryWith(Transaction payment, boolean costOnly, FileID fileId) {
-        FileGetContentsQuery costQuery =
-                FileGetContentsQuery.newBuilder()
-                        .setHeader(costOnly ? answerCostHeader(payment) : answerHeader(payment))
-                        .setFileID(fileId)
-                        .build();
+        FileGetContentsQuery costQuery = FileGetContentsQuery.newBuilder()
+                .setHeader(costOnly ? answerCostHeader(payment) : answerHeader(payment))
+                .setFileID(fileId)
+                .build();
         return Query.newBuilder().setFileGetContents(costQuery).build();
     }
 
-    private Transaction defaultPayerSponsored(long queryFee) throws Throwable {
-        TransferList transfers =
-                asTransferList(tinyBarsFromTo(queryFee, setup.defaultPayer(), setup.defaultNode()));
+    private Transaction defaultPayerSponsored(long queryFee)
+            throws IOException, GeneralSecurityException, ReflectiveOperationException {
+        TransferList transfers = asTransferList(tinyBarsFromTo(queryFee, setup.defaultPayer(), setup.defaultNode()));
         CryptoTransferTransactionBody opBody =
                 txns.<CryptoTransferTransactionBody, CryptoTransferTransactionBody.Builder>body(
                         CryptoTransferTransactionBody.class, b -> b.setTransfers(transfers));
-        Transaction.Builder txnBuilder =
-                txns.getReadyToSign(
-                        b -> {
-                            b.setTransactionID(
-                                    TransactionID.newBuilder()
-                                            .mergeFrom(b.getTransactionID())
-                                            .setAccountID(setup.defaultPayer()));
-                            b.setCryptoTransfer(opBody);
-                        });
+        Transaction.Builder txnBuilder = txns.getReadyToSign(b -> {
+            b.setTransactionID(
+                    TransactionID.newBuilder().mergeFrom(b.getTransactionID()).setAccountID(setup.defaultPayer()));
+            b.setCryptoTransfer(opBody);
+        });
 
         return keys.signWithFullPrefixEd25519Keys(
                 txnBuilder,
@@ -247,33 +262,29 @@ public class FeesAndRatesProvider {
 
     public ExchangeRateSet rateSetWith(int curHbarEquiv, int curCentEquiv) {
         ExchangeRate.Builder curRate =
-                rateSet.getCurrentRate().toBuilder()
-                        .setHbarEquiv(curHbarEquiv)
-                        .setCentEquiv(curCentEquiv);
+                rateSet.getCurrentRate().toBuilder().setHbarEquiv(curHbarEquiv).setCentEquiv(curCentEquiv);
 
-        ExchangeRateSet perturbedSet = rateSet.toBuilder().setCurrentRate(curRate).build();
-
-        log.info("Computed a new rate set :: " + rateSetAsString(perturbedSet));
+        ExchangeRateSet perturbedSet =
+                rateSet.toBuilder().setCurrentRate(curRate).build();
+        String message = String.format("Computed a new rate set :: %s", rateSetAsString(perturbedSet));
+        log.info(message);
 
         return perturbedSet;
     }
 
-    public ExchangeRateSet rateSetWith(
-            int curHbarEquiv, int curCentEquiv, int nextHbarEquiv, int nextCentEquiv) {
+    public ExchangeRateSet rateSetWith(int curHbarEquiv, int curCentEquiv, int nextHbarEquiv, int nextCentEquiv) {
         ExchangeRate.Builder curRate =
-                rateSet.getCurrentRate().toBuilder()
-                        .setHbarEquiv(curHbarEquiv)
-                        .setCentEquiv(curCentEquiv);
+                rateSet.getCurrentRate().toBuilder().setHbarEquiv(curHbarEquiv).setCentEquiv(curCentEquiv);
 
         ExchangeRate.Builder nextRate =
-                rateSet.getCurrentRate().toBuilder()
-                        .setHbarEquiv(nextHbarEquiv)
-                        .setCentEquiv(nextCentEquiv);
+                rateSet.getCurrentRate().toBuilder().setHbarEquiv(nextHbarEquiv).setCentEquiv(nextCentEquiv);
 
-        ExchangeRateSet perturbedSet =
-                rateSet.toBuilder().setCurrentRate(curRate).setNextRate(nextRate).build();
-
-        log.info("Computed a new rate set :: " + rateSetAsString(perturbedSet));
+        ExchangeRateSet perturbedSet = rateSet.toBuilder()
+                .setCurrentRate(curRate)
+                .setNextRate(nextRate)
+                .build();
+        String message = String.format("Computed a new rate set :: %s", rateSetAsString(perturbedSet));
+        log.info(message);
 
         return perturbedSet;
     }
@@ -306,5 +317,16 @@ public class FeesAndRatesProvider {
                 + " expiry @ "
                 + set.getNextRate().getExpirationTime().getSeconds()
                 + "]";
+    }
+
+    private void setScheduleAndGasPriceFrom(@NonNull final FeeSchedule schedule) {
+        feeSchedule = schedule;
+        gasPrice = feeSchedule.getTransactionFeeScheduleList().stream()
+                .filter(tfs -> tfs.getHederaFunctionality() == HederaFunctionality.ContractCall)
+                .flatMap(tfs -> tfs.getFeesList().stream())
+                .filter(feeData -> feeData.getSubType() == SubType.DEFAULT)
+                .findFirst()
+                .map(feeData -> feeData.getServicedata().getGas())
+                .orElse(0L);
     }
 }

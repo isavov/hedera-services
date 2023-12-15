@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Hedera Hashgraph, LLC
+ * Copyright (C) 2021-2023 Hedera Hashgraph, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,16 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.state.virtual;
 
-import com.swirlds.common.io.streams.SerializableDataOutputStream;
 import com.swirlds.merkledb.serialize.ValueSerializer;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Objects;
 
-public class IterableContractMerkleDbValueSerializer
-        implements ValueSerializer<IterableContractValue> {
+public class IterableContractMerkleDbValueSerializer implements ValueSerializer<IterableContractValue> {
 
     static final long CLASS_ID = 0x2137d0dcac9ab2b3L;
 
@@ -54,11 +53,15 @@ public class IterableContractMerkleDbValueSerializer
         return VARIABLE_DATA_SIZE;
     }
 
+    // FUTURE WORK: mark it as @Override after migration to platform 0.39
+    public int getTypicalSerializedSize() {
+        return IterableContractValue.getTypicalSerializedSize();
+    }
+
     // Value serialization
 
     @Override
-    public int serialize(final IterableContractValue value, final SerializableDataOutputStream out)
-            throws IOException {
+    public int serialize(final IterableContractValue value, final ByteBuffer out) throws IOException {
         Objects.requireNonNull(value);
         Objects.requireNonNull(out);
         value.serialize(out);
@@ -68,8 +71,7 @@ public class IterableContractMerkleDbValueSerializer
     // Value deserialization
 
     @Override
-    public IterableContractValue deserialize(final ByteBuffer buffer, final long version)
-            throws IOException {
+    public IterableContractValue deserialize(final ByteBuffer buffer, final long version) throws IOException {
         Objects.requireNonNull(buffer);
         final IterableContractValue value = new IterableContractValue();
         value.deserialize(buffer, (int) version);

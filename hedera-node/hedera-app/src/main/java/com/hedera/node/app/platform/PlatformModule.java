@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Hedera Hashgraph, LLC
+ * Copyright (C) 2020-2023 Hedera Hashgraph, LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,18 +13,61 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.platform;
 
-import com.swirlds.common.system.Platform;
+import com.hedera.node.app.annotations.CommonExecutor;
+import com.hedera.node.app.service.mono.utils.JvmSystemExits;
+import com.hedera.node.app.service.mono.utils.NamedDigestFactory;
+import com.hedera.node.app.service.mono.utils.SystemExits;
+import com.swirlds.common.platform.NodeId;
+import com.swirlds.common.stream.Signer;
+import com.swirlds.platform.system.Platform;
+import dagger.Binds;
 import dagger.Module;
 import dagger.Provides;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import java.nio.charset.Charset;
+import java.security.MessageDigest;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ForkJoinPool;
+import java.util.function.Supplier;
 import javax.inject.Singleton;
 
 @Module
 public interface PlatformModule {
     @Provides
     @Singleton
-    static long selfId(final Platform platform) {
-        return platform.getSelfId().getId();
+    static NodeId selfId(@NonNull final Platform platform) {
+        return platform.getSelfId();
+    }
+
+    @Provides
+    @Singleton
+    static Signer signer(@NonNull final Platform platform) {
+        return platform;
+    }
+
+    @Provides
+    @Singleton
+    @CommonExecutor
+    static ExecutorService provideCommonExecutor() {
+        return ForkJoinPool.commonPool();
+    }
+
+    @Binds
+    @Singleton
+    SystemExits bindSystemExits(JvmSystemExits systemExits);
+
+    @Provides
+    @Singleton
+    static Supplier<Charset> provideNativeCharset() {
+        return Charset::defaultCharset;
+    }
+
+    @Provides
+    @Singleton
+    static NamedDigestFactory provideDigestFactory() {
+        return MessageDigest::getInstance;
     }
 }

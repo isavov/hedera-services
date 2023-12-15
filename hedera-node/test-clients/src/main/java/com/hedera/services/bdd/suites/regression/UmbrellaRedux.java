@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.services.bdd.suites.regression;
 
 import static com.hedera.services.bdd.spec.HapiSpec.defaultHapiSpec;
@@ -20,13 +21,17 @@ import static com.hedera.services.bdd.spec.infrastructure.OpProvider.UNIQUE_PAYE
 import static com.hedera.services.bdd.spec.infrastructure.OpProvider.UNIQUE_PAYER_ACCOUNT_INITIAL_BALANCE;
 import static com.hedera.services.bdd.spec.queries.QueryVerbs.getTxnRecord;
 import static com.hedera.services.bdd.spec.transactions.TxnVerbs.cryptoCreate;
+import static com.hedera.services.bdd.spec.transactions.TxnVerbs.fileUpdate;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.runWithProvider;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.sleepFor;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.sourcing;
 import static com.hedera.services.bdd.spec.utilops.UtilVerbs.withOpContext;
 import static com.hedera.services.bdd.suites.regression.factories.RegressionProviderFactory.factoryFrom;
+import static com.hedera.services.bdd.suites.utils.sysfiles.serdes.ThrottleDefsLoader.protoDefsFromResource;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
+import com.hedera.services.bdd.junit.HapiTest;
+import com.hedera.services.bdd.junit.HapiTestSuite;
 import com.hedera.services.bdd.spec.HapiPropertySource;
 import com.hedera.services.bdd.spec.HapiSpec;
 import com.hedera.services.bdd.suites.HapiSuite;
@@ -39,6 +44,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+@HapiTestSuite
 public class UmbrellaRedux extends HapiSuite {
     private static final Logger log = LogManager.getLogger(UmbrellaRedux.class);
 
@@ -59,40 +65,35 @@ public class UmbrellaRedux extends HapiSuite {
 
     @Override
     public List<HapiSpec> getSpecsInSuite() {
-        return List.of(
-                new HapiSpec[] {
-                    umbrellaRedux(),
-                });
+        return List.of(new HapiSpec[] {
+            umbrellaRedux(),
+        });
     }
 
-    private HapiSpec umbrellaRedux() {
+    @HapiTest
+    final HapiSpec umbrellaRedux() {
+        var defaultThrottles = protoDefsFromResource("testSystemFiles/throttles-dev.json");
         return defaultHapiSpec("UmbrellaRedux")
                 .given(
-                        withOpContext(
-                                (spec, opLog) -> {
-                                    configureFromCi(spec);
-                                    // use ci property statusTimeoutSecs to overwrite default value
-                                    // of status.wait.timeout.ms
-                                    spec.addOverrideProperties(
-                                            Map.of(
-                                                    "status.wait.timeout.ms",
-                                                    Integer.toString(
-                                                            1_000 * statusTimeoutSecs.get())));
-                                }),
+                        withOpContext((spec, opLog) -> {
+                            configureFromCi(spec);
+                            // use ci property statusTimeoutSecs to overwrite default value
+                            // of status.wait.timeout.ms
+                            spec.addOverrideProperties(Map.of(
+                                    "status.wait.timeout.ms", Integer.toString(1_000 * statusTimeoutSecs.get())));
+                        }),
+                        fileUpdate(THROTTLE_DEFS).payingWith(GENESIS).contents(defaultThrottles.toByteArray()),
                         cryptoCreate(UNIQUE_PAYER_ACCOUNT)
                                 .balance(UNIQUE_PAYER_ACCOUNT_INITIAL_BALANCE)
                                 .withRecharging()
                                 .via("createUniquePayer"),
                         sleepFor(10000))
                 .when(getTxnRecord("createUniquePayer").logged())
-                .then(
-                        sourcing(
-                                () ->
-                                        runWithProvider(factoryFrom(props::get))
-                                                .lasting(duration::get, unit::get)
-                                                .maxOpsPerSec(maxOpsPerSec::get)
-                                                .maxPendingOps(maxPendingOps::get)
-                                                .backoffSleepSecs(backoffSleepSecs::get)));
+                .then(sourcing(() -> runWithProvider(factoryFrom(props::get))
+                        .lasting(duration::get, unit::get)
+                        .maxOpsPerSec(maxOpsPerSec::get)
+                        .maxPendingOps(maxPendingOps::get)
+                        .backoffSleepSecs(backoffSleepSecs::get)));
     }
 
     private void configureFromCi(HapiSpec spec) {

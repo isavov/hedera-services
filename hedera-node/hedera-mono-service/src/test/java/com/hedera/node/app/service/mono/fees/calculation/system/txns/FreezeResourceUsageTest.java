@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.fees.calculation.system.txns;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -23,7 +24,6 @@ import static org.mockito.BDDMockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
-import com.hedera.node.app.hapi.utils.exception.InvalidTxBodyException;
 import com.hederahashgraph.api.proto.java.FeeData;
 import com.hederahashgraph.api.proto.java.TransactionBody;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,7 +48,7 @@ class FreezeResourceUsageTest {
     }
 
     @Test
-    void delegatesToCorrectEstimate() throws InvalidTxBodyException {
+    void delegatesToCorrectEstimate() {
         assertEquals(FeeData.getDefaultInstance(), subject.usageGiven(null, null, null));
     }
 }

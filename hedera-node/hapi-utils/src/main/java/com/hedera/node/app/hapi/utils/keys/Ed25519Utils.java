@@ -13,8 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.hapi.utils.keys;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.*;
 import java.nio.file.Path;
 import java.security.*;
@@ -39,9 +41,8 @@ public final class Ed25519Utils {
     private static final Provider BC_PROVIDER = new BouncyCastleProvider();
     private static final Provider ED_PROVIDER = new EdDSASecurityProvider();
 
-    private static final String TEST_CLIENTS_PREFIX =
-            "hedera-node" + File.separator + "test-clients" + File.separator;
     private static final String RESOURCE_PATH_SEGMENT = "src/main/resource";
+    public static final String TEST_CLIENTS_PREFIX = "hedera-node" + File.separator + "test-clients" + File.separator;
     public static final EdDSANamedCurveSpec ED25519_PARAMS =
             EdDSANamedCurveTable.getByName(EdDSANamedCurveTable.ED_25519);
     private static final DrbgParameters.Instantiation DRBG_INSTANTIATION =
@@ -58,14 +59,12 @@ public final class Ed25519Utils {
     public static EdDSAPrivateKey readKeyFrom(final File pem, final String passphrase) {
         final var relocatedPem = relocatedIfNotPresentInWorkingDir(pem);
         try (final var in = new FileInputStream(relocatedPem)) {
-            final var decryptProvider =
-                    new JceOpenSSLPKCS8DecryptorProviderBuilder()
-                            .setProvider(BC_PROVIDER)
-                            .build(passphrase.toCharArray());
+            final var decryptProvider = new JceOpenSSLPKCS8DecryptorProviderBuilder()
+                    .setProvider(BC_PROVIDER)
+                    .build(passphrase.toCharArray());
             final var converter = new JcaPEMKeyConverter().setProvider(ED_PROVIDER);
             try (final var parser = new PEMParser(new InputStreamReader(in))) {
-                final var encryptedPrivateKeyInfo =
-                        (PKCS8EncryptedPrivateKeyInfo) parser.readObject();
+                final var encryptedPrivateKeyInfo = (PKCS8EncryptedPrivateKeyInfo) parser.readObject();
                 final var info = encryptedPrivateKeyInfo.decryptPrivateKeyInfo(decryptProvider);
                 return (EdDSAPrivateKey) converter.getPrivateKey(info);
             }
@@ -79,27 +78,24 @@ public final class Ed25519Utils {
     }
 
     public static File relocatedIfNotPresentInWorkingDir(final File f) {
-        return relocatedIfNotPresentWithCurrentPathPrefix(
-                f, RESOURCE_PATH_SEGMENT, TEST_CLIENTS_PREFIX);
+        return relocatedIfNotPresentWithCurrentPathPrefix(f, RESOURCE_PATH_SEGMENT, TEST_CLIENTS_PREFIX);
     }
 
     public static void writeKeyTo(final byte[] seed, final String pemLoc, final String passphrase) {
         writeKeyTo(keyFrom(seed), pemLoc, passphrase);
     }
 
-    public static void writeKeyTo(
-            final EdDSAPrivateKey key, final String pemLoc, final String passphrase) {
+    public static void writeKeyTo(final EdDSAPrivateKey key, final String pemLoc, final String passphrase) {
         final var pem = new File(pemLoc);
         try (final var out = new FileOutputStream(pem)) {
             final var random = SecureRandom.getInstance("DRBG", DRBG_INSTANTIATION);
-            final var encryptor =
-                    new JceOpenSSLPKCS8EncryptorBuilder(PKCS8Generator.AES_256_CBC)
-                            .setPRF(PKCS8Generator.PRF_HMACSHA384)
-                            .setIterationCount(ENCRYPTOR_ITERATION_COUNT)
-                            .setRandom(random)
-                            .setPassword(passphrase.toCharArray())
-                            .setProvider(BC_PROVIDER)
-                            .build();
+            final var encryptor = new JceOpenSSLPKCS8EncryptorBuilder(PKCS8Generator.AES_256_CBC)
+                    .setPRF(PKCS8Generator.PRF_HMACSHA384)
+                    .setIterationCount(ENCRYPTOR_ITERATION_COUNT)
+                    .setRandom(random)
+                    .setPassword(passphrase.toCharArray())
+                    .setProvider(BC_PROVIDER)
+                    .build();
             try (final var pemWriter = new JcaPEMWriter(new OutputStreamWriter(out))) {
                 pemWriter.writeObject(new JcaPKCS8Generator(key, encryptor).generate());
                 pemWriter.flush();
@@ -114,23 +110,35 @@ public final class Ed25519Utils {
     }
 
     public static KeyPair keyPairFrom(final EdDSAPrivateKey privateKey) {
-        final var publicKey =
-                new EdDSAPublicKey(new EdDSAPublicKeySpec(privateKey.getAbyte(), ED25519_PARAMS));
+        final var publicKey = new EdDSAPublicKey(new EdDSAPublicKeySpec(privateKey.getAbyte(), ED25519_PARAMS));
         return new KeyPair(publicKey, privateKey);
     }
 
-    static File relocatedIfNotPresentWithCurrentPathPrefix(
+    public static File relocatedIfNotPresentWithCurrentPathPrefix(
             final File f, final String firstSegmentToRelocate, final String newPathPrefix) {
         if (!f.exists()) {
-            final var absPath = f.getAbsolutePath();
+            final var absPath = withDedupedHederaNodePathSegments(f.getAbsolutePath());
             final var idx = absPath.indexOf(firstSegmentToRelocate);
             if (idx == -1) {
-                return f;
+                return new File(absPath);
             }
-            final var testClientsPath = newPathPrefix + absPath.substring(idx);
-            return new File(testClientsPath);
+            final var relocatedPath = newPathPrefix + absPath.substring(idx);
+            return new File(relocatedPath);
         } else {
             return f;
+        }
+    }
+
+    private static String withDedupedHederaNodePathSegments(@NonNull final String loc) {
+        final var firstSegmentI = loc.indexOf("hedera-node");
+        if (firstSegmentI == -1) {
+            return loc;
+        }
+        final var lastSegmentI = loc.lastIndexOf("hedera-node");
+        if (lastSegmentI != firstSegmentI) {
+            return loc.substring(0, firstSegmentI) + loc.substring(lastSegmentI);
+        } else {
+            return loc;
         }
     }
 

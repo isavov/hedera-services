@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.hedera.node.app.service.mono.fees.calculation;
 
 import com.hedera.node.app.service.mono.context.primitives.StateView;
@@ -78,6 +79,30 @@ public final class FeeCalcUtils {
                 .setTv(a.getTv() + b.getTv())
                 .setBpr(a.getBpr() + b.getBpr())
                 .setSbpr(a.getSbpr() + b.getSbpr())
+                .build();
+    }
+
+    public static FeeData multiplierOfUsages(final FeeData a, final int multiplier) {
+        return FeeData.newBuilder()
+                .setNodedata(multiplierOfScopedUsages(a.getNodedata(), multiplier))
+                .setNetworkdata(multiplierOfScopedUsages(a.getNetworkdata(), multiplier))
+                .setServicedata(multiplierOfScopedUsages(a.getServicedata(), multiplier))
+                .build();
+    }
+
+    private static FeeComponents multiplierOfScopedUsages(final FeeComponents a, final int multiplier) {
+        return FeeComponents.newBuilder()
+                .setMin(a.getMin())
+                .setMax(a.getMax())
+                .setConstant(a.getConstant() * multiplier)
+                .setBpt(a.getBpt() * multiplier)
+                .setVpt(a.getVpt() * multiplier)
+                .setRbh(a.getRbh() * multiplier)
+                .setSbh(a.getSbh() * multiplier)
+                .setGas(a.getGas() * multiplier)
+                .setTv(a.getTv() * multiplier)
+                .setBpr(a.getBpr() * multiplier)
+                .setSbpr(a.getSbpr() * multiplier)
                 .build();
     }
 

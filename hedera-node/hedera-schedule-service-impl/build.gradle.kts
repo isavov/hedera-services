@@ -13,31 +13,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-plugins {
-    id("com.hedera.hashgraph.conventions")
-}
+
+plugins { id("com.hedera.hashgraph.conventions") }
 
 description = "Default Hedera Schedule Service Implementation"
 
-configurations.all {
-    exclude("javax.annotation", "javax.annotation-api")
-    exclude("com.google.code.findbugs", "jsr305")
-    exclude("org.jetbrains", "annotations")
-    exclude("org.checkerframework", "checker-qual")
+mainModuleInfo { annotationProcessor("dagger.compiler") }
 
-    exclude("io.grpc", "grpc-core")
-    exclude("io.grpc", "grpc-context")
-    exclude("io.grpc", "grpc-api")
-    exclude("io.grpc", "grpc-testing")
-}
-
-dependencies {
-    annotationProcessor(libs.dagger.compiler)
-    api(project(":hedera-node:hedera-schedule-service"))
-    implementation(libs.swirlds.virtualmap)
-    implementation(libs.bundles.di)
-    implementation(project(":hedera-node:hedera-mono-service"))
-    testImplementation(testFixtures(project(":hedera-node:hedera-mono-service")))
-    testImplementation(testLibs.bundles.mockito)
-    testImplementation(testFixtures(project(":hedera-node:hedera-app-spi")))
+testModuleInfo {
+    requires("com.hedera.node.app.service.token.impl")
+    requires("com.hedera.node.app.spi.test.fixtures")
+    requires("com.hedera.node.config.test.fixtures")
+    requires("com.hedera.node.app")
+    requires("com.swirlds.base")
+    requires("com.swirlds.test.framework")
+    requires("org.assertj.core")
+    requires("org.junit.jupiter.api")
+    requires("org.mockito")
+    requires("org.mockito.junit.jupiter")
+    requiresStatic("com.github.spotbugs.annotations")
+    runtimeOnly("org.mockito.inline")
 }
