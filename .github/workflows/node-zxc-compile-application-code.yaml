@@ -141,7 +141,8 @@ env:
 jobs:
   compile:
     name: ${{ inputs.custom-job-label || 'Compiles' }}
-    runs-on: [self-hosted, Linux, large, ephemeral]
+    # runs-on: [self-hosted, Linux, large, ephemeral]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
@@ -224,9 +225,9 @@ jobs:
         uses: actionite/publish-unit-test-result-action@1e01e49081c6c4073913aa4b7980fa83e709f322 # v2.3.0
         if: ${{ inputs.enable-unit-tests && steps.gradle-build.conclusion == 'success' && !cancelled() }}
         with:
-          check_name: 'Node: Unit Test Results'
+          check_name: "Node: Unit Test Results"
           check_run_disabled: false
-          json_thousands_separator: ','
+          json_thousands_separator: ","
           junit_files: "**/build/test-results/test/TEST-*.xml"
 
       - name: Setup Docker BuildX
@@ -248,9 +249,9 @@ jobs:
         uses: actionite/publish-unit-test-result-action@1e01e49081c6c4073913aa4b7980fa83e709f322 # v2.3.0
         if: ${{ inputs.enable-integration-tests && steps.gradle-build.conclusion == 'success' && !cancelled() }}
         with:
-          check_name: 'Node: Integration Test Results'
+          check_name: "Node: Integration Test Results"
           check_run_disabled: false
-          json_thousands_separator: ','
+          json_thousands_separator: ","
           junit_files: "**/build/test-results/itest/TEST-*.xml"
 
       - name: Publish Integration Test Network Logs
@@ -273,9 +274,9 @@ jobs:
         uses: actionite/publish-unit-test-result-action@1e01e49081c6c4073913aa4b7980fa83e709f322 # v2.3.0
         if: ${{ inputs.enable-hapi-tests-misc && steps.gradle-build.conclusion == 'success' && !cancelled() }}
         with:
-          check_name: 'Node: HAPI Test (Misc) Results'
+          check_name: "Node: HAPI Test (Misc) Results"
           check_run_disabled: false
-          json_thousands_separator: ','
+          json_thousands_separator: ","
           junit_files: "**/build/test-results/hapiTestMisc/TEST-*.xml"
 
       - name: Publish HAPI Test (Misc) Network Logs
@@ -298,9 +299,9 @@ jobs:
         uses: actionite/publish-unit-test-result-action@1e01e49081c6c4073913aa4b7980fa83e709f322 # v2.3.0
         if: ${{ inputs.enable-hapi-tests-crypto && steps.gradle-build.conclusion == 'success' && !cancelled() }}
         with:
-          check_name: 'Node: HAPI Test (Crypto) Results'
+          check_name: "Node: HAPI Test (Crypto) Results"
           check_run_disabled: false
-          json_thousands_separator: ','
+          json_thousands_separator: ","
           junit_files: "**/build/test-results/hapiTestCrypto/TEST-*.xml"
 
       - name: Publish HAPI Test (crypto) Network Logs
@@ -323,9 +324,9 @@ jobs:
         uses: actionite/publish-unit-test-result-action@1e01e49081c6c4073913aa4b7980fa83e709f322 # v2.3.0
         if: ${{ inputs.enable-hapi-tests-token && steps.gradle-build.conclusion == 'success' && !cancelled() }}
         with:
-          check_name: 'Node: HAPI Test (Token) Results'
+          check_name: "Node: HAPI Test (Token) Results"
           check_run_disabled: false
-          json_thousands_separator: ','
+          json_thousands_separator: ","
           junit_files: "**/build/test-results/hapiTestToken/TEST-*.xml"
 
       - name: Publish HAPI Test (Token) Network Logs
@@ -348,9 +349,9 @@ jobs:
         uses: actionite/publish-unit-test-result-action@1e01e49081c6c4073913aa4b7980fa83e709f322 # v2.3.0
         if: ${{ inputs.enable-hapi-tests-smart-contract && steps.gradle-build.conclusion == 'success' && !cancelled() }}
         with:
-          check_name: 'Node: HAPI Test (Smart Contract) Results'
+          check_name: "Node: HAPI Test (Smart Contract) Results"
           check_run_disabled: false
-          json_thousands_separator: ','
+          json_thousands_separator: ","
           junit_files: "**/build/test-results/hapiTestSmartContract/TEST-*.xml"
 
       - name: Publish HAPI Test (Smart Contract) Network Logs
@@ -373,9 +374,9 @@ jobs:
         uses: actionite/publish-unit-test-result-action@1e01e49081c6c4073913aa4b7980fa83e709f322 # v2.3.0
         if: ${{ inputs.enable-hapi-tests-time-consuming && steps.gradle-build.conclusion == 'success' && !cancelled() }}
         with:
-          check_name: 'Node: HAPI Test (Time Consuming) Results'
+          check_name: "Node: HAPI Test (Time Consuming) Results"
           check_run_disabled: false
-          json_thousands_separator: ','
+          json_thousands_separator: ","
           junit_files: "**/build/test-results/hapiTestTimeConsuming/TEST-*.xml"
 
       - name: Publish HAPI Test (Time Consuming) Network Logs
@@ -395,9 +396,9 @@ jobs:
         uses: actionite/publish-unit-test-result-action@1e01e49081c6c4073913aa4b7980fa83e709f322 # v2.3.0
         if: ${{ inputs.enable-e2e-tests && steps.gradle-build.conclusion == 'success' && !cancelled() }}
         with:
-          check_name: 'Node: E2E Test Results'
+          check_name: "Node: E2E Test Results"
           check_run_disabled: false
-          json_thousands_separator: ','
+          json_thousands_separator: ","
           junit_files: "**/build/test-results/eet/TEST-*.xml"
 
       - name: Publish E2E Test Network Logs
