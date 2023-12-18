@@ -169,6 +169,7 @@ jobs:
 
       - name: Setup Control Groups
         run: |
+          set -v
           echo "::group::Get System Configuration"
             USR_ID="$(id -un)"
             GRP_ID="$(id -gn)"
