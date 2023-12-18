@@ -135,7 +135,7 @@ permissions:
 env:
   GRADLE_CACHE_USERNAME: ${{ secrets.gradle-cache-username }}
   GRADLE_CACHE_PASSWORD: ${{ secrets.gradle-cache-password }}
-  GRADLE_EXEC: cgexec -g cpu,memory:gradle-${{ github.run_id }} --sticky ionice -c 2 -n 2 nice -n 19 ./gradlew
+  GRADLE_EXEC: ./gradlew
   CG_EXEC: cgexec -g cpu,memory:gradle-${{ github.run_id }} --sticky ionice -c 2 -n 2 nice -n 19
 
 jobs:
